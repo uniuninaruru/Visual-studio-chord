@@ -8,6 +8,7 @@ import type {
   NoteEvent,
   ValidationResult,
 } from "../../types/music";
+import { modeLabel } from "../../utils/musicFormat";
 
 interface InspectorPanelProps {
   composition: GeneratedComposition;
@@ -138,6 +139,9 @@ export function InspectorPanel({
             <div><dt>転回形</dt><dd>{selectedChord.inversion}</dd></div>
             <div><dt>由来</dt><dd>{selectedChord.source}</dd></div>
           </dl>
+          {selectedChord.explanation && (
+            <p className="theory-explanation">{selectedChord.explanation}</p>
+          )}
           <p className="field-hint">例: C、Am、F#m、Bdim。Enterで反映します。</p>
         </section>
       ) : (
@@ -152,7 +156,7 @@ export function InspectorPanel({
             </div>
           </div>
           <dl className="property-list">
-            <div><dt>キー</dt><dd>{composition.settings.key} {composition.settings.mode === "major" ? "Major" : "Minor"}</dd></div>
+            <div><dt>キー</dt><dd>{composition.settings.key} {modeLabel(composition.settings.mode)}</dd></div>
             <div><dt>終止</dt><dd>{composition.cadence}</dd></div>
             <div><dt>スタイル</dt><dd>{composition.resolvedStyle}</dd></div>
             <div><dt>シード</dt><dd className="seed-value">{composition.seed}</dd></div>
@@ -178,15 +182,15 @@ export function InspectorPanel({
       <section className="inspector-section local-engine">
         <div className="inspector-section-heading">
           <span>推論エンジン</span>
-          <strong>{backend.state === "connected" ? backend.device.selectedDevice.toUpperCase() : "BROWSER"}</strong>
+          <strong>{backend.state === "connected" ? backend.models.activeRuntime.toUpperCase() : "BROWSER"}</strong>
         </div>
         <p>
           {backend.state === "connected"
-            ? backend.device.selectedDevice === "cuda"
-              ? `${backend.device.deviceName} · ${backend.device.totalMemoryMb ?? "?"} MB VRAM`
-              : backend.device.torchAvailable
-                ? "PyTorch CPUを検出しました。ブラウザ生成は常に利用できます。"
-                : "軽量な理論生成をブラウザ内で実行しています。"
+            ? backend.models.activeRuntime !== "cpu"
+              ? `${backend.device.deviceName} · ${backend.models.activeModel}`
+              : backend.device.torchAvailable || backend.device.onnxRuntimeAvailable
+                ? `ローカルCPU推論 · ${backend.models.activeModel}`
+                : "決定的CPUランキングとブラウザ生成を使用しています。"
             : backend.state === "checking"
               ? "ローカルサーバーを確認しています。"
               : backend.message}

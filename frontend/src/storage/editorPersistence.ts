@@ -18,6 +18,7 @@ export interface PersistedTickRange {
 
 export interface PersistedHistoryEntry {
   id: string;
+  name?: string;
   action: string;
   timestamp: string;
   seed: string;
@@ -69,6 +70,7 @@ function isHistoryEntry(value: unknown): value is PersistedHistoryEntry {
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
+    (value.name === undefined || typeof value.name === "string") &&
     typeof value.action === "string" &&
     typeof value.timestamp === "string" &&
     typeof value.seed === "string" &&

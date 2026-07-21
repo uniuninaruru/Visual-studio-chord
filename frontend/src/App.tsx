@@ -1,39 +1,155 @@
-import { useEffect, useRef, useState } from "react";
-import { detectLocalBackend, type BackendConnection } from "./api/inferenceClient";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  detectLocalBackend,
+  rankCandidates as rankCandidatesOnServer,
+  updateServerPreference,
+  type BackendConnection,
+} from "./api/inferenceClient";
 import { CompositionTransport } from "./audio/transport";
 import { ChordLane } from "./features/editor/ChordLane";
+import {
+  DiagnosticsPanel,
+  type BackendDiagnostics,
+  type UserFacingDiagnosticError,
+} from "./features/diagnostics";
 import { InspectorPanel } from "./features/editor/InspectorPanel";
 import { midiBlob } from "./features/export";
 import { SettingsPanel } from "./features/generator/SettingsPanel";
+import { HistoryPanel } from "./features/history/HistoryPanel";
+import { OnboardingTutorial } from "./features/onboarding/OnboardingTutorial";
 import { PianoRoll } from "./features/pianoRoll/PianoRoll";
 import { TransportBar } from "./features/playback/TransportBar";
+import { PreferencePanel } from "./features/preference/PreferencePanel";
+import {
+  ProjectStatusBar,
+  type AiJobStatus,
+} from "./features/status/ProjectStatusBar";
 import { RegenerationDock } from "./features/variations/RegenerationDock";
+import { VariationPanel } from "./features/variations/VariationPanel";
+import { usePreferenceProfile } from "./hooks/usePreferenceProfile";
 import { validateComposition } from "./music";
+import {
+  explainPreference,
+  extractPreferenceFeatures,
+  scorePreference,
+  type ExplicitFeedbackType,
+  type PreferenceCategory,
+  type PreferenceFeatureSet,
+} from "./preference";
+import {
+  detectBrowserCapabilities,
+  type BrowserCapabilities,
+} from "./platform";
 import { useComposerStore, type NoteMove } from "./state";
-import type { BarRange, ChordEvent, NoteEvent, RegenerationTarget } from "./types/music";
-import { downloadBlob, formatBarBeat } from "./utils/musicFormat";
+import { getSafeStorage } from "./storage";
+import type {
+  BarRange,
+  ChordEvent,
+  NoteEvent,
+  RegenerationStrength,
+  RegenerationTarget,
+} from "./types/music";
+import { downloadBlob, formatBarBeat, modeLabel } from "./utils/musicFormat";
 
 function compositionFilename(seed: string, extension: "json" | "mid"): string {
   const safeSeed = seed.replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 32) || "composition";
   return `harmony-lab-${safeSeed}.${extension}`;
 }
 
+function serverPreferenceCategory(category: PreferenceCategory) {
+  return category === "harmony" ? "chords" as const : category;
+}
+
+function featureVector(features: PreferenceFeatureSet, category: PreferenceCategory) {
+  return features[category];
+}
+
+const ONBOARDING_STORAGE_KEY = "music-theory-composer:onboarding:v1";
+const appStorage = getSafeStorage();
+
 export default function App() {
   const store = useComposerStore();
+  const preferenceProfile = usePreferenceProfile();
   const transportRef = useRef<CompositionTransport | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
-  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const preferenceImportInputRef = useRef<HTMLInputElement | null>(null);
+  const aiControllerRef = useRef<AbortController | null>(null);
+  const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>([]);
+  const [copiedNoteIds, setCopiedNoteIds] = useState<string[]>([]);
   const [selectedChordId, setSelectedChordId] = useState<string | null>(null);
   const [regenerationTarget, setRegenerationTarget] = useState<RegenerationTarget>("all");
+  const [regenerationStrength, setRegenerationStrength] =
+    useState<RegenerationStrength>("moderate");
   const [backend, setBackend] = useState<BackendConnection>({ state: "checking" });
+  const [preferenceCategory, setPreferenceCategory] =
+    useState<PreferenceCategory>("combined");
+  const [historyCompareIds, setHistoryCompareIds] = useState<readonly string[]>([]);
+  const [serverScores, setServerScores] = useState<Record<string, number>>({});
+  const [rankingRuntime, setRankingRuntime] = useState<string>("browser");
+  const [online, setOnline] = useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine
+  );
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [tutorialOpen, setTutorialOpen] = useState(
+    () => appStorage.getItem(ONBOARDING_STORAGE_KEY) !== "complete",
+  );
+  const [browserCapabilities, setBrowserCapabilities] =
+    useState<BrowserCapabilities | null>(null);
+  const [audioError, setAudioError] = useState<UserFacingDiagnosticError | null>(null);
+  const [aiJob, setAiJob] = useState<AiJobStatus>({
+    state: "idle",
+    label: "Ready",
+    stage: "Idle",
+    progress: 0,
+    startedAt: null,
+    device: "browser",
+    backend: "browser-linear",
+  });
   const [toast, setToast] = useState<string | null>(null);
   const [mobilePanel, setMobilePanel] = useState<"settings" | "inspector" | null>(null);
 
   const composition = store.draftComposition;
   const playbackComposition = store.committedComposition;
+  const selectedNoteId = selectedNoteIds.at(-1) ?? null;
   const selectedNote = composition.notes.find((note) => note.id === selectedNoteId) ?? null;
   const selectedChord = composition.chords.find((chord) => chord.id === selectedChordId) ?? null;
   const validation = validateComposition(composition);
+  const currentPreferenceFeatures = useMemo(
+    () => extractPreferenceFeatures(composition),
+    [composition],
+  );
+  const candidateFeatureSets = useMemo(
+    () => store.previewVariations.map(extractPreferenceFeatures),
+    [store.previewVariations],
+  );
+  const preferenceExplanation = useMemo(
+    () => explainPreference(
+      preferenceProfile.model,
+      currentPreferenceFeatures,
+      preferenceCategory,
+    ),
+    [currentPreferenceFeatures, preferenceCategory, preferenceProfile.model],
+  );
+  const variationCandidates = useMemo(
+    () => store.previewVariations.map((candidate, index) => {
+      const features = candidateFeatureSets[index] as PreferenceFeatureSet;
+      const local = scorePreference(preferenceProfile.model, features, preferenceCategory);
+      const serverScore = serverScores[candidate.id];
+      return {
+        composition: candidate,
+        preference: serverScore === undefined
+          ? local
+          : { ...local, rawScore: serverScore, score: Math.tanh(serverScore) },
+      };
+    }),
+    [
+      candidateFeatureSets,
+      preferenceCategory,
+      preferenceProfile.model,
+      serverScores,
+      store.previewVariations,
+    ],
+  );
 
   useEffect(() => {
     const transport = new CompositionTransport();
@@ -46,11 +162,33 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    void detectLocalBackend().then((connection) => {
-      if (!cancelled) setBackend(connection);
+    void detectBrowserCapabilities().then((capabilities) => {
+      if (!cancelled) setBrowserCapabilities(capabilities);
     });
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  const refreshBackend = async () => {
+    setBackend({ state: "checking" });
+    setBackend(await detectLocalBackend());
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    void detectLocalBackend().then((connection) => {
+      if (!cancelled) setBackend(connection);
+    });
+    const handleOnline = () => setOnline(true);
+    const handleOffline = () => setOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      cancelled = true;
+      aiControllerRef.current?.abort();
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
     };
   }, []);
 
@@ -74,19 +212,27 @@ export default function App() {
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
-  const handlePlay = async () => {
+  const handlePlay = useCallback(async () => {
     try {
       await transportRef.current?.play();
-      store.setPlaybackStatus("playing");
+      useComposerStore.getState().setPlaybackStatus("playing");
+      setAudioError(null);
     } catch {
+      setAudioError({
+        title: "音声再生を開始できませんでした",
+        message: "ブラウザまたはOSがAudioContextの開始を拒否しました。曲データとAI処理は安全です。",
+        remedy: "ページの音声許可と出力デバイスを確認し、Playをもう一度押してください。",
+        canRetry: true,
+        diagnosticCode: "AUDIO_CONTEXT_START_FAILED",
+      });
       setToast("ブラウザの音声を開始できませんでした。ページの音声許可を確認してください。");
     }
-  };
+  }, []);
 
-  const handlePause = () => {
+  const handlePause = useCallback(() => {
     transportRef.current?.pause();
-    store.setPlaybackStatus("paused");
-  };
+    useComposerStore.getState().setPlaybackStatus("paused");
+  }, []);
 
   const handleStop = () => {
     transportRef.current?.stop();
@@ -95,7 +241,7 @@ export default function App() {
 
   const handleGenerate = () => {
     store.generateComposition();
-    setSelectedNoteId(null);
+    setSelectedNoteIds([]);
     setSelectedChordId(null);
     setToast("同じシードで再現できる新しい曲を生成しました。");
   };
@@ -115,26 +261,31 @@ export default function App() {
 
   const handleChordSelect = (chord: ChordEvent) => {
     setSelectedChordId(chord.id);
-    setSelectedNoteId(null);
+    setSelectedNoteIds([]);
   };
 
-  const handleNoteSelect = (note: NoteEvent) => {
-    setSelectedNoteId(note.id);
+  const handleNoteSelect = (note: NoteEvent, extend = false) => {
+    setSelectedNoteIds((current) => {
+      if (!extend) return [note.id];
+      return current.includes(note.id)
+        ? current.filter((id) => id !== note.id)
+        : [...current, note.id];
+    });
     setSelectedChordId(null);
     store.setSelectedRange({ startBar: note.barIndex, endBar: note.barIndex + 1 });
   };
 
   const handleMoveNote = (move: NoteMove) => {
-    if (!selectedNoteId) return;
-    store.moveNote(selectedNoteId, move);
+    if (selectedNoteIds.length === 0) return;
+    store.moveNotes(selectedNoteIds, move);
   };
 
-  const handleDeleteNote = () => {
-    if (!selectedNoteId) return;
-    store.deleteNote(selectedNoteId);
-    setSelectedNoteId(null);
-    setToast("ノートを削除しました。Undoで戻せます。");
-  };
+  const handleDeleteNote = useCallback(() => {
+    if (selectedNoteIds.length === 0) return;
+    const deleted = useComposerStore.getState().deleteNotes(selectedNoteIds);
+    setSelectedNoteIds([]);
+    setToast(`${deleted}個のノートを削除しました。Undoで戻せます。`);
+  }, [selectedNoteIds]);
 
   const handleEditChord = (symbol: string) => {
     if (!selectedChordId) return;
@@ -146,18 +297,238 @@ export default function App() {
     }
   };
 
-  const handleRegenerate = () => {
+  const cancelAiJob = () => {
+    aiControllerRef.current?.abort();
+    aiControllerRef.current = null;
+    setAiJob((current) => ({
+      ...current,
+      state: "cancelled",
+      label: "Cancelled · composition unchanged",
+      stage: "Cancelled",
+    }));
+    setToast("AI処理をキャンセルしました。編集中の曲は変更されていません。");
+  };
+
+  const handleRegenerate = async () => {
     if (!store.selectedBarRange) {
       setToast("先にコードレーンで小節を選択してください。");
       return;
     }
-    const changed = store.regenerateSelected({ target: regenerationTarget });
-    if (changed) {
-      setSelectedNoteId(null);
+    aiControllerRef.current?.abort();
+    const controller = new AbortController();
+    aiControllerRef.current = controller;
+    const startedAt = Date.now();
+    const engine = backend.state === "connected"
+      ? `Local ${backend.models.activeRuntime.toUpperCase()}`
+      : "Browser linear / theory";
+    setAiJob({
+      state: "running",
+      label: "Generating candidates",
+      stage: "Generating 3 candidates",
+      progress: 8,
+      startedAt,
+      device: backend.state === "connected" ? backend.models.activeRuntime : "browser",
+      backend: backend.state === "connected" ? backend.models.activeModel : "browser-linear",
+    });
+
+    try {
+      // Yield once so controls, playback, and the progress state paint first.
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      if (controller.signal.aborted) return;
+      const count = store.generatePreviewVariations({
+        target: regenerationTarget,
+        strength: regenerationStrength,
+      });
+      if (count === 0) {
+        setAiJob((current) => ({
+          ...current,
+          state: "error",
+          stage: "Theory validation",
+          progress: 100,
+          message: "No valid candidate · composition unchanged",
+        }));
+        setToast("候補の理論検証に失敗しました。編集中の曲は安全です。設定を変えて再試行できます。");
+        return;
+      }
+
+      const previews = useComposerStore.getState().previewVariations;
+      const features = previews.map(extractPreferenceFeatures);
+      setAiJob((current) => ({
+        ...current,
+        stage: `Ranking with ${engine}`,
+        progress: 58,
+      }));
+
+      let usedRuntime = "browser-linear";
+      if (backend.state === "connected") {
+        try {
+          const response = await rankCandidatesOnServer(
+            previews.map((candidate, index) => ({
+              id: candidate.id,
+              features: featureVector(features[index] as PreferenceFeatureSet, preferenceCategory),
+            })),
+            preferenceProfile.model.categories[preferenceCategory].weights,
+            controller.signal,
+          );
+          setServerScores(Object.fromEntries(
+            response.ranked.map((candidate) => [candidate.id, candidate.score]),
+          ));
+          setRankingRuntime(response.runtime);
+          usedRuntime = response.runtime;
+        } catch {
+          if (controller.signal.aborted) return;
+          setServerScores({});
+          setRankingRuntime("browser-linear");
+          setToast(
+            "ローカル推論に失敗しました。曲は変更せず、ブラウザの軽量ランキングへ切り替えました。Diagnosticsから再試行できます。",
+          );
+        }
+      } else {
+        setServerScores({});
+        setRankingRuntime("browser-linear");
+      }
+
+      if (controller.signal.aborted) return;
+      setSelectedNoteIds([]);
       setSelectedChordId(null);
-      setToast("選択範囲だけを再生成しました。ロック範囲は保持されています。");
+      setAiJob((current) => ({
+        ...current,
+        state: "completed",
+        label: `${count} candidates ready · ${usedRuntime}`,
+        stage: "Complete",
+        progress: 100,
+      }));
+      setToast(`${count}つの候補を生成しました。正式データはまだ変更されていません。`);
+    } catch {
+      if (controller.signal.aborted) return;
+      setAiJob((current) => ({
+        ...current,
+        state: "error",
+        stage: "Generation failed",
+        progress: 100,
+        message: "Generation failed safely",
+      }));
+      setToast("候補生成に失敗しました。編集中の曲は安全です。設定を確認して再試行できます。");
+    } finally {
+      if (aiControllerRef.current === controller) aiControllerRef.current = null;
     }
   };
+
+  const syncPreferenceToServer = (
+    features: PreferenceFeatureSet,
+    feedback: "like" | "dislike" | "favorite" | "notMyStyle" | "abSelected" | "adopted",
+  ) => {
+    if (backend.state !== "connected") return;
+    void updateServerPreference(
+      serverPreferenceCategory(preferenceCategory),
+      feedback,
+      featureVector(features, preferenceCategory),
+    ).catch(() => {
+      setToast("評価はこのブラウザに保存しました。ローカル推論サーバーへの同期だけ失敗しました。");
+    });
+  };
+
+  const handleCandidateFeedback = (index: number, feedback: ExplicitFeedbackType) => {
+    const features = candidateFeatureSets[index];
+    if (!features) return;
+    preferenceProfile.record({ type: feedback, features, category: preferenceCategory });
+    syncPreferenceToServer(features, feedback);
+    setServerScores({});
+    const label = feedback === "notMyStyle" ? "Not my style" : feedback;
+    setToast(`${label} を記録しました。根拠が十分になるまで好みを断定しません。`);
+  };
+
+  const handleAdoptVariation = (index: number) => {
+    const winner = candidateFeatureSets[index];
+    if (!winner) return;
+    preferenceProfile.record({
+      type: "ab",
+      winner,
+      loser: currentPreferenceFeatures,
+      category: preferenceCategory,
+    });
+    syncPreferenceToServer(winner, "abSelected");
+    if (store.adoptPreviewVariation(index)) {
+      setServerScores({});
+      setToast(`候補 ${String.fromCharCode(65 + index)} を採用し、履歴へ保存しました。Undoで戻せます。`);
+    }
+  };
+
+  const handleAuditionVariation = (index: number | null) => {
+    if (!store.auditionPreviewVariation(index)) return;
+    if (index !== null && store.playback.status !== "playing") {
+      void handlePlay();
+    }
+  };
+
+  const handlePreferenceExport = () => {
+    downloadBlob(
+      new Blob([preferenceProfile.exportJson()], { type: "application/json;charset=utf-8" }),
+      "harmony-lab-preferences-v1.json",
+    );
+    setToast("好み学習データを書き出しました。");
+  };
+
+  const handlePreferenceImport = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      if (file.size > 2_000_000) throw new Error("学習データが大きすぎます（上限2 MB）。");
+      await preferenceProfile.importJson(await file.text());
+      setServerScores({});
+      setToast("好み学習データを安全に読み込みました。");
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "学習データを読み込めませんでした。");
+    } finally {
+      if (preferenceImportInputRef.current) preferenceImportInputRef.current.value = "";
+    }
+  };
+
+  const retryDiagnostics = () => {
+    setBrowserCapabilities(null);
+    void Promise.all([
+      detectBrowserCapabilities().then(setBrowserCapabilities),
+      refreshBackend(),
+    ]).then(() => setToast("環境診断を更新しました。"));
+  };
+
+  const closeTutorial = useCallback(() => {
+    appStorage.setItem(ONBOARDING_STORAGE_KEY, "complete");
+    setTutorialOpen(false);
+  }, []);
+
+  useEffect(() => {
+    const handleKeyboard = (event: KeyboardEvent) => {
+      const target = event.target;
+      const editingText = target instanceof HTMLInputElement
+        || target instanceof HTMLTextAreaElement
+        || target instanceof HTMLSelectElement
+        || (target instanceof HTMLElement && target.isContentEditable);
+      if (event.key === "Escape" && diagnosticsOpen) {
+        setDiagnosticsOpen(false);
+        return;
+      }
+      if (editingText) return;
+      if (event.code === "Space") {
+        event.preventDefault();
+        if (useComposerStore.getState().playback.status === "playing") handlePause();
+        else void handlePlay();
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        const state = useComposerStore.getState();
+        const changed = event.shiftKey ? state.redo() : state.undo();
+        setToast(changed ? (event.shiftKey ? "Redoしました。" : "Undoしました。") : "これ以上履歴がありません。");
+        return;
+      }
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedNoteIds.length > 0) {
+        event.preventDefault();
+        handleDeleteNote();
+      }
+    };
+    window.addEventListener("keydown", handleKeyboard);
+    return () => window.removeEventListener("keydown", handleKeyboard);
+  }, [diagnosticsOpen, handleDeleteNote, handlePause, handlePlay, selectedNoteIds]);
 
   const handleExportJson = () => {
     const blob = new Blob([store.exportJson()], { type: "application/json;charset=utf-8" });
@@ -174,7 +545,7 @@ export default function App() {
     if (!file) return;
     try {
       store.importJson(await file.text());
-      setSelectedNoteId(null);
+      setSelectedNoteIds([]);
       setSelectedChordId(null);
       setToast("JSONから楽曲を復元しました。");
     } catch (error) {
@@ -190,6 +561,66 @@ export default function App() {
     loopStartBar === 1 && loopEndBar === composition.bars.length
       ? "全体ループ"
       : `${loopStartBar}–${loopEndBar} 小節ループ`;
+  const engineLabel = backend.state === "connected"
+    ? rankingRuntime === "browser-linear" && aiJob.state === "error"
+      ? "Browser fallback"
+      : `Local ${backend.models.activeRuntime.toUpperCase()}`
+    : "Browser / Theory-only";
+  const backendDiagnostics = useMemo<BackendDiagnostics>(() => {
+    if (backend.state === "checking") {
+      return {
+        connection: "checking",
+        device: null,
+        inferenceBackend: "確認中",
+        models: [],
+        apiCompatibility: "checking",
+        expectedApiVersion: "1",
+      };
+    }
+    if (backend.state === "browser") {
+      return {
+        connection: "disconnected",
+        device: "Browser / CPU",
+        inferenceBackend: "Browser linear / Theory-only",
+        models: [],
+        apiCompatibility: "unknown",
+        expectedApiVersion: "1",
+        error: {
+          title: "ローカル推論サーバーへ接続できません",
+          message: "生成・再生・編集・保存はブラウザ内で継続できます。曲データは安全です。",
+          remedy: "高速推論が必要ならデスクトップ側のサーバーを起動し、「診断を再実行」を押してください。",
+          canRetry: true,
+          diagnosticCode: "LOCAL_API_UNREACHABLE",
+        },
+      };
+    }
+    const serverApiVersion = backend.health.apiVersion;
+    return {
+      connection: "connected",
+      device: backend.device.deviceName,
+      inferenceBackend: `${backend.models.activeModel} / ${backend.models.activeRuntime}`,
+      models: backend.models.models
+        .filter((model) => model.id !== "browser-linear-v1")
+        .map((model) => ({
+          id: model.id,
+          name: model.name,
+          status: model.available ? "ready" as const : "missing" as const,
+          detail: `${model.runtime}${model.loaded ? " · loaded" : " · available on demand"}`,
+        })),
+      apiCompatibility: serverApiVersion === undefined
+        ? "unknown"
+        : serverApiVersion === "1"
+          ? "compatible"
+          : "incompatible",
+      serverApiVersion,
+      expectedApiVersion: "1",
+    };
+  }, [backend]);
+  const diagnosticStorageMode = preferenceProfile.persistenceMode === "indexedDB"
+    ? "indexeddb" as const
+    : store.projectSaveStatus === "saved"
+      ? "localStorage" as const
+      : "memory" as const;
 
   return (
     <div className="app-shell">
@@ -205,10 +636,31 @@ export default function App() {
         onPlay={() => void handlePlay()}
         onPause={handlePause}
         onStop={handleStop}
-        onUndo={() => store.undo()}
-        onRedo={() => store.redo()}
+        onUndo={() => {
+          setToast(store.undo() ? "Undoしました。再生位置は維持されます。" : "これ以上Undoできません。");
+        }}
+        onRedo={() => {
+          setToast(store.redo() ? "Redoしました。再生位置は維持されます。" : "これ以上Redoできません。");
+        }}
         onUpdateTiming={store.setUpdateTiming}
         onExport={() => document.getElementById("export-panel")?.scrollIntoView({ behavior: "smooth" })}
+      />
+
+      <ProjectStatusBar
+        playback={store.playback.status}
+        currentTick={store.playback.currentTick}
+        ticksPerBar={composition.ticksPerBar}
+        loopLabel={loopLabel}
+        pendingCommit={store.pendingCommit}
+        updateTiming={store.playback.updateTiming}
+        aiJob={aiJob}
+        engineLabel={engineLabel}
+        saveStatus={store.projectSaveStatus}
+        lastSavedAt={store.lastSavedAt}
+        online={online}
+        backendConnected={backend.state === "connected"}
+        onCancelAi={cancelAiJob}
+        onOpenDiagnostics={() => setDiagnosticsOpen(true)}
       />
 
       <main className="app-layout">
@@ -219,11 +671,13 @@ export default function App() {
           onPatch={store.updateSettings}
           onGenerate={handleGenerate}
           onReset={() => {
+            if (!window.confirm("曲・履歴・編集内容を初期状態へ戻します。JSONへ書き出していない履歴は復元できません。続けますか？")) return;
             store.reset();
-            setSelectedNoteId(null);
+            setSelectedNoteIds([]);
             setSelectedChordId(null);
             setToast("初期状態へ戻しました。");
           }}
+          onOpenDiagnostics={() => setDiagnosticsOpen(true)}
           onMobileClose={() => setMobilePanel(null)}
         />
 
@@ -231,7 +685,7 @@ export default function App() {
           <div className="workspace-header">
             <div>
               <div className="composition-title-row">
-                <h1>{composition.settings.key} {composition.settings.mode === "major" ? "Major" : "Natural Minor"}</h1>
+                <h1>{composition.settings.key} {modeLabel(composition.settings.mode)}</h1>
                 <span className="style-badge">{composition.resolvedStyle}</span>
               </div>
               <p>{composition.settings.timeSignature} · {composition.bars.length} bars · Seed {composition.seed}</p>
@@ -241,6 +695,9 @@ export default function App() {
                 <i />{validation.valid ? "Theory valid" : `${validation.errors.length} errors`}
               </span>
               <span>{composition.cadence} cadence</span>
+              <button type="button" onClick={() => setTutorialOpen(true)} title="初回ガイドを再表示">
+                Help
+              </button>
             </div>
             <div className="mobile-panel-switcher">
               <button type="button" onClick={() => setMobilePanel("settings")}>生成設定</button>
@@ -263,17 +720,86 @@ export default function App() {
               composition={composition}
               currentTick={store.playback.currentTick}
               selectedRange={store.selectedBarRange}
-              selectedNoteId={selectedNoteId}
+              selectedNoteIds={selectedNoteIds}
               onNoteSelect={handleNoteSelect}
+              onNoteMove={(note, move) => {
+                const ids = selectedNoteIds.includes(note.id) ? selectedNoteIds : [note.id];
+                store.moveNotes(ids, move);
+              }}
+              onAddNote={(midi, startTick) => {
+                const id = store.addNote(midi, startTick);
+                if (id) setSelectedNoteIds([id]);
+              }}
+              onCopyNotes={() => {
+                setCopiedNoteIds([...selectedNoteIds]);
+                setToast(`${selectedNoteIds.length}個のノートをコピーしました。`);
+              }}
+              onPasteNotes={() => {
+                const ids = store.duplicateNotes(copiedNoteIds);
+                setSelectedNoteIds(ids);
+                if (ids.length > 0) setToast(`${ids.length}個のノートを貼り付けました。`);
+              }}
+              onDuplicateNotes={() => {
+                setSelectedNoteIds(store.duplicateNotes(selectedNoteIds));
+              }}
+              onQuantizeNotes={() => {
+                const count = store.quantizeNotes(selectedNoteIds);
+                if (count > 0) setToast(`${count}個のノートを1/16へクオンタイズしました。`);
+              }}
+              onDeleteNotes={handleDeleteNote}
+              canPaste={copiedNoteIds.length > 0}
+              clipboardNoteCount={copiedNoteIds.length}
             />
+            <VariationPanel
+              candidates={variationCandidates}
+              activeAuditionIndex={store.auditionedVariationIndex}
+              onAudition={handleAuditionVariation}
+              onAdopt={handleAdoptVariation}
+              onFeedback={handleCandidateFeedback}
+            />
+            <div className="phase-two-panel-grid">
+              <PreferencePanel
+                explanation={preferenceExplanation}
+                category={preferenceCategory}
+                onCategoryChange={setPreferenceCategory}
+                onExport={handlePreferenceExport}
+                onImport={() => preferenceImportInputRef.current?.click()}
+                onReset={() => {
+                  if (!window.confirm("好み学習データを完全に削除します。書き出していないデータは復元できません。続けますか？")) return;
+                  void preferenceProfile.reset().then(() => {
+                    setServerScores({});
+                    setToast("好み学習をリセットしました。");
+                  });
+                }}
+              />
+              <HistoryPanel
+                entries={store.history}
+                currentHistoryId={store.history[store.historyIndex]?.id ?? null}
+                compareIds={historyCompareIds}
+                onCompareChange={setHistoryCompareIds}
+                onRename={(historyId, name) => {
+                  if (store.renameHistoryEntry(historyId, name)) setToast("履歴名を保存しました。");
+                }}
+                onRestore={(historyId) => {
+                  if (store.restoreHistoryEntry(historyId)) {
+                    setSelectedNoteIds([]);
+                    setSelectedChordId(null);
+                    setToast("選択したバージョンを復元しました。復元操作も履歴に保存されています。");
+                  }
+                }}
+              />
+            </div>
           </div>
 
           <RegenerationDock
             selectedRange={store.selectedBarRange}
             lockedCount={store.lockedBars.length}
             target={regenerationTarget}
+            strength={regenerationStrength}
+            processing={aiJob.state === "running"}
             onTargetChange={setRegenerationTarget}
-            onRegenerate={handleRegenerate}
+            onStrengthChange={setRegenerationStrength}
+            onRegenerate={() => void handleRegenerate()}
             onSelectAll={() => store.setSelectedRange({ startBar: 0, endBar: composition.bars.length })}
           />
         </div>
@@ -290,7 +816,7 @@ export default function App() {
           onMoveNote={handleMoveNote}
           onDeleteNote={handleDeleteNote}
           onClearSelection={() => {
-            setSelectedNoteId(null);
+            setSelectedNoteIds([]);
             setSelectedChordId(null);
           }}
           onExportJson={handleExportJson}
@@ -317,6 +843,27 @@ export default function App() {
         onChange={(event) => void handleImport(event.target.files?.[0])}
         aria-label="楽曲JSONを読み込む"
       />
+      <input
+        ref={preferenceImportInputRef}
+        className="visually-hidden"
+        type="file"
+        accept="application/json,.json"
+        onChange={(event) => void handlePreferenceImport(event.target.files?.[0])}
+        aria-label="好み学習JSONを読み込む"
+      />
+
+      {diagnosticsOpen && (
+        <DiagnosticsPanel
+          browserCapabilities={browserCapabilities}
+          backend={backendDiagnostics}
+          storageMode={diagnosticStorageMode}
+          audioError={audioError}
+          onRetry={retryDiagnostics}
+          onClose={() => setDiagnosticsOpen(false)}
+        />
+      )}
+
+      {tutorialOpen && <OnboardingTutorial onClose={closeTutorial} />}
 
       {toast && (
         <div className="toast" role="status">

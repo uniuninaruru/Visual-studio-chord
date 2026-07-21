@@ -4,6 +4,8 @@ export interface StorageLike {
   removeItem(key: string): void;
 }
 
+export type StoragePersistenceMode = "localStorage" | "memory";
+
 class MemoryStorage implements StorageLike {
   private readonly values = new Map<string, string>();
 
@@ -29,6 +31,10 @@ class ResilientStorage implements StorageLike {
     private readonly primary: StorageLike,
     private readonly fallback: StorageLike,
   ) {}
+
+  get mode(): StoragePersistenceMode {
+    return this.primaryFailed ? "memory" : "localStorage";
+  }
 
   getItem(key: string): string | null {
     if (!this.primaryFailed) {
@@ -96,6 +102,11 @@ export function getSafeStorage(): StorageLike {
       : memoryStorage;
   }
   return safeStorage;
+}
+
+export function getSafeStorageMode(): StoragePersistenceMode {
+  getSafeStorage();
+  return safeStorage instanceof ResilientStorage ? safeStorage.mode : "memory";
 }
 
 export function readJson<T>(
