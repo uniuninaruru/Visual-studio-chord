@@ -6,16 +6,20 @@ import {
   explainSpecialChord,
   extractMotif,
   generateComposition,
+  generateProgression,
   getScalePitchClasses,
   regenerateRange,
   setBarLocked,
   transformMotif,
+  validateGeneratorSettings,
   validateComposition,
   validateRegenerationPreservation,
+  voiceChord,
 } from "../src/music";
 import type {
   GeneratedComposition,
   GeneratorSettings,
+  HarmonySettings,
   Mode,
 } from "../src/types/music";
 
@@ -91,6 +95,119 @@ describe("Phase 2 scales and seventh chords", () => {
 });
 
 describe("Phase 2 style harmony and explanations", () => {
+  it("preserves legacy fixed-seed output when the new controls use their defaults", () => {
+    const legacy = generateComposition(phase2Settings({
+      harmony: { complexity: "advanced" },
+    }));
+    const explicitDefaults = generateComposition(phase2Settings({
+      harmony: {
+        complexity: "advanced",
+        borrowedChordRate: 1,
+        secondaryDominantRate: 1,
+        explorationRate: 1,
+        voiceLeadingStrength: 1,
+      },
+    }));
+
+    expect(explicitDefaults.id).toBe(legacy.id);
+    expect(explicitDefaults.chords).toEqual(legacy.chords);
+    expect(explicitDefaults.notes).toEqual(legacy.notes);
+    expect(explicitDefaults.cadence).toBe(legacy.cadence);
+  });
+
+  it.each([
+    ["borrowedChordRate", "borrowed"],
+    ["secondaryDominantRate", "secondaryDominant"],
+  ] as const)("disables %s candidates at zero, including the advanced guarantee", (field, kind) => {
+    let enabledOccurrences = 0;
+    for (let seed = 0; seed < 48; seed += 1) {
+      const harmony: HarmonySettings = { complexity: "advanced", [field]: 0 };
+      const common = {
+        key: "C",
+        mode: "major",
+        bars: 8,
+        timeSignature: "4/4",
+        style: "jazz",
+        seed: `disabled-${field}-${seed}`,
+      } as const;
+      const progression = generateProgression({
+        ...common,
+        harmony,
+      });
+      expect(progression.chords.some((chord) => chord.specialKind === kind)).toBe(false);
+      const enabled = generateProgression({
+        ...common,
+        harmony: { complexity: "advanced", [field]: 1 },
+      });
+      enabledOccurrences += enabled.chords.filter((chord) => chord.specialKind === kind).length;
+    }
+    expect(enabledOccurrences).toBeGreaterThan(0);
+  });
+
+  it("turns off all chromatic/color candidates when exploration is zero", () => {
+    let enabledSpecials = 0;
+    for (let seed = 0; seed < 48; seed += 1) {
+      const common = {
+        key: "C",
+        mode: "major",
+        bars: 8,
+        timeSignature: "4/4",
+        style: "jazz",
+        seed: `no-exploration-${seed}`,
+      } as const;
+      const progression = generateProgression({
+        ...common,
+        harmony: { complexity: "advanced", explorationRate: 0 },
+      });
+      expect(progression.chords.every((chord) => chord.source === "diatonic")).toBe(true);
+      expect(progression.chords.every((chord) => chord.specialKind === undefined)).toBe(true);
+      enabledSpecials += generateProgression({
+        ...common,
+        harmony: { complexity: "advanced", explorationRate: 1 },
+      }).chords.filter((chord) => chord.specialKind !== undefined).length;
+    }
+    expect(enabledSpecials).toBeGreaterThan(0);
+  });
+
+  it("applies voice-leading strength without changing the default voicing", () => {
+    const previous = [72, 76, 79];
+    const defaultVoicing = voiceChord("F#", "major", previous);
+    const connectedVoicing = voiceChord("F#", "major", previous, undefined, 1);
+    const neutralVoicing = voiceChord("F#", "major", previous, undefined, 0);
+    const movement = (notes: readonly number[]) => notes.reduce(
+      (total, note, index) => total + Math.abs(note - (previous[index] as number)),
+      0,
+    );
+
+    expect(defaultVoicing).toEqual(connectedVoicing);
+    expect(neutralVoicing.notes).not.toEqual(connectedVoicing.notes);
+    expect(movement(connectedVoicing.notes)).toBeLessThan(movement(neutralVoicing.notes));
+  });
+
+  it("validates every optional harmony control and fingerprints non-default values", () => {
+    for (const field of [
+      "borrowedChordRate",
+      "secondaryDominantRate",
+      "explorationRate",
+      "voiceLeadingStrength",
+    ] as const) {
+      const invalidSettings = phase2Settings({
+        harmony: { complexity: "advanced", [field]: 1.01 },
+      });
+      expect(validateGeneratorSettings(invalidSettings).errors.map((issue) => issue.code)).toContain(
+        `settings.harmony.${field}`,
+      );
+    }
+
+    const base = generateComposition(phase2Settings({
+      harmony: { complexity: "advanced" },
+    }));
+    const adjusted = generateComposition(phase2Settings({
+      harmony: { complexity: "advanced", voiceLeadingStrength: 0.5 },
+    }));
+    expect(adjusted.id).not.toBe(base.id);
+  });
+
   it("generates a deterministic style-aware special chord with a valid explanation", () => {
     const settings = phase2Settings({ mode: "harmonicMinor" });
     const first = generateComposition(settings);

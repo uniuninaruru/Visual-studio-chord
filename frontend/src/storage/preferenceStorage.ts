@@ -4,12 +4,22 @@ import {
   isPreferenceModel,
   type PreferenceModel,
 } from "../preference";
+import {
+  getSafeStorage,
+  getStoragePersistenceMode,
+  readJson,
+  removeStoredValue,
+  type StorageLike,
+  writeJson,
+} from "./safeStorage";
 
 export const PREFERENCE_DATABASE_NAME = "music-theory-composer-preferences";
 export const PREFERENCE_OBJECT_STORE = "profiles";
 export const PREFERENCE_PROFILE_KEY = "default";
+export const PREFERENCE_LOCAL_STORAGE_KEY = "music-theory-composer:preferences:v1";
+export const PREFERENCE_FALLBACK_STATE_KEY = "music-theory-composer:preferences:fallback:v1";
 
-export type PreferencePersistenceMode = "indexedDB" | "memory";
+export type PreferencePersistenceMode = "indexedDB" | "localStorage" | "memory";
 
 export interface PreferenceStorageOptions {
   /** Explicit null forces the in-memory fallback. */
@@ -17,6 +27,68 @@ export interface PreferenceStorageOptions {
   databaseName?: string;
   objectStoreName?: string;
   profileKey?: string;
+  /** Explicit null disables the localStorage fallback. */
+  localStorage?: StorageLike | null;
+}
+
+interface PreferenceStorageEnvelope {
+  storageVersion: 1;
+  revision: number;
+  state: "model" | "deleted";
+  model?: PreferenceModel;
+}
+
+interface PreferenceStorageCandidate {
+  envelope: PreferenceStorageEnvelope;
+  source: PreferencePersistenceMode;
+}
+
+let preferenceRevisionClock = 0;
+
+function isPreferenceStorageEnvelope(value: unknown): value is PreferenceStorageEnvelope {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (
+    record.storageVersion !== 1
+    || !Number.isSafeInteger(record.revision)
+    || (record.revision as number) < 0
+    || (record.state !== "model" && record.state !== "deleted")
+  ) {
+    return false;
+  }
+  return record.state === "deleted"
+    ? record.model === undefined
+    : isPreferenceModel(record.model);
+}
+
+function envelopeForLegacyModel(model: PreferenceModel): PreferenceStorageEnvelope {
+  return {
+    storageVersion: 1,
+    revision: 0,
+    state: "model",
+    model: clonePreferenceModel(model),
+  };
+}
+
+function cloneEnvelope(envelope: PreferenceStorageEnvelope): PreferenceStorageEnvelope {
+  return envelope.state === "deleted"
+    ? { storageVersion: 1, revision: envelope.revision, state: "deleted" }
+    : {
+        storageVersion: 1,
+        revision: envelope.revision,
+        state: "model",
+        model: clonePreferenceModel(envelope.model!),
+      };
+}
+
+function nextPreferenceRevision(currentRevision: number): number {
+  const timestampRevision = Date.now() * 1_000;
+  preferenceRevisionClock = Math.max(
+    preferenceRevisionClock + 1,
+    currentRevision + 1,
+    timestampRevision,
+  );
+  return preferenceRevisionClock;
 }
 
 function availableIndexedDB(): IDBFactory | null {
@@ -72,7 +144,9 @@ export function parsePreferenceModelJson(json: string): PreferenceModel {
 
 /**
  * IndexedDB-backed preference profile storage. Any unavailable/failed browser
- * database transparently falls back to a session-local in-memory snapshot.
+ * database falls back to localStorage and then to a session-local snapshot.
+ * Revisioned envelopes and deletion tombstones prevent an older database value
+ * from resurfacing after a fallback write or reset.
  */
 export class PreferenceStorage {
   private readonly indexedDBFactory: IDBFactory | null;
@@ -82,7 +156,11 @@ export class PreferenceStorage {
   private databasePromise: Promise<IDBDatabase> | null = null;
   private indexedDBDisabled = false;
   private memorySnapshot: PreferenceModel | null = null;
+  private memoryEnvelope: PreferenceStorageEnvelope | null = null;
+  private currentRevision = 0;
   private currentMode: PreferencePersistenceMode;
+  private readonly localStorage: StorageLike | null;
+  private readonly usesDefaultLocalStorage: boolean;
 
   constructor(options: PreferenceStorageOptions = {}) {
     this.indexedDBFactory = Object.hasOwn(options, "indexedDBFactory")
@@ -91,7 +169,13 @@ export class PreferenceStorage {
     this.databaseName = options.databaseName ?? PREFERENCE_DATABASE_NAME;
     this.objectStoreName = options.objectStoreName ?? PREFERENCE_OBJECT_STORE;
     this.profileKey = options.profileKey ?? PREFERENCE_PROFILE_KEY;
-    this.currentMode = this.indexedDBFactory ? "indexedDB" : "memory";
+    this.usesDefaultLocalStorage = !Object.hasOwn(options, "localStorage");
+    this.localStorage = this.usesDefaultLocalStorage
+      ? getSafeStorage()
+      : options.localStorage ?? null;
+    this.currentMode = this.indexedDBFactory
+      ? "indexedDB"
+      : this.localStorageMode();
   }
 
   get mode(): PreferencePersistenceMode {
@@ -100,7 +184,45 @@ export class PreferenceStorage {
 
   private disableIndexedDB(): void {
     this.indexedDBDisabled = true;
-    this.currentMode = "memory";
+    this.currentMode = this.localStorageMode();
+  }
+
+  private localStorageMode(): PreferencePersistenceMode {
+    if (!this.localStorage) return "memory";
+    return this.usesDefaultLocalStorage
+      && getStoragePersistenceMode(this.localStorage, PREFERENCE_FALLBACK_STATE_KEY) === "memory"
+      ? "memory"
+      : "localStorage";
+  }
+
+  private loadLocalEnvelope(): PreferenceStorageEnvelope | null {
+    if (!this.localStorage) return null;
+    const envelope = readJson(
+      PREFERENCE_FALLBACK_STATE_KEY,
+      isPreferenceStorageEnvelope,
+      this.localStorage,
+    );
+    if (envelope) return cloneEnvelope(envelope);
+
+    const legacy = readJson(
+      PREFERENCE_LOCAL_STORAGE_KEY,
+      isPreferenceModel,
+      this.localStorage,
+    );
+    return legacy ? envelopeForLegacyModel(legacy) : null;
+  }
+
+  private saveLocalEnvelope(envelope: PreferenceStorageEnvelope): boolean {
+    if (!this.localStorage) return false;
+    const saved = writeJson(
+      PREFERENCE_FALLBACK_STATE_KEY,
+      cloneEnvelope(envelope),
+      this.localStorage,
+    );
+    if (saved) {
+      removeStoredValue(PREFERENCE_LOCAL_STORAGE_KEY, this.localStorage);
+    }
+    return saved;
   }
 
   private openDatabase(): Promise<IDBDatabase> | null {
@@ -131,6 +253,12 @@ export class PreferenceStorage {
   }
 
   async load(): Promise<PreferenceModel | null> {
+    const candidates: PreferenceStorageCandidate[] = [];
+    const localEnvelope = this.loadLocalEnvelope();
+    if (localEnvelope) {
+      candidates.push({ envelope: localEnvelope, source: this.localStorageMode() });
+    }
+
     const databasePromise = this.openDatabase();
     if (databasePromise) {
       try {
@@ -141,20 +269,59 @@ export class PreferenceStorage {
           requestResult(transaction.objectStore(this.objectStoreName).get(this.profileKey)),
           complete,
         ]);
-        if (isPreferenceModel(stored)) {
-          this.memorySnapshot = clonePreferenceModel(stored);
-          return clonePreferenceModel(stored);
+        if (isPreferenceStorageEnvelope(stored)) {
+          candidates.push({ envelope: cloneEnvelope(stored), source: "indexedDB" });
+        } else if (isPreferenceModel(stored)) {
+          candidates.push({ envelope: envelopeForLegacyModel(stored), source: "indexedDB" });
         }
       } catch {
         this.disableIndexedDB();
       }
     }
-    return this.memorySnapshot ? clonePreferenceModel(this.memorySnapshot) : null;
+
+    if (this.memoryEnvelope) {
+      candidates.push({ envelope: cloneEnvelope(this.memoryEnvelope), source: "memory" });
+    }
+    if (candidates.length === 0) {
+      return this.memorySnapshot ? clonePreferenceModel(this.memorySnapshot) : null;
+    }
+
+    const sourcePriority: Record<PreferencePersistenceMode, number> = {
+      memory: 0,
+      localStorage: 1,
+      indexedDB: 2,
+    };
+    const newest = candidates.reduce((current, candidate) => {
+      if (candidate.envelope.revision !== current.envelope.revision) {
+        return candidate.envelope.revision > current.envelope.revision ? candidate : current;
+      }
+      return sourcePriority[candidate.source] > sourcePriority[current.source]
+        ? candidate
+        : current;
+    });
+    this.currentRevision = Math.max(this.currentRevision, newest.envelope.revision);
+    this.currentMode = newest.source;
+    this.memoryEnvelope = cloneEnvelope(newest.envelope);
+    if (newest.envelope.state === "deleted") {
+      this.memorySnapshot = null;
+      return null;
+    }
+    this.memorySnapshot = clonePreferenceModel(newest.envelope.model!);
+    return clonePreferenceModel(newest.envelope.model!);
   }
 
   async save(model: PreferenceModel): Promise<PreferencePersistenceMode> {
     if (!isPreferenceModel(model)) throw new TypeError("Invalid preference model.");
     this.memorySnapshot = clonePreferenceModel(model);
+    const envelope: PreferenceStorageEnvelope = {
+      storageVersion: 1,
+      revision: nextPreferenceRevision(this.currentRevision),
+      state: "model",
+      model: clonePreferenceModel(model),
+    };
+    this.currentRevision = envelope.revision;
+    this.memoryEnvelope = cloneEnvelope(envelope);
+    let indexedDBSaved = false;
     const databasePromise = this.openDatabase();
     if (databasePromise) {
       try {
@@ -163,18 +330,23 @@ export class PreferenceStorage {
         const complete = transactionComplete(transaction);
         await Promise.all([
           requestResult(transaction.objectStore(this.objectStoreName).put(
-            clonePreferenceModel(model),
+            cloneEnvelope(envelope),
             this.profileKey,
           )),
           complete,
         ]);
-        this.currentMode = "indexedDB";
-        return this.currentMode;
+        indexedDBSaved = true;
       } catch {
         this.disableIndexedDB();
       }
     }
-    return "memory";
+    const localSaved = this.saveLocalEnvelope(envelope);
+    this.currentMode = indexedDBSaved
+      ? "indexedDB"
+      : localSaved
+        ? this.localStorageMode()
+        : "memory";
+    return this.currentMode;
   }
 
   async exportJson(pretty = true): Promise<string> {
@@ -190,6 +362,14 @@ export class PreferenceStorage {
 
   async reset(): Promise<PreferencePersistenceMode> {
     this.memorySnapshot = null;
+    const envelope: PreferenceStorageEnvelope = {
+      storageVersion: 1,
+      revision: nextPreferenceRevision(this.currentRevision),
+      state: "deleted",
+    };
+    this.currentRevision = envelope.revision;
+    this.memoryEnvelope = cloneEnvelope(envelope);
+    let indexedDBSaved = false;
     const databasePromise = this.openDatabase();
     if (databasePromise) {
       try {
@@ -197,16 +377,24 @@ export class PreferenceStorage {
         const transaction = database.transaction(this.objectStoreName, "readwrite");
         const complete = transactionComplete(transaction);
         await Promise.all([
-          requestResult(transaction.objectStore(this.objectStoreName).delete(this.profileKey)),
+          requestResult(transaction.objectStore(this.objectStoreName).put(
+            cloneEnvelope(envelope),
+            this.profileKey,
+          )),
           complete,
         ]);
-        this.currentMode = "indexedDB";
-        return this.currentMode;
+        indexedDBSaved = true;
       } catch {
         this.disableIndexedDB();
       }
     }
-    return "memory";
+    const localSaved = this.saveLocalEnvelope(envelope);
+    this.currentMode = indexedDBSaved
+      ? "indexedDB"
+      : localSaved
+        ? this.localStorageMode()
+        : "memory";
+    return this.currentMode;
   }
 }
 

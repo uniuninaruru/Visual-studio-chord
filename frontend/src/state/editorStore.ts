@@ -4,6 +4,7 @@ import {
   generateComposition as buildComposition,
   regenerateRange,
   replaceChordSymbol,
+  ticksPerBeat,
   validateComposition,
 } from "../music";
 import type {
@@ -23,14 +24,25 @@ import {
   clearEditorSnapshot,
   getSafeStorage,
   getSafeStorageMode,
-  loadEditorSnapshot,
-  saveEditorSnapshot,
+  loadEditorSnapshotWithStatus,
+  saveEditorCurrentSnapshot,
+  saveEditorHistoryState,
+  type PersistedHistoryState,
   type PersistedEditorSnapshot,
+  type StoragePersistenceMode,
 } from "../storage";
 
 export type PlaybackStatus = "stopped" | "playing" | "paused";
 export type UpdateTiming = "immediate" | "nextBeat" | "nextBar" | "nextLoop";
-export type ProjectSaveStatus = "saved" | "unsaved" | "session" | "error";
+export type ProjectSaveStatus =
+  | "saved"
+  | "saving"
+  | "unsaved"
+  | "partial"
+  | "session"
+  | "recovery"
+  | "error";
+export type ProjectRecoveryReason = "invalid" | "unsupported";
 
 export interface TickRange {
   startTick: number;
@@ -53,8 +65,12 @@ export interface HistoryEntry {
   composition: GeneratedComposition;
 }
 
-export type GeneratorSettingsPatch = Omit<Partial<GeneratorSettings>, "melody"> & {
+export type GeneratorSettingsPatch = Omit<
+  Partial<GeneratorSettings>,
+  "melody" | "harmony"
+> & {
   melody?: Partial<GeneratorSettings["melody"]>;
+  harmony?: Partial<NonNullable<GeneratorSettings["harmony"]>>;
 };
 
 export type ChordEdit = string | Partial<Omit<ChordEvent, "id">>;
@@ -71,20 +87,33 @@ export interface NoteMove {
   durationTick?: number;
 }
 
+export interface PreviewGenerationControl {
+  signal?: AbortSignal;
+  onProgress?: (attempt: number, maximumAttempts: number) => void;
+}
+
 export interface ComposerStoreState {
   settings: GeneratorSettings;
   committedComposition: GeneratedComposition;
   draftComposition: GeneratedComposition;
   previewVariations: GeneratedComposition[];
   auditionedVariationIndex: number | null;
+  auditionBaseComposition: GeneratedComposition | null;
+  auditionBasePendingCommit: boolean;
+  auditionBasePlaybackLoopRange: TickRange | null;
   selectedBarRange: BarRange | null;
   loopRange: TickRange;
+  /** Loop expressed in the timebase of the composition that is currently audible. */
+  playbackLoopRange: TickRange;
   lockedBars: number[];
   playback: PlaybackState;
   history: HistoryEntry[];
   historyIndex: number;
   regenerationIteration: number;
   pendingCommit: boolean;
+  /** Prevents an invalid or newer stored project from being overwritten implicitly. */
+  projectPersistenceBlocked: boolean;
+  projectRecoveryReason: ProjectRecoveryReason | null;
   projectSaveStatus: ProjectSaveStatus;
   lastSavedAt: string | null;
 }
@@ -92,7 +121,10 @@ export interface ComposerStoreState {
 export interface ComposerStoreActions {
   generateComposition(settings?: GeneratorSettingsPatch): void;
   regenerateSelected(options?: RegenerationOptions): boolean;
-  generatePreviewVariations(options?: RegenerationOptions): number;
+  generatePreviewVariations(
+    options?: RegenerationOptions,
+    control?: PreviewGenerationControl,
+  ): Promise<number>;
   auditionPreviewVariation(index: number | null): boolean;
   adoptPreviewVariation(index: number): boolean;
   editChord(chordId: string, edit: ChordEdit): boolean;
@@ -125,7 +157,6 @@ export interface ComposerStoreActions {
 
 export type ComposerStore = ComposerStoreState & ComposerStoreActions;
 
-const HISTORY_LIMIT = 100;
 const storage = getSafeStorage();
 let historySerial = 0;
 let noteSerial = 0;
@@ -141,9 +172,23 @@ function settingsWithPatch(
   current: GeneratorSettings,
   patch: GeneratorSettingsPatch = {},
 ): GeneratorSettings {
+  const harmony = patch.harmony
+    ? {
+        complexity: patch.harmony.complexity ?? current.harmony?.complexity ?? "triads",
+        borrowedChordRate:
+          patch.harmony.borrowedChordRate ?? current.harmony?.borrowedChordRate,
+        secondaryDominantRate:
+          patch.harmony.secondaryDominantRate ?? current.harmony?.secondaryDominantRate,
+        explorationRate:
+          patch.harmony.explorationRate ?? current.harmony?.explorationRate,
+        voiceLeadingStrength:
+          patch.harmony.voiceLeadingStrength ?? current.harmony?.voiceLeadingStrength,
+      }
+    : current.harmony;
   return {
     ...current,
     ...patch,
+    harmony,
     melody: {
       ...current.melody,
       ...patch.melody,
@@ -257,8 +302,12 @@ function freshState(settingsPatch: GeneratorSettingsPatch = {}): ComposerStoreSt
     draftComposition: clone(composition),
     previewVariations: [],
     auditionedVariationIndex: null,
+    auditionBaseComposition: null,
+    auditionBasePendingCommit: false,
+    auditionBasePlaybackLoopRange: null,
     selectedBarRange: null,
     loopRange: { startTick: 0, endTick: composition.totalTicks },
+    playbackLoopRange: { startTick: 0, endTick: composition.totalTicks },
     lockedBars: [...composition.lockedBars],
     playback: {
       status: "stopped",
@@ -269,6 +318,8 @@ function freshState(settingsPatch: GeneratorSettingsPatch = {}): ComposerStoreSt
     historyIndex: 0,
     regenerationIteration: 0,
     pendingCommit: false,
+    projectPersistenceBlocked: false,
+    projectRecoveryReason: null,
     projectSaveStatus: getSafeStorageMode() === "localStorage" ? "saved" : "session",
     lastSavedAt: new Date().toISOString(),
   };
@@ -289,8 +340,12 @@ function restoredState(snapshot: PersistedEditorSnapshot): ComposerStoreState {
     draftComposition: composition,
     previewVariations: [],
     auditionedVariationIndex: null,
+    auditionBaseComposition: null,
+    auditionBasePendingCommit: false,
+    auditionBasePlaybackLoopRange: null,
     selectedBarRange,
     loopRange,
+    playbackLoopRange: { ...loopRange },
     lockedBars,
     playback: {
       status: "stopped",
@@ -304,6 +359,8 @@ function restoredState(snapshot: PersistedEditorSnapshot): ComposerStoreState {
     historyIndex: snapshot.historyIndex,
     regenerationIteration: snapshot.regenerationIteration,
     pendingCommit: false,
+    projectPersistenceBlocked: false,
+    projectRecoveryReason: null,
     projectSaveStatus: getSafeStorageMode() === "localStorage" ? "saved" : "session",
     lastSavedAt: new Date().toISOString(),
   };
@@ -329,29 +386,63 @@ function shouldApplyPending(
     case "immediate":
       return true;
     case "nextBeat":
-      return crossesGrid(previousTick, currentTick, state.draftComposition.ppq);
+      return crossesGrid(
+        previousTick,
+        currentTick,
+        ticksPerBeat(
+          state.committedComposition.timeSignature,
+          state.committedComposition.ppq,
+        ),
+      );
     case "nextBar":
-      return crossesGrid(previousTick, currentTick, state.draftComposition.ticksPerBar);
+      return crossesGrid(
+        previousTick,
+        currentTick,
+        state.committedComposition.ticksPerBar,
+      );
     case "nextLoop":
       return (
         currentTick < previousTick ||
-        (previousTick < state.loopRange.endTick && currentTick >= state.loopRange.endTick)
+        (previousTick < state.playbackLoopRange.endTick
+          && currentTick >= state.playbackLoopRange.endTick)
       );
   }
 }
 
-function persistentSnapshot(state: ComposerStoreState): PersistedEditorSnapshot {
+function persistentCurrentSnapshot(
+  state: ComposerStoreState,
+  historyRevision?: number,
+): PersistedEditorSnapshot {
+  const composition = clone(state.draftComposition);
+  const activeHistory = state.history[state.historyIndex]
+    ?? makeHistoryEntry(composition, "recovered", null);
   return {
     version: 1,
+    historyRevision,
     settings: clone(state.settings),
-    composition: clone(state.draftComposition),
+    composition,
     selectedBarRange: state.selectedBarRange ? { ...state.selectedBarRange } : null,
     loopRange: { ...state.loopRange },
     lockedBars: [...state.lockedBars],
     updateTiming: state.playback.updateTiming,
+    history: [{
+      ...activeHistory,
+      range: activeHistory.range ? { ...activeHistory.range } : null,
+      composition,
+    }],
+    historyIndex: 0,
+    regenerationIteration: state.regenerationIteration,
+  };
+}
+
+function persistentHistoryState(
+  state: ComposerStoreState,
+  historyRevision?: number,
+): PersistedHistoryState {
+  return {
     history: clone(state.history),
     historyIndex: state.historyIndex,
-    regenerationIteration: state.regenerationIteration,
+    historyRevision,
   };
 }
 
@@ -364,26 +455,49 @@ function stateAfterComposition(
 ): Partial<ComposerStoreState> {
   const next = clone(composition);
   const entry = makeHistoryEntry(next, action, range);
-  const history = [...state.history.slice(0, state.historyIndex + 1), entry].slice(-HISTORY_LIMIT);
+  // Never discard old user history silently. Storage failures are surfaced via
+  // projectSaveStatus so the user can export before deciding what to remove.
+  const history = [...state.history.slice(0, state.historyIndex + 1), entry];
   const applyImmediately =
     state.playback.status !== "playing" || state.playback.updateTiming === "immediate";
+  const committedBeforeAudition = state.auditionBaseComposition ?? state.committedComposition;
+  const playbackLoopBeforeAudition =
+    state.auditionBasePlaybackLoopRange ?? state.playbackLoopRange;
 
   return {
     settings: syncSettings ? clone(next.settings) : state.settings,
     draftComposition: next,
-    committedComposition: applyImmediately ? clone(next) : state.committedComposition,
+    committedComposition: applyImmediately ? clone(next) : committedBeforeAudition,
     previewVariations: [],
     auditionedVariationIndex: null,
+    auditionBaseComposition: null,
+    auditionBasePendingCommit: false,
+    auditionBasePlaybackLoopRange: null,
     lockedBars: [...next.lockedBars],
     history,
     historyIndex: history.length - 1,
     pendingCommit: !applyImmediately,
+    playbackLoopRange: applyImmediately
+      ? normalizedTickRange(state.loopRange, next)
+      : playbackLoopBeforeAudition,
     projectSaveStatus: "unsaved",
   };
 }
 
-const hydrated = loadEditorSnapshot(storage);
-const initialState = hydrated ? restoredState(hydrated) : freshState();
+const hydration = loadEditorSnapshotWithStatus(storage);
+const initialState = hydration.snapshot ? restoredState(hydration.snapshot) : freshState();
+if (
+  hydration.issue === "current-invalid"
+  || hydration.issue === "current-unsupported"
+) {
+  initialState.projectPersistenceBlocked = true;
+  initialState.projectRecoveryReason = hydration.issue === "current-unsupported"
+    ? "unsupported"
+    : "invalid";
+  initialState.projectSaveStatus = "recovery";
+} else if (hydration.issue !== "none") {
+  initialState.projectSaveStatus = "partial";
+}
 
 export const useComposerStore = create<ComposerStore>()((set, get) => ({
   ...initialState,
@@ -393,10 +507,12 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     const settings = settingsWithPatch(state.settings, patch);
     const composition = buildComposition(settings);
     const update = stateAfterComposition(state, composition, "generate", null, true);
+    const loopRange = { startTick: 0, endTick: composition.totalTicks };
     set({
       ...update,
       selectedBarRange: null,
-      loopRange: { startTick: 0, endTick: composition.totalTicks },
+      loopRange,
+      playbackLoopRange: update.pendingCommit ? state.playbackLoopRange : loopRange,
       regenerationIteration: 0,
     });
   },
@@ -428,8 +544,21 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     return true;
   },
 
-  generatePreviewVariations: (options = {}) => {
-    const state = get();
+  generatePreviewVariations: async (options = {}, control = {}) => {
+    let state = get();
+    if (state.auditionBaseComposition) {
+      set({
+        auditionedVariationIndex: null,
+        committedComposition: clone(state.auditionBaseComposition),
+        pendingCommit: state.auditionBasePendingCommit,
+        playbackLoopRange: state.auditionBasePlaybackLoopRange
+          ?? state.playbackLoopRange,
+        auditionBaseComposition: null,
+        auditionBasePendingCommit: false,
+        auditionBasePlaybackLoopRange: null,
+      });
+      state = get();
+    }
     const range = normalizedBarRange(state.selectedBarRange, state.draftComposition);
     if (range === null) return 0;
 
@@ -439,6 +568,10 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     const firstOffset = state.regenerationIteration + 1;
     // Invalid candidates are discarded before they can be auditioned or adopted.
     for (let attempt = 0; attempt < 9 && previews.length < 3; attempt += 1) {
+      await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
+      if (control.signal?.aborted) {
+        throw new DOMException("Candidate generation was cancelled.", "AbortError");
+      }
       const seedOffset = options.seedOffset ?? firstOffset + attempt;
       const candidate = regenerateRange(source, source.settings, range, {
         ...options,
@@ -446,16 +579,41 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
         respectLocks: options.respectLocks ?? true,
       });
       if (validateComposition(candidate).valid) previews.push(candidate);
+      control.onProgress?.(attempt + 1, 9);
       if (options.seedOffset !== undefined) break;
     }
+    const latest = get();
+    // A different composition supersedes this job. Manual edits keep the same
+    // composition id and are preserved outside the explicitly regenerated bars.
+    if (latest.draftComposition.id !== source.id) return 0;
+    const locked = new Set(latest.lockedBars);
+    const useCandidateBar = (barIndex: number) =>
+      barIndex >= range.startBar && barIndex < range.endBar && !locked.has(barIndex);
+    const rebasedPreviews = previews.map((candidate) => ({
+      ...candidate,
+      lockedBars: [...latest.lockedBars],
+      chords: [
+        ...latest.draftComposition.chords.filter(
+          (chord) => !useCandidateBar(Math.floor(chord.startTick / candidate.ticksPerBar)),
+        ),
+        ...candidate.chords.filter(
+          (chord) => useCandidateBar(Math.floor(chord.startTick / candidate.ticksPerBar)),
+        ),
+      ].sort((left, right) => left.startTick - right.startTick || left.id.localeCompare(right.id)),
+      notes: [
+        ...latest.draftComposition.notes.filter((note) => !useCandidateBar(note.barIndex)),
+        ...candidate.notes.filter((note) => useCandidateBar(note.barIndex)),
+      ].sort((left, right) => left.startTick - right.startTick || left.id.localeCompare(right.id)),
+    })).filter((candidate) => validateComposition(candidate).valid);
     set({
-      previewVariations: previews,
+      previewVariations: rebasedPreviews,
       auditionedVariationIndex: null,
-      committedComposition: clone(state.draftComposition),
-      pendingCommit: false,
-      regenerationIteration: state.regenerationIteration + Math.max(1, previews.length),
+      auditionBaseComposition: null,
+      auditionBasePendingCommit: false,
+      auditionBasePlaybackLoopRange: null,
+      regenerationIteration: latest.regenerationIteration + Math.max(1, rebasedPreviews.length),
     });
-    return previews.length;
+    return rebasedPreviews.length;
   },
 
   auditionPreviewVariation: (index) => {
@@ -463,17 +621,39 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     if (index === null) {
       set({
         auditionedVariationIndex: null,
-        committedComposition: clone(state.draftComposition),
-        pendingCommit: false,
+        committedComposition: state.auditionBaseComposition
+          ? clone(state.auditionBaseComposition)
+          : state.committedComposition,
+        pendingCommit: state.auditionBaseComposition
+          ? state.auditionBasePendingCommit
+          : state.pendingCommit,
+        playbackLoopRange: state.auditionBasePlaybackLoopRange
+          ?? state.playbackLoopRange,
+        auditionBaseComposition: null,
+        auditionBasePendingCommit: false,
+        auditionBasePlaybackLoopRange: null,
       });
       return true;
     }
     const candidate = state.previewVariations[index];
     if (!candidate || !validateComposition(candidate).valid) return false;
+    const alreadyAuditioning = state.auditionBaseComposition !== null;
     set({
       auditionedVariationIndex: index,
       committedComposition: clone(candidate),
-      pendingCommit: false,
+      playbackLoopRange: normalizedTickRange(state.loopRange, candidate),
+      pendingCommit: alreadyAuditioning
+        ? state.auditionBasePendingCommit
+        : state.pendingCommit,
+      auditionBaseComposition: alreadyAuditioning
+        ? state.auditionBaseComposition
+        : clone(state.committedComposition),
+      auditionBasePendingCommit: alreadyAuditioning
+        ? state.auditionBasePendingCommit
+        : state.pendingCommit,
+      auditionBasePlaybackLoopRange: alreadyAuditioning
+        ? state.auditionBasePlaybackLoopRange
+        : { ...state.playbackLoopRange },
     });
     return true;
   },
@@ -681,26 +861,45 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
   setSelectedRange: (range) => {
     const state = get();
     const normalized = normalizedBarRange(range, state.draftComposition);
+    const loopRange = normalized
+      ? rangeToTicks(normalized, state.draftComposition)
+      : { startTick: 0, endTick: state.draftComposition.totalTicks };
+    const audibleRange = normalizedBarRange(range, state.committedComposition);
     set({
       selectedBarRange: normalized,
-      loopRange: normalized
-        ? rangeToTicks(normalized, state.draftComposition)
-        : { startTick: 0, endTick: state.draftComposition.totalTicks },
+      loopRange,
+      playbackLoopRange: audibleRange
+        ? rangeToTicks(audibleRange, state.committedComposition)
+        : { startTick: 0, endTick: state.committedComposition.totalTicks },
     });
   },
 
   setLoopRange: (range) => {
     const state = get();
     if (range === null) {
+      const loopRange = state.selectedBarRange
+        ? rangeToTicks(state.selectedBarRange, state.draftComposition)
+        : { startTick: 0, endTick: state.draftComposition.totalTicks };
+      const audibleSelectedRange = normalizedBarRange(
+        state.selectedBarRange,
+        state.committedComposition,
+      );
       set({
-        loopRange: state.selectedBarRange
-          ? rangeToTicks(state.selectedBarRange, state.draftComposition)
-          : { startTick: 0, endTick: state.draftComposition.totalTicks },
+        loopRange,
+        playbackLoopRange: audibleSelectedRange
+          ? rangeToTicks(audibleSelectedRange, state.committedComposition)
+          : { startTick: 0, endTick: state.committedComposition.totalTicks },
       });
       return;
     }
     const ticks = "startBar" in range ? rangeToTicks(range, state.draftComposition) : range;
-    set({ loopRange: normalizedTickRange(ticks, state.draftComposition) });
+    const audibleTicks = "startBar" in range
+      ? rangeToTicks(range, state.committedComposition)
+      : range;
+    set({
+      loopRange: normalizedTickRange(ticks, state.draftComposition),
+      playbackLoopRange: normalizedTickRange(audibleTicks, state.committedComposition),
+    });
   },
 
   undo: () => {
@@ -713,17 +912,23 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     const selectedBarRange = normalizedBarRange(state.selectedBarRange, composition);
     const applyImmediately =
       state.playback.status !== "playing" || state.playback.updateTiming === "immediate";
+    const committedBeforeAudition = state.auditionBaseComposition ?? state.committedComposition;
+    const loopRange = normalizedTickRange(state.loopRange, composition);
     set({
       settings: clone(composition.settings),
       draftComposition: composition,
-      committedComposition: applyImmediately ? clone(composition) : state.committedComposition,
+      committedComposition: applyImmediately ? clone(composition) : committedBeforeAudition,
       lockedBars: [...composition.lockedBars],
       selectedBarRange,
-      loopRange: normalizedTickRange(state.loopRange, composition),
+      loopRange,
+      playbackLoopRange: applyImmediately ? loopRange : state.playbackLoopRange,
       historyIndex,
       pendingCommit: !applyImmediately,
       previewVariations: [],
       auditionedVariationIndex: null,
+      auditionBaseComposition: null,
+      auditionBasePendingCommit: false,
+      auditionBasePlaybackLoopRange: null,
     });
     return true;
   },
@@ -738,17 +943,23 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     const selectedBarRange = normalizedBarRange(state.selectedBarRange, composition);
     const applyImmediately =
       state.playback.status !== "playing" || state.playback.updateTiming === "immediate";
+    const committedBeforeAudition = state.auditionBaseComposition ?? state.committedComposition;
+    const loopRange = normalizedTickRange(state.loopRange, composition);
     set({
       settings: clone(composition.settings),
       draftComposition: composition,
-      committedComposition: applyImmediately ? clone(composition) : state.committedComposition,
+      committedComposition: applyImmediately ? clone(composition) : committedBeforeAudition,
       lockedBars: [...composition.lockedBars],
       selectedBarRange,
-      loopRange: normalizedTickRange(state.loopRange, composition),
+      loopRange,
+      playbackLoopRange: applyImmediately ? loopRange : state.playbackLoopRange,
       historyIndex,
       pendingCommit: !applyImmediately,
       previewVariations: [],
       auditionedVariationIndex: null,
+      auditionBaseComposition: null,
+      auditionBasePendingCommit: false,
+      auditionBasePlaybackLoopRange: null,
     });
     return true;
   },
@@ -771,12 +982,21 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     const entry = state.history.find((item) => item.id === historyId);
     if (!entry) return false;
     const composition = clone(entry.composition);
+    const loopRange = entry.range
+      ? rangeToTicks(entry.range, composition)
+      : { startTick: 0, endTick: composition.totalTicks };
+    const update = stateAfterComposition(
+      state,
+      composition,
+      `restore:${entry.name}`,
+      entry.range,
+      true,
+    );
     set({
-      ...stateAfterComposition(state, composition, `restore:${entry.name}`, entry.range, true),
+      ...update,
       selectedBarRange: normalizedBarRange(entry.range, composition),
-      loopRange: entry.range
-        ? rangeToTicks(entry.range, composition)
-        : { startTick: 0, endTick: composition.totalTicks },
+      loopRange,
+      playbackLoopRange: update.pendingCommit ? state.playbackLoopRange : loopRange,
     });
     return true;
   },
@@ -784,16 +1004,28 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
   setPlaybackStatus: (status) => {
     const state = get();
     const canCommit = status !== "playing" && state.pendingCommit;
+    const playbackLoopRange = canCommit
+      ? normalizedTickRange(state.loopRange, state.draftComposition)
+      : state.playbackLoopRange;
     set({
       playback: {
         ...state.playback,
         status,
-        currentTick: status === "stopped" ? 0 : state.playback.currentTick,
+        currentTick: status === "stopped"
+          ? playbackLoopRange.startTick
+          : state.playback.currentTick,
       },
       committedComposition: canCommit
         ? clone(state.draftComposition)
         : state.committedComposition,
+      playbackLoopRange,
       pendingCommit: canCommit ? false : state.pendingCommit,
+      auditionedVariationIndex: canCommit ? null : state.auditionedVariationIndex,
+      auditionBaseComposition: canCommit ? null : state.auditionBaseComposition,
+      auditionBasePendingCommit: canCommit ? false : state.auditionBasePendingCommit,
+      auditionBasePlaybackLoopRange: canCommit
+        ? null
+        : state.auditionBasePlaybackLoopRange,
     });
   },
 
@@ -806,7 +1038,16 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
       committedComposition: apply
         ? clone(state.draftComposition)
         : state.committedComposition,
+      playbackLoopRange: apply
+        ? normalizedTickRange(state.loopRange, state.draftComposition)
+        : state.playbackLoopRange,
       pendingCommit: apply ? false : state.pendingCommit,
+      auditionedVariationIndex: apply ? null : state.auditionedVariationIndex,
+      auditionBaseComposition: apply ? null : state.auditionBaseComposition,
+      auditionBasePendingCommit: apply ? false : state.auditionBasePendingCommit,
+      auditionBasePlaybackLoopRange: apply
+        ? null
+        : state.auditionBasePlaybackLoopRange,
     });
   },
 
@@ -818,7 +1059,16 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
       committedComposition: apply
         ? clone(state.draftComposition)
         : state.committedComposition,
+      playbackLoopRange: apply
+        ? normalizedTickRange(state.loopRange, state.draftComposition)
+        : state.playbackLoopRange,
       pendingCommit: apply ? false : state.pendingCommit,
+      auditionedVariationIndex: apply ? null : state.auditionedVariationIndex,
+      auditionBaseComposition: apply ? null : state.auditionBaseComposition,
+      auditionBasePendingCommit: apply ? false : state.auditionBasePendingCommit,
+      auditionBasePlaybackLoopRange: apply
+        ? null
+        : state.auditionBasePlaybackLoopRange,
     });
   },
 
@@ -827,7 +1077,15 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     if (!state.pendingCommit) {
       return;
     }
-    set({ committedComposition: clone(state.draftComposition), pendingCommit: false });
+    set({
+      committedComposition: clone(state.draftComposition),
+      playbackLoopRange: normalizedTickRange(state.loopRange, state.draftComposition),
+      pendingCommit: false,
+      auditionedVariationIndex: null,
+      auditionBaseComposition: null,
+      auditionBasePendingCommit: false,
+      auditionBasePlaybackLoopRange: null,
+    });
   },
 
   updateSettings: (patch) => {
@@ -844,11 +1102,16 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
   importJson: (json) => {
     const state = get();
     const composition = importCompositionJson(json);
+    const loopRange = { startTick: 0, endTick: composition.totalTicks };
+    const update = stateAfterComposition(state, composition, "import-json", null, true);
     set({
-      ...stateAfterComposition(state, composition, "import-json", null, true),
+      ...update,
       selectedBarRange: null,
-      loopRange: { startTick: 0, endTick: composition.totalTicks },
+      loopRange,
+      playbackLoopRange: update.pendingCommit ? state.playbackLoopRange : loopRange,
       regenerationIteration: 0,
+      projectPersistenceBlocked: false,
+      projectRecoveryReason: null,
     });
   },
   exportMidi: () => exportCompositionMidi(get().draftComposition),
@@ -858,6 +1121,64 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     set(freshState(patch));
   },
 }));
+
+interface PendingHistorySave {
+  revision: number;
+  historyRevision: number;
+  state: ComposerStoreState;
+  currentMode: StoragePersistenceMode;
+}
+
+let persistenceRevision = 0;
+let historyPersistenceRevision = hydration.snapshot?.historyRevision ?? 0;
+let pendingHistorySave: PendingHistorySave | null = null;
+let historySaveScheduled = false;
+
+function runWhenIdle(task: () => void): void {
+  if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(() => task(), { timeout: 500 });
+    return;
+  }
+  globalThis.setTimeout(task, 0);
+}
+
+function scheduleHistorySave(): void {
+  if (historySaveScheduled) return;
+  historySaveScheduled = true;
+  runWhenIdle(flushPendingHistorySave);
+}
+
+function flushPendingHistorySave(): void {
+  historySaveScheduled = false;
+  const pending = pendingHistorySave;
+  pendingHistorySave = null;
+  if (!pending) return;
+
+  let projectSaveStatus: ProjectSaveStatus;
+  try {
+    const history = saveEditorHistoryState(
+      persistentHistoryState(pending.state, pending.historyRevision),
+      storage,
+    );
+    projectSaveStatus = pending.currentMode === "memory"
+      ? "session"
+      : !history.historySaved || history.historyMode === "memory"
+        ? "partial"
+        : "saved";
+  } catch {
+    projectSaveStatus = pending.currentMode === "memory" ? "session" : "partial";
+  }
+
+  const current = useComposerStore.getState();
+  if (
+    pending.revision === persistenceRevision
+    && !current.projectPersistenceBlocked
+  ) {
+    useComposerStore.setState({ projectSaveStatus });
+  }
+
+  if (pendingHistorySave) scheduleHistorySave();
+}
 
 useComposerStore.subscribe((state, previous) => {
   const changed =
@@ -871,16 +1192,43 @@ useComposerStore.subscribe((state, previous) => {
     state.historyIndex !== previous.historyIndex ||
     state.regenerationIteration !== previous.regenerationIteration;
   if (changed) {
-    const saved = saveEditorSnapshot(persistentSnapshot(state), storage);
-    const persistenceMode = getSafeStorageMode();
-    const projectSaveStatus: ProjectSaveStatus = !saved
+    const revision = ++persistenceRevision;
+    if (state.history !== previous.history || state.historyIndex !== previous.historyIndex) {
+      historyPersistenceRevision += 1;
+    }
+    if (state.projectPersistenceBlocked) {
+      pendingHistorySave = null;
+      if (state.projectSaveStatus !== "recovery") {
+        useComposerStore.setState({ projectSaveStatus: "recovery" });
+      }
+      return;
+    }
+    const saved = saveEditorCurrentSnapshot(
+      persistentCurrentSnapshot(state, historyPersistenceRevision),
+      storage,
+    );
+    if (!saved.currentSaved) {
+      pendingHistorySave = null;
+    }
+    const projectSaveStatus: ProjectSaveStatus = !saved.currentSaved
       ? "error"
-      : persistenceMode === "localStorage"
-        ? "saved"
-        : "session";
+      : saved.currentMode === "memory"
+        ? "session"
+        : "saving";
     useComposerStore.setState({
       projectSaveStatus,
-      lastSavedAt: saved ? new Date().toISOString() : state.lastSavedAt,
+      lastSavedAt: saved.currentSaved ? new Date().toISOString() : state.lastSavedAt,
     });
+    if (saved.currentSaved) {
+      // Keep only the newest immutable Zustand state. Cloning and serializing
+      // the potentially large Undo history happens outside the edit call stack.
+      pendingHistorySave = {
+        revision,
+        historyRevision: historyPersistenceRevision,
+        state,
+        currentMode: saved.currentMode,
+      };
+      scheduleHistorySave();
+    }
   }
 });

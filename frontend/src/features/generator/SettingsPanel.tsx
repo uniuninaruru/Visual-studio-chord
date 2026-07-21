@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { BackendConnection } from "../../api/inferenceClient";
 import { Icon } from "../../components/Icon";
+import { DEFAULT_HARMONY_SETTINGS } from "../../music";
 import type { GeneratorSettingsPatch } from "../../state";
 import type {
   BarCount,
@@ -61,12 +62,25 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const [activeTab, setActiveTab] = useState<"basic" | "advanced" | "developer">("basic");
   const motif = settings.motif ?? { enabled: false, lengthBars: 1, transformationRate: 0.65 };
-  const harmony = settings.harmony ?? { complexity: "triads" as const };
+  const harmony = {
+    complexity: settings.harmony?.complexity ?? DEFAULT_HARMONY_SETTINGS.complexity,
+    borrowedChordRate:
+      settings.harmony?.borrowedChordRate ?? DEFAULT_HARMONY_SETTINGS.borrowedChordRate,
+    secondaryDominantRate:
+      settings.harmony?.secondaryDominantRate
+      ?? DEFAULT_HARMONY_SETTINGS.secondaryDominantRate,
+    explorationRate:
+      settings.harmony?.explorationRate ?? DEFAULT_HARMONY_SETTINGS.explorationRate,
+    voiceLeadingStrength:
+      settings.harmony?.voiceLeadingStrength ?? DEFAULT_HARMONY_SETTINGS.voiceLeadingStrength,
+  };
+  const advancedHarmonyEnabled = harmony.complexity === "advanced";
+  const backendCanInfer = backend.state === "connected" && backend.inferenceAuthorized;
   const deviceLabel =
-    backend.state === "connected"
-      ? backend.device.selectedDevice === "cpu"
+    backendCanInfer
+      ? backend.models.activeRuntime === "cpu"
         ? "Local CPU"
-        : backend.device.deviceName || `Local ${backend.device.selectedDevice.toUpperCase()}`
+        : backend.device.deviceName || `Local ${backend.models.activeRuntime.toUpperCase()}`
       : backend.state === "checking"
         ? "確認中"
         : "Browser";
@@ -190,20 +204,104 @@ export function SettingsPanel({
       </section>
 
       <section className="settings-section" hidden={activeTab !== "advanced"}>
-        <div className="section-label">メロディ</div>
+        <div className="section-label">ハーモニー / メロディ</div>
         <label className="field">
           <span>コードの複雑さ</span>
           <select
             aria-label="コードの複雑さ"
             value={harmony.complexity}
             onChange={(event) => onPatch({
-              harmony: { complexity: event.target.value as "triads" | "sevenths" | "advanced" },
+              harmony: {
+                ...harmony,
+                complexity: event.target.value as "triads" | "sevenths" | "advanced",
+              },
             })}
           >
             <option value="triads">Triads</option>
             <option value="sevenths">7th chords</option>
             <option value="advanced">Advanced / 借用和音</option>
           </select>
+        </label>
+        <label className="field range-field">
+          <span>借用和音率 <strong>{Math.round(harmony.borrowedChordRate * 100)}%</strong></span>
+          <input
+            aria-label="借用和音率"
+            aria-describedby="borrowed-chord-rate-hint"
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={harmony.borrowedChordRate}
+            disabled={!advancedHarmonyEnabled}
+            onChange={(event) => onPatch({
+              harmony: { ...harmony, borrowedChordRate: Number(event.target.value) },
+            })}
+          />
+          <span className="field-hint" id="borrowed-chord-rate-hint">
+            Advanced時のみ有効。100% = スタイル既定、0% = 無効。
+          </span>
+        </label>
+        <label className="field range-field">
+          <span>
+            セカンダリードミナント率
+            {' '}<strong>{Math.round(harmony.secondaryDominantRate * 100)}%</strong>
+          </span>
+          <input
+            aria-label="セカンダリードミナント率"
+            aria-describedby="secondary-dominant-rate-hint"
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={harmony.secondaryDominantRate}
+            disabled={!advancedHarmonyEnabled}
+            onChange={(event) => onPatch({
+              harmony: { ...harmony, secondaryDominantRate: Number(event.target.value) },
+            })}
+          />
+          <span className="field-hint" id="secondary-dominant-rate-hint">
+            Advanced時のみ有効。100% = スタイル既定、0% = 無効。
+          </span>
+        </label>
+        <label className="field range-field">
+          <span>探索率 <strong>{Math.round(harmony.explorationRate * 100)}%</strong></span>
+          <input
+            aria-label="ハーモニー探索率"
+            aria-describedby="harmony-exploration-rate-hint"
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={harmony.explorationRate}
+            disabled={!advancedHarmonyEnabled}
+            onChange={(event) => onPatch({
+              harmony: { ...harmony, explorationRate: Number(event.target.value) },
+            })}
+          />
+          <span className="field-hint" id="harmony-exploration-rate-hint">
+            Advanced時のみ有効。100% = スタイル既定、0% = 無効。
+          </span>
+        </label>
+        <label className="field range-field">
+          <span>
+            ボイスリーディング強度
+            {' '}<strong>{Math.round(harmony.voiceLeadingStrength * 100)}%</strong>
+          </span>
+          <input
+            aria-label="ボイスリーディング強度"
+            aria-describedby="voice-leading-strength-hint"
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={harmony.voiceLeadingStrength}
+            onChange={(event) => onPatch({
+              harmony: { ...harmony, voiceLeadingStrength: Number(event.target.value) },
+            })}
+          />
+          <span className="field-hint" id="voice-leading-strength-hint">
+            100% = 前のコードからの移動を最小化、0% = 前のコードを考慮しない。
+          </span>
         </label>
         <label className="field range-field">
           <span>密度 <strong>{Math.round(settings.melody.density * 100)}%</strong></span>
@@ -338,7 +436,7 @@ export function SettingsPanel({
       <section className="settings-section developer-settings" hidden={activeTab !== "developer"}>
         <div className="section-label">推論と診断</div>
         <dl className="developer-setting-list">
-          <div><dt>Backend</dt><dd>{backend.state === "connected" ? "Local API" : "Browser fallback"}</dd></div>
+          <div><dt>Backend</dt><dd>{backendCanInfer ? "Local API" : backend.state === "connected" ? "Browser fallback（access required）" : "Browser fallback"}</dd></div>
           <div><dt>Device</dt><dd>{backend.state === "connected" ? backend.device.deviceName : "Browser CPU"}</dd></div>
           <div><dt>Model</dt><dd>{backend.state === "connected" ? backend.models.activeModel : "browser-linear-v1"}</dd></div>
           <div><dt>Precision</dt><dd>FP32</dd></div>

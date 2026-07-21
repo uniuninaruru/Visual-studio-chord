@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from "react";
+import { BUILD_NODE_VERSION } from "../../buildInfo";
 import type {
   BrowserCapabilities,
   BrowserCapabilityResult,
@@ -9,7 +10,14 @@ import type {
 export type BackendConnectionStatus = "connected" | "disconnected" | "checking" | "error";
 export type ApiCompatibilityStatus = "compatible" | "incompatible" | "checking" | "unknown";
 export type ModelAvailabilityStatus = "ready" | "missing" | "loading" | "error";
-export type StorageMode = "indexeddb" | "localStorage" | "memory" | "unavailable";
+export type StorageMode =
+  | "indexeddb"
+  | "localStorage"
+  | "pending"
+  | "memory"
+  | "recovery"
+  | "unsupported"
+  | "unavailable";
 
 export interface UserFacingDiagnosticError {
   title: string;
@@ -34,13 +42,19 @@ export interface BackendDiagnostics {
   apiCompatibility: ApiCompatibilityStatus;
   serverApiVersion?: string;
   expectedApiVersion?: string;
+  serverVersion?: string;
+  pythonVersion?: string;
+  platformSystem?: string;
+  platformMachine?: string;
   error?: UserFacingDiagnosticError;
 }
 
 export interface DiagnosticsPanelProps {
   browserCapabilities: BrowserCapabilities | null;
   backend: BackendDiagnostics;
-  storageMode: StorageMode;
+  projectStorageMode: StorageMode;
+  historyStorageMode: StorageMode;
+  preferenceStorageMode: StorageMode;
   audioError?: UserFacingDiagnosticError | null;
   onRetry: () => void;
   onClose: () => void;
@@ -77,7 +91,10 @@ const MODEL_STATUS_LABELS: Readonly<Record<ModelAvailabilityStatus, string>> = {
 const STORAGE_LABELS: Readonly<Record<StorageMode, string>> = {
   indexeddb: "IndexedDB",
   localStorage: "localStorage（フォールバック）",
+  pending: "現在曲を保存済み（Undo履歴を保存中）",
   memory: "セッション内メモリ（終了時に消去）",
+  recovery: "読み込み保護（上書き停止中）",
+  unsupported: "新しい保存形式（上書き停止中）",
   unavailable: "保存不可",
 };
 
@@ -124,7 +141,10 @@ function networkLabel(status: NetworkStatus): string {
 
 function storageRemedy(mode: StorageMode): string | null {
   if (mode === "localStorage") return "履歴容量が限られます。重要なデータはJSONで書き出してください。";
+  if (mode === "pending") return "現在の曲は保存済みです。Undo履歴の保存は画面操作を妨げないタイミングで続行します。";
   if (mode === "memory") return "ページを閉じる前にJSONで書き出してください。";
+  if (mode === "recovery") return "正しいプロジェクトJSONをImportするか、保存済みデータを置き換えてよい場合だけResetしてください。";
+  if (mode === "unsupported") return "アプリを新しいバージョンへ更新するか、互換形式のプロジェクトJSONをImportしてください。";
   if (mode === "unavailable") return "ブラウザのストレージ許可と空き容量を確認してください。";
   return null;
 }
@@ -132,7 +152,9 @@ function storageRemedy(mode: StorageMode): string | null {
 export function DiagnosticsPanel({
   browserCapabilities,
   backend,
-  storageMode,
+  projectStorageMode,
+  historyStorageMode,
+  preferenceStorageMode,
   audioError,
   onRetry,
   onClose,
@@ -193,7 +215,11 @@ export function DiagnosticsPanel({
   const capabilityList = browserCapabilities
     ? Object.values(browserCapabilities.capabilities)
     : [];
-  const storageFallback = storageRemedy(storageMode);
+  const storageModes = [
+    ["現在のプロジェクト", projectStorageMode],
+    ["Undo履歴", historyStorageMode],
+    ["好み学習", preferenceStorageMode],
+  ] as const;
   const backendNeedsAction = backend.connection !== "connected";
   const apiNeedsAction = backend.apiCompatibility === "incompatible";
 
@@ -219,7 +245,12 @@ export function DiagnosticsPanel({
           </button>
         </header>
 
-        <div className="diagnostics-content" aria-live="polite">
+        <div
+          className="diagnostics-content"
+          aria-label="診断詳細"
+          aria-live="polite"
+          tabIndex={0}
+        >
           <section aria-labelledby={`${titleId}-network`}>
             <h3 id={`${titleId}-network`}>接続</h3>
             <dl className="diagnostic-summary-list">
@@ -242,6 +273,26 @@ export function DiagnosticsPanel({
               <div>
                 <dt>API互換性</dt>
                 <dd><StatusBadge status={backend.apiCompatibility} label={API_STATUS_LABELS[backend.apiCompatibility]} /></dd>
+              </div>
+              <div>
+                <dt>Frontend Node.js</dt>
+                <dd>{BUILD_NODE_VERSION}（build時、24.14.x契約）</dd>
+              </div>
+              <div>
+                <dt>Server Python</dt>
+                <dd>{backend.pythonVersion ?? (backend.connection === "connected" ? "未報告" : "サーバー未接続")}</dd>
+              </div>
+              <div>
+                <dt>Server app</dt>
+                <dd>{backend.serverVersion ?? (backend.connection === "connected" ? "未報告" : "サーバー未接続")}</dd>
+              </div>
+              <div>
+                <dt>Server OS / CPU</dt>
+                <dd>
+                  {backend.platformSystem && backend.platformMachine
+                    ? `${backend.platformSystem} / ${backend.platformMachine}`
+                    : backend.connection === "connected" ? "未報告" : "サーバー未接続"}
+                </dd>
               </div>
             </dl>
             {browserCapabilities?.networkStatus === "offline" && (
@@ -288,8 +339,22 @@ export function DiagnosticsPanel({
 
           <section aria-labelledby={`${titleId}-storage`}>
             <h3 id={`${titleId}-storage`}>保存</h3>
-            <p>現在の保存モード: <strong>{STORAGE_LABELS[storageMode]}</strong></p>
-            {storageFallback && <p className="diagnostic-remedy"><strong>対処:</strong> {storageFallback}</p>}
+            <dl className="diagnostic-summary-list">
+              {storageModes.map(([label, mode]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{STORAGE_LABELS[mode]}</dd>
+                </div>
+              ))}
+            </dl>
+            {[...new Set(storageModes
+              .map(([, mode]) => storageRemedy(mode))
+              .filter((remedy): remedy is string => remedy !== null))]
+              .map((remedy) => (
+                <p className="diagnostic-remedy" key={remedy}>
+                  <strong>対処:</strong> {remedy}
+                </p>
+              ))}
           </section>
 
           {audioError && (

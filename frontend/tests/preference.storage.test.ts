@@ -16,6 +16,13 @@ class ThrowingIDBFactory {
   }
 }
 
+class FakeLocalStorage {
+  private readonly values = new Map<string, string>();
+  getItem(key: string) { return this.values.get(key) ?? null; }
+  setItem(key: string, value: string) { this.values.set(key, value); }
+  removeItem(key: string) { this.values.delete(key); }
+}
+
 interface FakeTransactionState {
   oncomplete: ((event: Event) => void) | null;
   onerror: ((event: Event) => void) | null;
@@ -26,6 +33,7 @@ interface FakeTransactionState {
 class FakeIDBFactory {
   private readonly values = new Map<IDBValidKey, unknown>();
   private upgraded = false;
+  failWrites = false;
 
   open(): IDBOpenDBRequest {
     const database = {
@@ -64,6 +72,7 @@ class FakeIDBFactory {
         transactionState,
       ),
       put: (value: unknown, key: IDBValidKey) => this.createRequest(() => {
+        if (this.failWrites) throw new Error("IndexedDB write failed");
         this.values.set(key, value);
         return key;
       }, transactionState),
@@ -104,9 +113,15 @@ class FakeIDBFactory {
       onerror: null as ((event: Event) => void) | null,
     };
     queueMicrotask(() => {
-      state.result = action();
-      state.onsuccess?.(new Event("success"));
-      queueMicrotask(() => transaction.oncomplete?.(new Event("complete")));
+      try {
+        state.result = action();
+        state.onsuccess?.(new Event("success"));
+        queueMicrotask(() => transaction.oncomplete?.(new Event("complete")));
+      } catch {
+        state.error = new DOMException("Request failed", "UnknownError");
+        state.onerror?.(new Event("error"));
+        queueMicrotask(() => transaction.onerror?.(new Event("error")));
+      }
     });
     return state as unknown as IDBRequest<T>;
   }
@@ -129,7 +144,7 @@ function learnedModel(): PreferenceModel {
 
 describe("preference persistence", () => {
   it("saves defensive copies with the memory fallback", async () => {
-    const storage = new PreferenceStorage({ indexedDBFactory: null });
+    const storage = new PreferenceStorage({ indexedDBFactory: null, localStorage: null });
     const source = learnedModel();
     expect(await storage.save(source)).toBe("memory");
     source.categories.harmony.weights["quality.tension"] = 3;
@@ -142,6 +157,7 @@ describe("preference persistence", () => {
   it("falls back to memory when opening IndexedDB fails", async () => {
     const storage = new PreferenceStorage({
       indexedDBFactory: new ThrowingIDBFactory() as unknown as IDBFactory,
+      localStorage: null,
     });
     expect(storage.mode).toBe("indexedDB");
     expect(await storage.save(learnedModel())).toBe("memory");
@@ -151,10 +167,10 @@ describe("preference persistence", () => {
 
   it("persists, loads, and deletes through IndexedDB when available", async () => {
     const factory = new FakeIDBFactory() as unknown as IDBFactory;
-    const first = new PreferenceStorage({ indexedDBFactory: factory });
+    const first = new PreferenceStorage({ indexedDBFactory: factory, localStorage: null });
     expect(await first.save(learnedModel())).toBe("indexedDB");
 
-    const second = new PreferenceStorage({ indexedDBFactory: factory });
+    const second = new PreferenceStorage({ indexedDBFactory: factory, localStorage: null });
     expect(await second.load()).toEqual(learnedModel());
     expect(second.mode).toBe("indexedDB");
     expect(await second.reset()).toBe("indexedDB");
@@ -168,14 +184,14 @@ describe("preference persistence", () => {
     expect(second).toBe(first);
     expect(isPreferenceModel(JSON.parse(first))).toBe(true);
 
-    const storage = new PreferenceStorage({ indexedDBFactory: null });
+    const storage = new PreferenceStorage({ indexedDBFactory: null, localStorage: null });
     const imported = await storage.importJson(first);
     expect(imported).toEqual(model);
     expect(await storage.exportJson()).toBe(first);
   });
 
   it("rejects malformed or schema-invalid imports without replacing data", async () => {
-    const storage = new PreferenceStorage({ indexedDBFactory: null });
+    const storage = new PreferenceStorage({ indexedDBFactory: null, localStorage: null });
     await storage.save(learnedModel());
     await expect(storage.importJson("{broken")).rejects.toThrow("malformed");
     await expect(storage.importJson(JSON.stringify({ version: 999 }))).rejects.toThrow(
@@ -185,10 +201,65 @@ describe("preference persistence", () => {
   });
 
   it("resets the profile and exports a valid empty model afterward", async () => {
-    const storage = new PreferenceStorage({ indexedDBFactory: null });
+    const storage = new PreferenceStorage({ indexedDBFactory: null, localStorage: null });
     await storage.save(learnedModel());
     expect(await storage.reset()).toBe("memory");
     expect(await storage.load()).toBeNull();
     expect(parsePreferenceModelJson(await storage.exportJson())).toEqual(createPreferenceModel());
+  });
+
+  it("falls back from IndexedDB to localStorage before memory", async () => {
+    const localStorage = new FakeLocalStorage();
+    const first = new PreferenceStorage({ indexedDBFactory: null, localStorage });
+    expect(await first.save(learnedModel())).toBe("localStorage");
+
+    const second = new PreferenceStorage({ indexedDBFactory: null, localStorage });
+    expect(await second.load()).toEqual(learnedModel());
+    expect(second.mode).toBe("localStorage");
+  });
+
+  it("does not resurrect stale IndexedDB data after a failed write uses localStorage", async () => {
+    const factory = new FakeIDBFactory();
+    const localStorage = new FakeLocalStorage();
+    const first = new PreferenceStorage({
+      indexedDBFactory: factory as unknown as IDBFactory,
+      localStorage,
+    });
+    const oldModel = learnedModel();
+    await first.save(oldModel);
+
+    const newerModel = learnedModel();
+    newerModel.categories.harmony.weights["quality.tension"] = 0.75;
+    factory.failWrites = true;
+    expect(await first.save(newerModel)).toBe("localStorage");
+
+    factory.failWrites = false;
+    const reopened = new PreferenceStorage({
+      indexedDBFactory: factory as unknown as IDBFactory,
+      localStorage,
+    });
+    expect((await reopened.load())?.categories.harmony.weights["quality.tension"]).toBe(0.75);
+    expect(reopened.mode).toBe("localStorage");
+  });
+
+  it("keeps a reset tombstone when IndexedDB deletion cannot be persisted", async () => {
+    const factory = new FakeIDBFactory();
+    const localStorage = new FakeLocalStorage();
+    const first = new PreferenceStorage({
+      indexedDBFactory: factory as unknown as IDBFactory,
+      localStorage,
+    });
+    await first.save(learnedModel());
+
+    factory.failWrites = true;
+    expect(await first.reset()).toBe("localStorage");
+
+    factory.failWrites = false;
+    const reopened = new PreferenceStorage({
+      indexedDBFactory: factory as unknown as IDBFactory,
+      localStorage,
+    });
+    expect(await reopened.load()).toBeNull();
+    expect(reopened.mode).toBe("localStorage");
   });
 });

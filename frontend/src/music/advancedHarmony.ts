@@ -41,6 +41,7 @@ export interface CreateAdvancedChordOptions {
   durationTick: number;
   id: string;
   previousNotes?: readonly number[];
+  voiceLeadingStrength?: number;
   /** Deterministically selects sus2 or sus4. */
   suspension?: 2 | 4;
 }
@@ -76,7 +77,13 @@ function buildEvent(
     "source" | "specialKind" | "targetDegree" | "borrowedFromMode" | "explanation"
   >,
 ): ChordEvent {
-  const voicing = voiceChord(root, quality, options.previousNotes);
+  const voicing = voiceChord(
+    root,
+    quality,
+    options.previousNotes,
+    undefined,
+    options.voiceLeadingStrength,
+  );
   return {
     id: options.id,
     symbol: formatChordSymbol(root, quality),
@@ -147,6 +154,7 @@ export function createAdvancedChordEvent(
       id: options.id,
       previousNotes: options.previousNotes,
       seventh: options.kind === "seventh",
+      voiceLeadingStrength: options.voiceLeadingStrength,
     });
   }
 

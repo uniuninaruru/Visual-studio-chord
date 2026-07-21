@@ -17,6 +17,7 @@ interface ProjectStatusBarProps {
   currentTick: number;
   ticksPerBar: number;
   loopLabel: string;
+  pendingLoopLabel?: string | null;
   pendingCommit: boolean;
   updateTiming: UpdateTiming;
   aiJob: AiJobStatus;
@@ -24,7 +25,7 @@ interface ProjectStatusBarProps {
   saveStatus: ProjectSaveStatus;
   lastSavedAt: string | null;
   online: boolean;
-  backendConnected: boolean;
+  connectionLabel: string;
   onCancelAi: () => void;
   onOpenDiagnostics: () => void;
 }
@@ -44,8 +45,11 @@ const PLAYBACK_LABELS = {
 
 const SAVE_LABELS: Record<ProjectSaveStatus, string> = {
   saved: "Saved locally",
+  saving: "Current saved · saving history",
   unsaved: "Unsaved changes",
+  partial: "Current saved · history incomplete",
   session: "Session only",
+  recovery: "Recovery required · write protected",
   error: "Save failed",
 };
 
@@ -54,6 +58,7 @@ export function ProjectStatusBar({
   currentTick,
   ticksPerBar,
   loopLabel,
+  pendingLoopLabel,
   pendingCommit,
   updateTiming,
   aiJob,
@@ -61,7 +66,7 @@ export function ProjectStatusBar({
   saveStatus,
   lastSavedAt,
   online,
-  backendConnected,
+  connectionLabel,
   onCancelAi,
   onOpenDiagnostics,
 }: ProjectStatusBarProps) {
@@ -79,7 +84,7 @@ export function ProjectStatusBar({
 
   return (
     <section className="project-status-bar" aria-label="現在のアプリ状態">
-      <div className="status-item" title="再生状態と現在の小節">
+      <div className="status-item" title="再生状態と現在の小節" aria-live="polite">
         <strong>Playback</strong>
         <span>{PLAYBACK_LABELS[playback]} · Bar {currentBar}</span>
       </div>
@@ -87,9 +92,13 @@ export function ProjectStatusBar({
         <strong>Loop</strong>
         <span>{loopLabel}</span>
       </div>
-      <div className="status-item" title="編集内容を音へ反映するタイミング">
+      <div className="status-item" title="編集内容を音へ反映するタイミング" aria-live="polite">
         <strong>Changes</strong>
-        <span>{pendingCommit ? `Edited · Apply ${UPDATE_LABELS[updateTiming]}` : "Applied"}</span>
+        <span>
+          {pendingCommit
+            ? `Edited · Apply ${UPDATE_LABELS[updateTiming]}${pendingLoopLabel ? ` · Pending loop: ${pendingLoopLabel}` : ""}`
+            : "Applied"}
+        </span>
       </div>
       <div className="status-item ai-status" aria-live="polite">
         <strong>AI</strong>
@@ -106,13 +115,13 @@ export function ProjectStatusBar({
         <strong>Engine</strong>
         <span>{engineLabel}</span>
       </div>
-      <div className={`status-item save-status is-${saveStatus}`} title={savedTime ? `Last saved ${savedTime}` : undefined}>
+      <div className={`status-item save-status is-${saveStatus}`} title={savedTime ? `Last saved ${savedTime}` : undefined} aria-live="polite">
         <strong>Project</strong>
         <span>{SAVE_LABELS[saveStatus]}{savedTime && saveStatus === "saved" ? ` · ${savedTime}` : ""}</span>
       </div>
-      <div className="status-item" title="ネットワークとローカル推論サーバーの状態">
+      <div className="status-item" title="ネットワークとローカル推論サーバーの状態" aria-live="polite">
         <strong>Connection</strong>
-        <span>{online ? "Online" : "Offline"} · {backendConnected ? "Local server connected" : "Browser mode"}</span>
+        <span>{online ? "Online" : "Offline"} · {connectionLabel}</span>
       </div>
       <button className="status-diagnostics-button" type="button" onClick={onOpenDiagnostics}>
         Diagnostics

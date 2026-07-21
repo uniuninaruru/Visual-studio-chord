@@ -4,26 +4,90 @@ $ProjectDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Pat
 $VenvDir = Join-Path $ProjectDir ".venv"
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 
-if (Get-Command pnpm -ErrorAction SilentlyContinue) {
-  Push-Location $ProjectDir
-  try { pnpm install --frozen-lockfile } finally { Pop-Location }
-} elseif (Get-Command npm -ErrorAction SilentlyContinue) {
-  Push-Location $ProjectDir
-  try { npm install } finally { Pop-Location }
-} else {
-  throw "Node.js 22.13+ with pnpm or npm is required for native development. Docker users can run scripts/start-local.ps1 instead."
+. (Join-Path $ProjectDir "scripts\runtime.ps1")
+Import-ProjectEnvironment -ProjectDir $ProjectDir
+Assert-NodeRuntime
+$PackageManager = Get-PackageManager -ProjectDir $ProjectDir
+
+Push-Location $ProjectDir
+try {
+  if ($PackageManager -eq "pnpm") {
+    Invoke-Checked -Program "pnpm" -Arguments @("install", "--frozen-lockfile")
+  } else {
+    Invoke-Checked -Program "npm" -Arguments @("ci", "--no-audit", "--no-fund")
+  }
+} finally {
+  Pop-Location
 }
 
-$Python = Get-Command py -ErrorAction SilentlyContinue
-if ($Python) {
-  & py -3 -m venv $VenvDir
+$PythonProgram = $null
+$PythonArguments = @()
+if ($env:MTC_PYTHON) {
+  if (-not (Get-Command $env:MTC_PYTHON -ErrorAction SilentlyContinue)) {
+    throw "MTC_PYTHON points to a Python executable that was not found."
+  }
+  $PythonProgram = $env:MTC_PYTHON
+} elseif (Get-Command py -ErrorAction SilentlyContinue) {
+  $PinnedPython = (Get-Content (Join-Path $ProjectDir ".python-version") -Raw).Trim()
+  $PinnedParts = $PinnedPython.Split(".")
+  $PinnedSelector = "$($PinnedParts[0]).$($PinnedParts[1])"
+  $Selectors = @($PinnedSelector, "3.13", "3.11", "3.14") | Select-Object -Unique
+  foreach ($Selector in $Selectors) {
+    & py "-${Selector}" -c "import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] < (3, 15) else 1)" 2>$null
+    if ($LASTEXITCODE -eq 0) {
+      $PythonProgram = "py"
+      $PythonArguments = @("-${Selector}")
+      break
+    }
+  }
+  if (-not $PythonProgram -and (Get-Command python -ErrorAction SilentlyContinue)) {
+    $PythonProgram = "python"
+  }
 } elseif (Get-Command python -ErrorAction SilentlyContinue) {
-  & python -m venv $VenvDir
+  $PythonProgram = "python"
 } else {
-  throw "Python 3.10+ was not found."
+  throw "Python was not found. Install the version in .python-version or set MTC_PYTHON."
 }
 
-& $VenvPython -m pip install --upgrade pip setuptools
-& $VenvPython -m pip install -e "$ProjectDir\backend[test]"
+if (-not $PythonProgram) {
+  throw "No supported Python 3.11-3.14 interpreter was found. Python 3.12.13 is recommended."
+}
+
+& $PythonProgram @PythonArguments -c "import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] < (3, 15) else 1)"
+if ($LASTEXITCODE -ne 0) {
+  throw "The selected Python is unsupported. Use Python 3.11-3.14 (3.12.13 recommended)."
+}
+
+if (-not (Test-Path $VenvPython)) {
+  Invoke-Checked -Program $PythonProgram -Arguments ($PythonArguments + @("-m", "venv", $VenvDir))
+}
+
+& $VenvPython -c "import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] < (3, 15) else 1)"
+if ($LASTEXITCODE -ne 0) {
+  throw "The existing .venv uses an unsupported Python. Use Python 3.11-3.14 (3.12.13 recommended). It was not removed or overwritten."
+}
+
+Invoke-Checked -Program $VenvPython -Arguments @(
+  "-m", "pip", "install", "--disable-pip-version-check",
+  "pip==25.0.1", "setuptools==83.0.0"
+)
+Invoke-Checked -Program $VenvPython -Arguments @(
+  "-m", "pip", "install", "--disable-pip-version-check",
+  "--requirement", (Join-Path $ProjectDir "backend\requirements.lock")
+)
+Invoke-Checked -Program $VenvPython -Arguments @(
+  "-m", "pip", "install", "--disable-pip-version-check",
+  "--no-deps", "--no-build-isolation", "--editable", (Join-Path $ProjectDir "backend")
+)
+
+$EnvFile = Join-Path $ProjectDir ".env"
+if (-not (Test-Path $EnvFile)) {
+  Copy-Item (Join-Path $ProjectDir ".env.example") $EnvFile
+  Write-Host "Created .env from .env.example. Existing environment files are never overwritten."
+}
+
+Invoke-Checked -Program $VenvPython -Arguments @(
+  (Join-Path $ProjectDir "scripts\check-environment.py"), "--require-installed"
+)
 
 Write-Host "Setup complete. Run .\scripts\dev.ps1"

@@ -17,8 +17,12 @@ import { midiToNoteName } from "./scales";
 import { createBars, tickToBarIndex, ticksPerBar } from "./time";
 import { assertValidGeneratorSettings } from "./validation";
 
-export const DEFAULT_HARMONY_SETTINGS: Readonly<HarmonySettings> = Object.freeze({
+export const DEFAULT_HARMONY_SETTINGS: Readonly<Required<HarmonySettings>> = Object.freeze({
   complexity: "triads",
+  borrowedChordRate: 1,
+  secondaryDominantRate: 1,
+  explorationRate: 1,
+  voiceLeadingStrength: 1,
 });
 
 export const DEFAULT_MOTIF_SETTINGS: Readonly<MotifSettings> = Object.freeze({
@@ -59,6 +63,19 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
 }
 
 function compositionFingerprint(settings: GeneratorSettings): string {
+  const harmonyRates = [
+    settings.harmony?.borrowedChordRate ?? DEFAULT_HARMONY_SETTINGS.borrowedChordRate,
+    settings.harmony?.secondaryDominantRate ?? DEFAULT_HARMONY_SETTINGS.secondaryDominantRate,
+    settings.harmony?.explorationRate ?? DEFAULT_HARMONY_SETTINGS.explorationRate,
+    settings.harmony?.voiceLeadingStrength ?? DEFAULT_HARMONY_SETTINGS.voiceLeadingStrength,
+  ];
+  // Keep legacy/default composition IDs byte-for-byte stable. Non-default
+  // controls still participate in the fingerprint and therefore create a
+  // distinct project identity even if a particular seed happens to pick the
+  // same musical material.
+  const harmonyRateFingerprint = harmonyRates.every((value) => value === 1)
+    ? []
+    : ["harmony-controls", ...harmonyRates];
   return [
     settings.key,
     settings.mode,
@@ -76,6 +93,7 @@ function compositionFingerprint(settings: GeneratorSettings): string {
     settings.melody.syncopation,
     settings.melody.leapProbability,
     settings.harmony?.complexity ?? DEFAULT_HARMONY_SETTINGS.complexity,
+    ...harmonyRateFingerprint,
     settings.motif?.enabled ?? DEFAULT_MOTIF_SETTINGS.enabled,
     settings.motif?.lengthBars ?? DEFAULT_MOTIF_SETTINGS.lengthBars,
     settings.motif?.transformationRate ?? DEFAULT_MOTIF_SETTINGS.transformationRate,
@@ -222,6 +240,7 @@ function revoiceBars(
   shouldReplace: (barIndex: number) => boolean,
   durationTick: number,
   seedOffset: number,
+  voiceLeadingStrength: number,
 ): ChordEvent[] {
   let previousNotes: readonly number[] | undefined;
   return chords.map((chord) => {
@@ -234,7 +253,13 @@ function revoiceBars(
     const requestedInversion =
       ((chord.inversion + Math.abs(Math.trunc(seedOffset || 1))) % inversionCount + inversionCount) %
       inversionCount;
-    const voicing = voiceChord(chord.root, chord.quality, previousNotes, requestedInversion);
+    const voicing = voiceChord(
+      chord.root,
+      chord.quality,
+      previousNotes,
+      requestedInversion,
+      voiceLeadingStrength,
+    );
     previousNotes = voicing.notes;
     return { ...chord, notes: voicing.notes, inversion: voicing.inversion };
   });
@@ -327,6 +352,7 @@ export function regenerateRange(
       shouldReplaceForStrength,
       composition.ticksPerBar,
       seedOffset,
+      settings.harmony?.voiceLeadingStrength ?? DEFAULT_HARMONY_SETTINGS.voiceLeadingStrength,
     );
   }
 

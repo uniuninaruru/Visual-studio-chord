@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   detectLocalBackend,
+  captureLocalAccessToken,
+  isLocalAccessError,
+  isLocalConnectivityError,
+  LocalApiError,
   rankCandidates as rankCandidatesOnServer,
   updateServerPreference,
   type BackendConnection,
@@ -13,7 +17,7 @@ import {
   type UserFacingDiagnosticError,
 } from "./features/diagnostics";
 import { InspectorPanel } from "./features/editor/InspectorPanel";
-import { midiBlob } from "./features/export";
+import { importCompositionFile, midiBlob } from "./features/export";
 import { SettingsPanel } from "./features/generator/SettingsPanel";
 import { HistoryPanel } from "./features/history/HistoryPanel";
 import { OnboardingTutorial } from "./features/onboarding/OnboardingTutorial";
@@ -24,8 +28,10 @@ import {
   ProjectStatusBar,
   type AiJobStatus,
 } from "./features/status/ProjectStatusBar";
+import { formatEngineLabel } from "./features/status/engineLabel";
 import { RegenerationDock } from "./features/variations/RegenerationDock";
 import { VariationPanel } from "./features/variations/VariationPanel";
+import { sortVariationCandidates } from "./features/variations/variationRanking";
 import { usePreferenceProfile } from "./hooks/usePreferenceProfile";
 import { validateComposition } from "./music";
 import {
@@ -40,11 +46,12 @@ import {
   detectBrowserCapabilities,
   type BrowserCapabilities,
 } from "./platform";
-import { useComposerStore, type NoteMove } from "./state";
+import { useComposerStore, type NoteMove, type TickRange } from "./state";
 import { getSafeStorage } from "./storage";
 import type {
   BarRange,
   ChordEvent,
+  GeneratedComposition,
   NoteEvent,
   RegenerationStrength,
   RegenerationTarget,
@@ -64,8 +71,48 @@ function featureVector(features: PreferenceFeatureSet, category: PreferenceCateg
   return features[category];
 }
 
+function formatLoopLabel(composition: GeneratedComposition, range: TickRange): string {
+  const startBar = Math.floor(range.startTick / composition.ticksPerBar) + 1;
+  const endBar = Math.ceil(range.endTick / composition.ticksPerBar);
+  return startBar === 1 && endBar === composition.bars.length
+    ? "全体ループ"
+    : `${startBar}–${endBar} 小節ループ`;
+}
+
+function mapPlaybackTickToDraft(
+  tick: number,
+  audible: GeneratedComposition,
+  draft: GeneratedComposition,
+): number {
+  if (audible.ticksPerBar === draft.ticksPerBar) return tick;
+  const safeTick = Math.max(0, tick);
+  const bar = Math.floor(safeTick / audible.ticksPerBar);
+  const barProgress = (safeTick % audible.ticksPerBar) / audible.ticksPerBar;
+  return Math.min(
+    draft.totalTicks,
+    bar * draft.ticksPerBar + Math.round(barProgress * draft.ticksPerBar),
+  );
+}
+
+const FEEDBACK_LABELS: Record<ExplicitFeedbackType, string> = {
+  like: "Like",
+  dislike: "Dislike",
+  favorite: "Favorite",
+  notMyStyle: "Not my style",
+};
+
 const ONBOARDING_STORAGE_KEY = "music-theory-composer:onboarding:v1";
 const appStorage = getSafeStorage();
+const BACKEND_STARTUP_RETRY_DELAYS_MS = [0, 500, 1_500, 3_000, 6_000] as const;
+
+function fallbackLabel(reason: string | null | undefined): string | null {
+  if (!reason) return null;
+  if (/oom/i.test(reason)) return "GPU memory limit · batch reduced or CPU fallback";
+  if (/unavailable/i.test(reason)) return "Requested runtime unavailable · CPU fallback";
+  if (/autoloadfailed/i.test(reason)) return "Accelerated model load failed · safe fallback";
+  if (/invalidpreference/i.test(reason)) return "Invalid runtime setting · CPU fallback";
+  return "Runtime fallback applied";
+}
 
 export default function App() {
   const store = useComposerStore();
@@ -74,6 +121,8 @@ export default function App() {
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const preferenceImportInputRef = useRef<HTMLInputElement | null>(null);
   const aiControllerRef = useRef<AbortController | null>(null);
+  const backendRetryTimerRef = useRef<number | null>(null);
+  const saveWarningRef = useRef<string | null>(null);
   const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>([]);
   const [copiedNoteIds, setCopiedNoteIds] = useState<string[]>([]);
   const [selectedChordId, setSelectedChordId] = useState<string | null>(null);
@@ -86,6 +135,11 @@ export default function App() {
   const [historyCompareIds, setHistoryCompareIds] = useState<readonly string[]>([]);
   const [serverScores, setServerScores] = useState<Record<string, number>>({});
   const [rankingRuntime, setRankingRuntime] = useState<string>("browser");
+  const [lastRankInfo, setLastRankInfo] = useState<{
+    runtime: string;
+    batchSize: number | null;
+    fallback: string | null;
+  } | null>(null);
   const [online, setOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine
   );
@@ -107,6 +161,7 @@ export default function App() {
   });
   const [toast, setToast] = useState<string | null>(null);
   const [mobilePanel, setMobilePanel] = useState<"settings" | "inspector" | null>(null);
+  const backendCanInfer = backend.state === "connected" && backend.inferenceAuthorized;
 
   const composition = store.draftComposition;
   const playbackComposition = store.committedComposition;
@@ -131,17 +186,18 @@ export default function App() {
     [currentPreferenceFeatures, preferenceCategory, preferenceProfile.model],
   );
   const variationCandidates = useMemo(
-    () => store.previewVariations.map((candidate, index) => {
+    () => sortVariationCandidates(store.previewVariations.map((candidate, index) => {
       const features = candidateFeatureSets[index] as PreferenceFeatureSet;
       const local = scorePreference(preferenceProfile.model, features, preferenceCategory);
       const serverScore = serverScores[candidate.id];
       return {
         composition: candidate,
+        sourceIndex: index,
         preference: serverScore === undefined
           ? local
           : { ...local, rawScore: serverScore, score: Math.tanh(serverScore) },
       };
-    }),
+    })),
     [
       candidateFeatureSets,
       preferenceCategory,
@@ -161,6 +217,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    captureLocalAccessToken();
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     void detectBrowserCapabilities().then((capabilities) => {
       if (!cancelled) setBrowserCapabilities(capabilities);
@@ -175,22 +235,54 @@ export default function App() {
     setBackend(await detectLocalBackend());
   };
 
+  const scheduleBackendRecovery = useCallback((delay = 1_500) => {
+    if (backendRetryTimerRef.current !== null) {
+      window.clearTimeout(backendRetryTimerRef.current);
+    }
+    backendRetryTimerRef.current = window.setTimeout(() => {
+      backendRetryTimerRef.current = null;
+      void detectLocalBackend().then(setBackend);
+    }, delay);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    void detectLocalBackend().then((connection) => {
-      if (!cancelled) setBackend(connection);
-    });
-    const handleOnline = () => setOnline(true);
+    let retryTimer: number | null = null;
+    const probe = async (attempt: number) => {
+      const connection = await detectLocalBackend();
+      if (cancelled) return;
+      setBackend(connection);
+      if (
+        connection.state === "browser"
+        && connection.reason === "unreachable"
+        && attempt + 1 < BACKEND_STARTUP_RETRY_DELAYS_MS.length
+      ) {
+        retryTimer = window.setTimeout(
+          () => void probe(attempt + 1),
+          BACKEND_STARTUP_RETRY_DELAYS_MS[attempt + 1],
+        );
+      }
+    };
+    void probe(0);
+    const handleOnline = () => {
+      setOnline(true);
+      scheduleBackendRecovery(0);
+    };
     const handleOffline = () => setOnline(false);
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
     return () => {
       cancelled = true;
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
+      if (backendRetryTimerRef.current !== null) {
+        window.clearTimeout(backendRetryTimerRef.current);
+        backendRetryTimerRef.current = null;
+      }
       aiControllerRef.current?.abort();
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
     };
-  }, []);
+  }, [scheduleBackendRecovery]);
 
   useEffect(() => {
     const transport = transportRef.current;
@@ -200,17 +292,43 @@ export default function App() {
       useComposerStore.getState().setCurrentTick(tick);
       const after = useComposerStore.getState();
       if (after.committedComposition !== before) {
-        transport.configure(after.committedComposition, after.loopRange, handleTick);
+        transport.configure(
+          after.committedComposition,
+          after.playbackLoopRange,
+          handleTick,
+        );
       }
     };
-    transport.configure(playbackComposition, store.loopRange, handleTick);
-  }, [playbackComposition, store.loopRange]);
+    transport.configure(playbackComposition, store.playbackLoopRange, handleTick);
+  }, [playbackComposition, store.playbackLoopRange]);
 
   useEffect(() => {
     if (!toast) return;
     const timeout = window.setTimeout(() => setToast(null), 2_800);
     return () => window.clearTimeout(timeout);
   }, [toast]);
+
+  useEffect(() => {
+    if (
+      store.projectSaveStatus !== "partial"
+      && store.projectSaveStatus !== "session"
+      && store.projectSaveStatus !== "recovery"
+      && store.projectSaveStatus !== "error"
+    ) return;
+    if (saveWarningRef.current === store.projectSaveStatus) return;
+    saveWarningRef.current = store.projectSaveStatus;
+    setToast(
+      store.projectSaveStatus === "recovery"
+        ? store.projectRecoveryReason === "unsupported"
+          ? "このプロジェクトは新しいアプリ形式で保存されています。上書きは停止中です。アプリを更新するか、互換JSONをImportしてください。"
+          : "保存済みプロジェクトが破損しているため、上書きを停止しました。正しいJSONをImportするか、内容を置き換えてよい場合だけResetしてください。"
+        : store.projectSaveStatus === "partial"
+        ? "現在の曲はローカル保存済みですが、Undo履歴の一部は保存できないか復旧されました。履歴は画面内に保持されています。閉じる前に現在の曲をJSONへ書き出してください。"
+        : store.projectSaveStatus === "session"
+          ? "永続ストレージを利用できないため、このセッション内だけに保存しています。閉じる前にJSONを書き出してください。"
+          : "ローカル保存に失敗しました。曲は画面内に保持されています。空き容量を確認し、JSONを書き出してください。",
+    );
+  }, [store.projectRecoveryReason, store.projectSaveStatus]);
 
   const handlePlay = useCallback(async () => {
     try {
@@ -318,7 +436,7 @@ export default function App() {
     const controller = new AbortController();
     aiControllerRef.current = controller;
     const startedAt = Date.now();
-    const engine = backend.state === "connected"
+    const engine = backendCanInfer
       ? `Local ${backend.models.activeRuntime.toUpperCase()}`
       : "Browser linear / theory";
     setAiJob({
@@ -327,18 +445,28 @@ export default function App() {
       stage: "Generating 3 candidates",
       progress: 8,
       startedAt,
-      device: backend.state === "connected" ? backend.models.activeRuntime : "browser",
-      backend: backend.state === "connected" ? backend.models.activeModel : "browser-linear",
+      device: backendCanInfer ? backend.models.activeRuntime : "browser",
+      backend: backendCanInfer ? backend.models.activeModel : "browser-linear",
     });
 
     try {
       // Yield once so controls, playback, and the progress state paint first.
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
       if (controller.signal.aborted) return;
-      const count = store.generatePreviewVariations({
-        target: regenerationTarget,
-        strength: regenerationStrength,
-      });
+      const count = await store.generatePreviewVariations(
+        {
+          target: regenerationTarget,
+          strength: regenerationStrength,
+        },
+        {
+          signal: controller.signal,
+          onProgress: (attempt, maximumAttempts) => setAiJob((current) => ({
+            ...current,
+            stage: `Generating candidates · ${attempt}/${maximumAttempts}`,
+            progress: 8 + (attempt / maximumAttempts) * 42,
+          })),
+        },
+      );
       if (count === 0) {
         setAiJob((current) => ({
           ...current,
@@ -360,7 +488,9 @@ export default function App() {
       }));
 
       let usedRuntime = "browser-linear";
-      if (backend.state === "connected") {
+      let completedFallback: string | null = null;
+      let usedBrowserFallback = false;
+      if (backendCanInfer) {
         try {
           const response = await rankCandidatesOnServer(
             previews.map((candidate, index) => ({
@@ -368,24 +498,53 @@ export default function App() {
               features: featureVector(features[index] as PreferenceFeatureSet, preferenceCategory),
             })),
             preferenceProfile.model.categories[preferenceCategory].weights,
+            serverPreferenceCategory(preferenceCategory),
             controller.signal,
           );
           setServerScores(Object.fromEntries(
             response.ranked.map((candidate) => [candidate.id, candidate.score]),
           ));
           setRankingRuntime(response.runtime);
+          completedFallback = fallbackLabel(response.fallbackReason);
+          setLastRankInfo({
+            runtime: response.runtime,
+            batchSize: response.batchSize,
+            fallback: completedFallback,
+          });
           usedRuntime = response.runtime;
-        } catch {
+        } catch (error) {
           if (controller.signal.aborted) return;
           setServerScores({});
           setRankingRuntime("browser-linear");
-          setToast(
-            "ローカル推論に失敗しました。曲は変更せず、ブラウザの軽量ランキングへ切り替えました。Diagnosticsから再試行できます。",
-          );
+          setLastRankInfo({
+            runtime: "browser-linear",
+            batchSize: null,
+            fallback: "Local inference failed · browser fallback",
+          });
+          completedFallback = isLocalAccessError(error)
+            ? "Access link expired · browser fallback"
+            : "Local inference failed · browser fallback";
+          usedBrowserFallback = true;
+          if (isLocalAccessError(error)) {
+            setBackend((current) => current.state === "connected"
+              ? { ...current, inferenceAuthorized: false }
+              : current);
+          } else if (
+            !(error instanceof LocalApiError)
+            || isLocalConnectivityError(error)
+          ) {
+            setBackend({
+              state: "browser",
+              reason: "unreachable",
+              message: "ローカルAIサーバーとの接続が切れました。ブラウザモードへ切り替えました。",
+            });
+            scheduleBackendRecovery();
+          }
         }
       } else {
         setServerScores({});
         setRankingRuntime("browser-linear");
+        setLastRankInfo({ runtime: "browser-linear", batchSize: null, fallback: null });
       }
 
       if (controller.signal.aborted) return;
@@ -394,11 +553,15 @@ export default function App() {
       setAiJob((current) => ({
         ...current,
         state: "completed",
-        label: `${count} candidates ready · ${usedRuntime}`,
+        label: `${count} candidates ready · ${usedRuntime}${completedFallback ? ` · ${completedFallback}` : ""}`,
         stage: "Complete",
         progress: 100,
       }));
-      setToast(`${count}つの候補を生成しました。正式データはまだ変更されていません。`);
+      setToast(usedBrowserFallback
+        ? `${count}つの候補をブラウザへ安全にフォールバックして生成しました。正式データは変更されていません。`
+        : completedFallback
+          ? `${count}つの候補を生成しました。${completedFallback}。正式データは変更されていません。`
+          : `${count}つの候補を生成しました。正式データはまだ変更されていません。`);
     } catch {
       if (controller.signal.aborted) return;
       setAiJob((current) => ({
@@ -418,7 +581,7 @@ export default function App() {
     features: PreferenceFeatureSet,
     feedback: "like" | "dislike" | "favorite" | "notMyStyle" | "abSelected" | "adopted",
   ) => {
-    if (backend.state !== "connected") return;
+    if (!backendCanInfer) return;
     void updateServerPreference(
       serverPreferenceCategory(preferenceCategory),
       feedback,
@@ -434,8 +597,7 @@ export default function App() {
     preferenceProfile.record({ type: feedback, features, category: preferenceCategory });
     syncPreferenceToServer(features, feedback);
     setServerScores({});
-    const label = feedback === "notMyStyle" ? "Not my style" : feedback;
-    setToast(`${label} を記録しました。根拠が十分になるまで好みを断定しません。`);
+    setToast(`${FEEDBACK_LABELS[feedback]} を記録しました。根拠が十分になるまで好みを断定しません。`);
   };
 
   const handleAdoptVariation = (index: number) => {
@@ -544,7 +706,8 @@ export default function App() {
   const handleImport = async (file: File | undefined) => {
     if (!file) return;
     try {
-      store.importJson(await file.text());
+      const imported = await importCompositionFile(file);
+      store.importJson(imported.json);
       setSelectedNoteIds([]);
       setSelectedChordId(null);
       setToast("JSONから楽曲を復元しました。");
@@ -555,17 +718,22 @@ export default function App() {
     }
   };
 
-  const loopStartBar = Math.floor(store.loopRange.startTick / composition.ticksPerBar) + 1;
-  const loopEndBar = Math.ceil(store.loopRange.endTick / composition.ticksPerBar);
-  const loopLabel =
-    loopStartBar === 1 && loopEndBar === composition.bars.length
-      ? "全体ループ"
-      : `${loopStartBar}–${loopEndBar} 小節ループ`;
-  const engineLabel = backend.state === "connected"
-    ? rankingRuntime === "browser-linear" && aiJob.state === "error"
-      ? "Browser fallback"
-      : `Local ${backend.models.activeRuntime.toUpperCase()}`
-    : "Browser / Theory-only";
+  const loopLabel = formatLoopLabel(playbackComposition, store.playbackLoopRange);
+  const draftLoopLabel = formatLoopLabel(composition, store.loopRange);
+  const pendingLoopLabel = store.pendingCommit && draftLoopLabel !== loopLabel
+    ? draftLoopLabel
+    : null;
+  const editorCurrentTick = mapPlaybackTickToDraft(
+    store.playback.currentTick,
+    playbackComposition,
+    composition,
+  );
+  const engineLabel = formatEngineLabel(
+    backendCanInfer,
+    backend.state === "connected" ? backend.models.activeRuntime : "cpu",
+    rankingRuntime,
+    aiJob.state,
+  );
   const backendDiagnostics = useMemo<BackendDiagnostics>(() => {
     if (backend.state === "checking") {
       return {
@@ -578,19 +746,24 @@ export default function App() {
       };
     }
     if (backend.state === "browser") {
+      const apiMismatch = backend.reason === "api-mismatch";
       return {
         connection: "disconnected",
         device: "Browser / CPU",
         inferenceBackend: "Browser linear / Theory-only",
         models: [],
-        apiCompatibility: "unknown",
+        apiCompatibility: apiMismatch ? "incompatible" : "unknown",
         expectedApiVersion: "1",
         error: {
-          title: "ローカル推論サーバーへ接続できません",
+          title: apiMismatch
+            ? "ローカル推論サーバーのAPIに互換性がありません"
+            : "ローカル推論サーバーへ接続できません",
           message: "生成・再生・編集・保存はブラウザ内で継続できます。曲データは安全です。",
-          remedy: "高速推論が必要ならデスクトップ側のサーバーを起動し、「診断を再実行」を押してください。",
+          remedy: apiMismatch
+            ? "フロントエンドとバックエンドを同じリリースへ更新してください。"
+            : "高速推論が必要ならデスクトップ側のサーバーを起動し、「診断を再実行」を押してください。",
           canRetry: true,
-          diagnosticCode: "LOCAL_API_UNREACHABLE",
+          diagnosticCode: apiMismatch ? "LOCAL_API_VERSION_MISMATCH" : "LOCAL_API_UNREACHABLE",
         },
       };
     }
@@ -598,14 +771,14 @@ export default function App() {
     return {
       connection: "connected",
       device: backend.device.deviceName,
-      inferenceBackend: `${backend.models.activeModel} / ${backend.models.activeRuntime}`,
+      inferenceBackend: `${backend.models.activeModel} / ${backend.models.activeRuntime}${lastRankInfo ? ` · last ${lastRankInfo.runtime}${lastRankInfo.batchSize ? ` batch ${lastRankInfo.batchSize}` : ""}${lastRankInfo.fallback ? ` · ${lastRankInfo.fallback}` : ""}` : ""}`,
       models: backend.models.models
         .filter((model) => model.id !== "browser-linear-v1")
         .map((model) => ({
           id: model.id,
           name: model.name,
           status: model.available ? "ready" as const : "missing" as const,
-          detail: `${model.runtime}${model.loaded ? " · loaded" : " · available on demand"}`,
+          detail: `${model.runtime}${model.loaded ? " · loaded" : " · available on demand"}${model.id === backend.models.activeModel && fallbackLabel(backend.models.fallbackReason) ? ` · ${fallbackLabel(backend.models.fallbackReason)}` : ""}`,
         })),
       apiCompatibility: serverApiVersion === undefined
         ? "unknown"
@@ -614,20 +787,53 @@ export default function App() {
           : "incompatible",
       serverApiVersion,
       expectedApiVersion: "1",
+      serverVersion: backend.health.version,
+      pythonVersion: backend.health.pythonVersion,
+      platformSystem: backend.health.platformSystem,
+      platformMachine: backend.health.platformMachine,
+      error: backend.inferenceAuthorized ? undefined : {
+        title: "ローカル推論にはアクセスリンクが必要です",
+        message: "サーバー診断には接続できていますが、保護された推論操作はブラウザモードへフォールバックします。曲データは安全です。",
+        remedy: "デスクトップの起動ログに表示された #access=... 付きURLを、この端末で開いてください。",
+        canRetry: true,
+        diagnosticCode: "LOCAL_API_ACCESS_REQUIRED",
+      },
     };
-  }, [backend]);
-  const diagnosticStorageMode = preferenceProfile.persistenceMode === "indexedDB"
-    ? "indexeddb" as const
+  }, [backend, lastRankInfo]);
+  const diagnosticProjectStorageMode = store.projectSaveStatus === "recovery"
+    ? store.projectRecoveryReason === "unsupported"
+      ? "unsupported" as const
+      : "recovery" as const
+    : store.projectSaveStatus === "error"
+    ? "unavailable" as const
+    : store.projectSaveStatus === "session"
+      ? "memory" as const
+      : "localStorage" as const;
+  const diagnosticHistoryStorageMode = store.projectSaveStatus === "error"
+    ? "unavailable" as const
+    : store.projectSaveStatus === "saving"
+      ? "pending" as const
     : store.projectSaveStatus === "saved"
       ? "localStorage" as const
       : "memory" as const;
+  const diagnosticPreferenceStorageMode = preferenceProfile.persistenceMode === "indexedDB"
+    ? "indexeddb" as const
+    : preferenceProfile.persistenceMode === "localStorage"
+      ? "localStorage" as const
+      : "memory" as const;
+  const modalOpen = diagnosticsOpen || tutorialOpen;
 
   return (
     <div className="app-shell">
+      <div className="app-content" inert={modalOpen} aria-hidden={modalOpen}>
       <TransportBar
         status={store.playback.status}
-        position={formatBarBeat(store.playback.currentTick, composition.ppq, composition.ticksPerBar)}
-        bpm={composition.settings.bpm}
+        position={formatBarBeat(
+          store.playback.currentTick,
+          playbackComposition.ppq,
+          playbackComposition.ticksPerBar,
+        )}
+        bpm={playbackComposition.settings.bpm}
         loopLabel={loopLabel}
         canUndo={store.historyIndex > 0}
         canRedo={store.historyIndex < store.history.length - 1}
@@ -649,8 +855,9 @@ export default function App() {
       <ProjectStatusBar
         playback={store.playback.status}
         currentTick={store.playback.currentTick}
-        ticksPerBar={composition.ticksPerBar}
+        ticksPerBar={playbackComposition.ticksPerBar}
         loopLabel={loopLabel}
+        pendingLoopLabel={pendingLoopLabel}
         pendingCommit={store.pendingCommit}
         updateTiming={store.playback.updateTiming}
         aiJob={aiJob}
@@ -658,7 +865,13 @@ export default function App() {
         saveStatus={store.projectSaveStatus}
         lastSavedAt={store.lastSavedAt}
         online={online}
-        backendConnected={backend.state === "connected"}
+        connectionLabel={backend.state === "checking"
+          ? "Checking local server"
+          : backend.state === "browser"
+            ? backend.reason === "api-mismatch" ? "API mismatch · Browser mode" : "Browser mode"
+            : backend.inferenceAuthorized
+              ? "Local server connected"
+              : "Local server connected · access required"}
         onCancelAi={cancelAiJob}
         onOpenDiagnostics={() => setDiagnosticsOpen(true)}
       />
@@ -710,7 +923,7 @@ export default function App() {
               composition={composition}
               selectedRange={store.selectedBarRange}
               selectedChordId={selectedChordId}
-              currentTick={store.playback.currentTick}
+              currentTick={editorCurrentTick}
               lockedBars={store.lockedBars}
               onBarSelect={handleBarSelect}
               onChordSelect={handleChordSelect}
@@ -718,7 +931,7 @@ export default function App() {
             />
             <PianoRoll
               composition={composition}
-              currentTick={store.playback.currentTick}
+              currentTick={editorCurrentTick}
               selectedRange={store.selectedBarRange}
               selectedNoteIds={selectedNoteIds}
               onNoteSelect={handleNoteSelect}
@@ -761,7 +974,13 @@ export default function App() {
               <PreferencePanel
                 explanation={preferenceExplanation}
                 category={preferenceCategory}
-                onCategoryChange={setPreferenceCategory}
+                onCategoryChange={(category) => {
+                  setPreferenceCategory(category);
+                  // Scores returned for the previous feature namespace cannot
+                  // be reused for another preference category.
+                  setServerScores({});
+                  setRankingRuntime("browser-linear");
+                }}
                 onExport={handlePreferenceExport}
                 onImport={() => preferenceImportInputRef.current?.click()}
                 onReset={() => {
@@ -851,12 +1070,15 @@ export default function App() {
         onChange={(event) => void handlePreferenceImport(event.target.files?.[0])}
         aria-label="好み学習JSONを読み込む"
       />
+      </div>
 
       {diagnosticsOpen && (
         <DiagnosticsPanel
           browserCapabilities={browserCapabilities}
           backend={backendDiagnostics}
-          storageMode={diagnosticStorageMode}
+          projectStorageMode={diagnosticProjectStorageMode}
+          historyStorageMode={diagnosticHistoryStorageMode}
+          preferenceStorageMode={diagnosticPreferenceStorageMode}
           audioError={audioError}
           onRetry={retryDiagnostics}
           onClose={() => setDiagnosticsOpen(false)}

@@ -4,6 +4,7 @@ import {
   CompositionImportError,
   exportCompositionJson,
   exportCompositionMidi,
+  importCompositionFile,
   importCompositionJson,
 } from "../src/features/export";
 import { DEFAULT_GENERATOR_SETTINGS, generateComposition } from "../src/music";
@@ -16,9 +17,60 @@ describe("composition export", () => {
 
   it("round-trips the versioned JSON format", () => {
     const json = exportCompositionJson(composition);
+    const document = JSON.parse(json) as { schemaVersion: number; appVersion: string };
+    expect(document.schemaVersion).toBe(1);
+    expect(document.appVersion).toMatch(/^0\.2\./);
     const imported = importCompositionJson(json);
     expect(imported).toEqual(composition);
     expect(imported).not.toBe(composition);
+  });
+
+  it("migrates legacy v1 documents and rejects unknown project schemas", () => {
+    const legacy = JSON.parse(exportCompositionJson(composition)) as Record<string, unknown>;
+    delete legacy.schemaVersion;
+    delete legacy.appVersion;
+    expect(importCompositionJson(JSON.stringify(legacy))).toEqual(composition);
+
+    const future = JSON.parse(exportCompositionJson(composition)) as Record<string, unknown>;
+    future.schemaVersion = 999;
+    expect(() => importCompositionJson(JSON.stringify(future))).toThrow(
+      /Unsupported project schema version/,
+    );
+  });
+
+  it("accepts legacy harmony settings and rejects invalid advanced control values", () => {
+    const legacy = JSON.parse(exportCompositionJson(composition)) as {
+      composition: {
+        settings: {
+          harmony?: Record<string, unknown>;
+        };
+      };
+    };
+    const legacyHarmony = legacy.composition.settings.harmony;
+    expect(legacyHarmony).toBeDefined();
+    if (!legacyHarmony) return;
+    delete legacyHarmony.borrowedChordRate;
+    delete legacyHarmony.secondaryDominantRate;
+    delete legacyHarmony.explorationRate;
+    delete legacyHarmony.voiceLeadingStrength;
+    expect(importCompositionJson(JSON.stringify(legacy)).settings.harmony).toEqual({
+      complexity: "triads",
+    });
+
+    for (const field of [
+      "borrowedChordRate",
+      "secondaryDominantRate",
+      "explorationRate",
+      "voiceLeadingStrength",
+    ]) {
+      const invalid = JSON.parse(exportCompositionJson(composition)) as {
+        composition: { settings: { harmony: Record<string, unknown> } };
+      };
+      invalid.composition.settings.harmony[field] = -0.01;
+      expect(() => importCompositionJson(JSON.stringify(invalid))).toThrow(
+        /incomplete or out of range/,
+      );
+    }
   });
 
   it("rejects malformed and unsupported JSON documents", () => {
@@ -32,6 +84,34 @@ describe("composition export", () => {
         }),
       ),
     ).toThrow(/Unsupported composition version/);
+  });
+
+  it("validates file size and type hints before replacing a project", async () => {
+    const validText = exportCompositionJson(composition);
+    const imported = await importCompositionFile({
+      name: "project.json",
+      size: validText.length,
+      type: "",
+      text: async () => validText,
+    });
+    expect(imported.composition).toEqual(composition);
+    expect(imported.json).toBe(validText);
+
+    await expect(importCompositionFile({
+      name: "project.json",
+      size: 6_000_001,
+      type: "application/json",
+      text: async () => {
+        throw new Error("oversized files must not be read");
+      },
+    })).rejects.toThrow(/too large/);
+
+    await expect(importCompositionFile({
+      name: "cover.png",
+      size: 100,
+      type: "image/png",
+      text: async () => validText,
+    })).rejects.toThrow(/JSON project file/);
   });
 
   it("rejects out-of-range MIDI velocity during import", () => {
