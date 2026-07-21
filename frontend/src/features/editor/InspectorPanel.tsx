@@ -182,10 +182,10 @@ export function InspectorPanel({
       <section className="inspector-section local-engine">
         <div className="inspector-section-heading">
           <span>推論エンジン</span>
-          <strong>{backend.state === "connected" ? backend.models.activeRuntime.toUpperCase() : "BROWSER"}</strong>
+          <strong>{backend.state === "connected" && backend.inferenceAuthorized ? backend.models.activeRuntime.toUpperCase() : "BROWSER"}</strong>
         </div>
         <p>
-          {backend.state === "connected"
+          {backend.state === "connected" && backend.inferenceAuthorized
             ? backend.models.activeRuntime !== "cpu"
               ? `${backend.device.deviceName} · ${backend.models.activeModel}`
               : backend.device.torchAvailable || backend.device.onnxRuntimeAvailable
@@ -193,7 +193,9 @@ export function InspectorPanel({
                 : "決定的CPUランキングとブラウザ生成を使用しています。"
             : backend.state === "checking"
               ? "ローカルサーバーを確認しています。"
-              : backend.message}
+              : backend.state === "connected"
+                ? "ローカルサーバーは接続済みです。起動ログの #access=... 付きURLを開くまでは、ブラウザ推論を使用します。"
+                : backend.message}
         </p>
       </section>
 

@@ -70,6 +70,25 @@ const SPECIAL_KINDS: readonly HarmonyCandidateKind[] = [
   "addedTone",
 ];
 
+function harmonyKindWeight(
+  preset: StylePreset,
+  settings: ProgressionGeneratorSettings,
+  kind: HarmonyCandidateKind,
+): number {
+  const baseWeight = preset.harmonyWeights[kind];
+  if (!SPECIAL_KINDS.includes(kind)) return baseWeight;
+
+  const explorationRate = settings.harmony?.explorationRate ?? 1;
+  if (explorationRate === 0) return 0;
+  if (kind === "borrowed") {
+    return baseWeight * explorationRate * (settings.harmony?.borrowedChordRate ?? 1);
+  }
+  if (kind === "secondaryDominant") {
+    return baseWeight * explorationRate * (settings.harmony?.secondaryDominantRate ?? 1);
+  }
+  return baseWeight * explorationRate;
+}
+
 function availableKinds(
   preset: StylePreset,
   settings: ProgressionGeneratorSettings,
@@ -84,7 +103,7 @@ function availableKinds(
       ? ["triad", "seventh"]
       : ["triad", "seventh", ...SPECIAL_KINDS];
   return requested.filter((kind) =>
-    preset.harmonyWeights[kind] > 0 &&
+    harmonyKindWeight(preset, settings, kind) > 0 &&
     canCreateHarmonyCandidate(kind, settings.key, settings.mode, degree, targetDegree),
   );
 }
@@ -110,7 +129,7 @@ function chooseChordKinds(
     );
     return random.weightedPick(
       available,
-      available.map((kind) => preset.harmonyWeights[kind]),
+      available.map((kind) => harmonyKindWeight(preset, settings, kind)),
     );
   });
 
@@ -126,10 +145,12 @@ function chooseChordKinds(
     const degree = degrees[forcedIndex] as number;
     const targetDegree = degrees[forcedIndex + 1];
     const availableSpecial = SPECIAL_KINDS.filter((kind) =>
-      preset.harmonyWeights[kind] > 0 &&
+      harmonyKindWeight(preset, settings, kind) > 0 &&
       canCreateHarmonyCandidate(kind, settings.key, settings.mode, degree, targetDegree),
     ).sort((left, right) =>
-      preset.harmonyWeights[right] - preset.harmonyWeights[left] || left.localeCompare(right),
+      harmonyKindWeight(preset, settings, right)
+        - harmonyKindWeight(preset, settings, left)
+        || left.localeCompare(right),
     );
     kinds[forcedIndex] = availableSpecial[0] ?? "seventh";
   }
@@ -175,6 +196,7 @@ export function generateProgression(
         durationTick,
         id: `chord-${barIndex}-${idHash}`,
         previousNotes: chords[chords.length - 1]?.notes,
+        voiceLeadingStrength: settings.harmony?.voiceLeadingStrength ?? 1,
         suspension: hashSeed(deriveSeed(settings.seed, "suspension", barIndex)) % 2 === 0
           ? 2
           : 4,

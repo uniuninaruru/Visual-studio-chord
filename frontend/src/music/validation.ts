@@ -43,8 +43,8 @@ function warning(
   return { code, severity: "warning", message, ...context };
 }
 
-function isProbability(value: number): boolean {
-  return Number.isFinite(value) && value >= 0 && value <= 1;
+function isProbability(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
 export function validateGeneratorSettings(settings: GeneratorSettings): ValidationResult {
@@ -131,16 +131,30 @@ export function validateGeneratorSettings(settings: GeneratorSettings): Validati
       issues.push(error(`settings.melody.${name}`, `${name} must be between 0 and 1.`));
     }
   }
-  if (
-    settings.harmony &&
-    !["triads", "sevenths", "advanced"].includes(settings.harmony.complexity)
-  ) {
-    issues.push(
-      error(
-        "settings.harmony.complexity",
-        "Harmony complexity must be triads, sevenths, or advanced.",
-      ),
-    );
+  if (settings.harmony) {
+    if (!["triads", "sevenths", "advanced"].includes(settings.harmony.complexity)) {
+      issues.push(
+        error(
+          "settings.harmony.complexity",
+          "Harmony complexity must be triads, sevenths, or advanced.",
+        ),
+      );
+    }
+    for (const [name, value] of Object.entries({
+      borrowedChordRate: settings.harmony.borrowedChordRate,
+      secondaryDominantRate: settings.harmony.secondaryDominantRate,
+      explorationRate: settings.harmony.explorationRate,
+      voiceLeadingStrength: settings.harmony.voiceLeadingStrength,
+    })) {
+      if (value !== undefined && !isProbability(value)) {
+        issues.push(
+          error(
+            `settings.harmony.${name}`,
+            `Harmony ${name} must be between 0 and 1.`,
+          ),
+        );
+      }
+    }
   }
   if (settings.motif) {
     if (typeof settings.motif.enabled !== "boolean") {

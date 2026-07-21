@@ -196,7 +196,11 @@ function chordCandidates(
   return candidates;
 }
 
-function voicingCost(notes: readonly number[], previousNotes?: readonly number[]): number {
+function voicingCost(
+  notes: readonly number[],
+  previousNotes: readonly number[] | undefined,
+  voiceLeadingStrength: number,
+): number {
   const centerCost = notes.reduce((sum, note) => sum + Math.abs(note - 60), 0) * 0.08;
   const bassCost = Math.abs((notes[0] as number) - 50) * 0.12;
   if (!previousNotes || previousNotes.length === 0) return centerCost + bassCost;
@@ -208,7 +212,16 @@ function voicingCost(notes: readonly number[], previousNotes?: readonly number[]
   const commonPitchClasses = notes.filter((note) =>
     previousNotes.some((prior) => prior % 12 === note % 12),
   ).length;
-  return movement + centerCost + bassCost - commonPitchClasses * 1.5;
+  // Preserve the exact operation order used by the original implementation at
+  // the default strength so seeded tie-breaking cannot drift.
+  if (voiceLeadingStrength === 1) {
+    return movement + centerCost + bassCost - commonPitchClasses * 1.5;
+  }
+  return (
+    (movement - commonPitchClasses * 1.5) * voiceLeadingStrength
+    + centerCost
+    + bassCost
+  );
 }
 
 /** Closed-position voicing with deterministic, lightweight voice-leading. */
@@ -217,7 +230,15 @@ export function voiceChord(
   quality: ChordQuality,
   previousNotes?: readonly number[],
   requestedInversion?: number,
+  voiceLeadingStrength = 1,
 ): { notes: number[]; inversion: number } {
+  if (
+    !Number.isFinite(voiceLeadingStrength)
+    || voiceLeadingStrength < 0
+    || voiceLeadingStrength > 1
+  ) {
+    throw new RangeError("voiceLeadingStrength must be between 0 and 1.");
+  }
   const candidates = chordCandidates(
     pitchClassToSemitone(root),
     quality,
@@ -225,8 +246,8 @@ export function voiceChord(
   );
   if (candidates.length === 0) throw new Error("No playable chord voicing found.");
   return candidates.reduce((best, candidate) => {
-    const bestCost = voicingCost(best.notes, previousNotes);
-    const candidateCost = voicingCost(candidate.notes, previousNotes);
+    const bestCost = voicingCost(best.notes, previousNotes, voiceLeadingStrength);
+    const candidateCost = voicingCost(candidate.notes, previousNotes, voiceLeadingStrength);
     if (candidateCost !== bestCost) return candidateCost < bestCost ? candidate : best;
     return candidate.notes.join(",") < best.notes.join(",") ? candidate : best;
   });
@@ -283,6 +304,7 @@ export interface CreateDiatonicChordOptions {
   id: string;
   previousNotes?: readonly number[];
   seventh?: boolean;
+  voiceLeadingStrength?: number;
 }
 
 export function createDiatonicChordEvent(
@@ -295,6 +317,8 @@ export function createDiatonicChordEvent(
     definition.root,
     definition.quality,
     options.previousNotes,
+    undefined,
+    options.voiceLeadingStrength,
   );
   return {
     id: options.id,

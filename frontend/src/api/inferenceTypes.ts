@@ -1,87 +1,30 @@
-export interface HealthResponse {
-  status: "ok";
-  service: string;
-  version: string;
-  apiVersion?: string;
-  requestId?: string;
-}
+import type { components } from "./generated";
 
-export type RuntimeDevice = "cpu" | "cuda" | "mps" | "coreml" | "directml";
-export type ServerModelId =
-  | "local-deterministic-v1"
-  | "local-mlp-v1"
-  | "local-onnx-v1";
+type Schemas = components["schemas"];
 
-export interface DeviceResponse {
-  selectedDevice: RuntimeDevice;
-  torchAvailable: boolean;
-  onnxRuntimeAvailable: boolean;
-  cudaAvailable: boolean;
-  torchCudaAvailable: boolean;
-  mpsAvailable: boolean;
-  coremlAvailable: boolean;
-  directmlAvailable: boolean;
-  deviceName: string;
-  cudaDeviceCount: number;
-  totalMemoryMb: number | null;
-}
+export type HealthResponse = Schemas["HealthResponse"];
+export type DeviceResponse = Schemas["DeviceResponse"];
+export type ModelInfo = Schemas["ModelInfo"];
+export type ModelsResponse = Schemas["ModelsResponse"];
+export type RankResponse = Schemas["RankResponse"];
+export type PreferenceUpdateResponse = Schemas["PreferenceUpdateResponse"];
+export type RuntimeDevice = HealthResponse["runtime"];
+export type ServerModelId = HealthResponse["activeModel"];
+export type ServerPreferenceCategory = Schemas["PreferenceUpdateRequest"]["category"];
+export type ServerPreferenceFeedback = Schemas["PreferenceUpdateRequest"]["feedback"];
 
-export interface ModelInfo {
-  id: string;
-  name: string;
-  runtime: RuntimeDevice | "browser";
-  available: boolean;
-  loaded: boolean;
-  capabilities: Array<"rank">;
-}
-
-export interface ModelsResponse {
-  models: ModelInfo[];
-  activeModel: ServerModelId;
-  activeRuntime: RuntimeDevice;
-  fallbackReason?: string | null;
-}
-
-export interface RankCandidate {
-  id: string;
-  features: Record<string, number>;
-}
-
-export interface RankResponse {
-  ranked: Array<{ id: string; score: number }>;
-  device: RuntimeDevice;
-  modelId: ServerModelId;
-  runtime: RuntimeDevice;
-  batchSize: number;
-  fallbackReason?: string | null;
-}
-
-export type ServerPreferenceCategory = "chords" | "melody" | "rhythm" | "voicing" | "combined";
-export type ServerPreferenceFeedback =
-  | "like"
-  | "dislike"
-  | "favorite"
-  | "abSelected"
-  | "notMyStyle"
-  | "adopted"
-  | "immediateUndo"
-  | "saved"
-  | "midiExported"
-  | "replayed"
-  | "manuallyEdited";
-
-export interface PreferenceUpdateResponse {
-  weights: Record<string, number>;
-  evaluationCount: number;
-  confidence: number;
-}
+/** The UI always sends an explicit feature map even though the API defaults it. */
+export type RankCandidate = Omit<Schemas["RankCandidate"], "features"> & {
+  features: NonNullable<Schemas["RankCandidate"]["features"]>;
+};
 
 export type BackendConnection =
   | { state: "checking" }
-  | { state: "browser"; message: string }
+  | { state: "browser"; message: string; reason: "unreachable" | "api-mismatch" }
   | {
       state: "connected";
       health: HealthResponse;
       device: DeviceResponse;
       models: ModelsResponse;
+      inferenceAuthorized: boolean;
     };

@@ -1,20 +1,30 @@
 {
   "name": "harmony-lab",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "packageManager": "pnpm@11.9.0",
   "workspaces": [
     "frontend"
   ],
   "scripts": {
-    "dev": "pnpm --dir frontend dev",
-    "build": "pnpm --dir frontend build",
-    "typecheck": "pnpm --dir frontend typecheck",
-    "lint": "pnpm --dir frontend lint",
-    "test": "pnpm --dir frontend test",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+    "dev": "node scripts/frontend-command.mjs dev",
+    "build": "node scripts/frontend-command.mjs build",
+    "typecheck": "node scripts/frontend-command.mjs typecheck",
+    "lint": "node scripts/frontend-command.mjs lint",
+    "test": "node scripts/frontend-command.mjs test",
+    "test:e2e": "playwright test",
+    "test:e2e:lan": "playwright test --config=playwright.lan.config.ts",
+    "api:types": "node scripts/generate-api-types.mjs",
+    "api:types:check": "node scripts/generate-api-types.mjs --check",
+    "check": "node scripts/frontend-command.mjs typecheck lint test build"
   },
   "engines": {
-    "node": ">=22.13"
+    "node": ">=24.14.0 <25",
+    "npm": ">=11.9.0 <12"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.12.1",
+    "@playwright/test": "1.61.1",
+    "openapi-typescript": "7.13.0"
   }
 }

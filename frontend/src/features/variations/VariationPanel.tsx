@@ -3,6 +3,8 @@ import type { GeneratedComposition } from "../../types/music";
 
 export interface VariationCandidate {
   composition: GeneratedComposition;
+  /** Index in the store's immutable previewVariations array. */
+  sourceIndex: number;
   preference?: PreferenceScore | null;
 }
 
@@ -66,10 +68,10 @@ export function VariationPanel({
         </p>
       ) : (
         <div className="variation-card-grid">
-          {visibleCandidates.map((candidate, index) => {
-            const label = candidateLabel(index);
-            const isAuditioning = activeAuditionIndex === index;
-            const { composition, preference } = candidate;
+          {visibleCandidates.map((candidate) => {
+            const label = candidateLabel(candidate.sourceIndex);
+            const isAuditioning = activeAuditionIndex === candidate.sourceIndex;
+            const { composition, preference, sourceIndex } = candidate;
 
             return (
               <article
@@ -109,14 +111,14 @@ export function VariationPanel({
                     className="secondary-button variation-audition-button"
                     type="button"
                     aria-pressed={isAuditioning}
-                    onClick={() => onAudition(isAuditioning ? null : index)}
+                    onClick={() => onAudition(isAuditioning ? null : sourceIndex)}
                   >
                     {isAuditioning ? "試聴を停止" : "同じ位置から試聴"}
                   </button>
                   <button
                     className="primary-button variation-adopt-button"
                     type="button"
-                    onClick={() => onAdopt(index)}
+                    onClick={() => onAdopt(sourceIndex)}
                   >
                     この候補を採用
                   </button>
@@ -128,7 +130,7 @@ export function VariationPanel({
                       key={action.type}
                       className={`preference-action preference-${action.type}`}
                       type="button"
-                      onClick={() => onFeedback(index, action.type)}
+                      onClick={() => onFeedback(sourceIndex, action.type)}
                     >
                       {action.label}
                     </button>

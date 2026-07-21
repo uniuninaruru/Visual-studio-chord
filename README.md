@@ -1,32 +1,10 @@
 # Harmony Lab
 
-音楽理論に基づくコード進行とメロディを生成し、聴きながら部分編集・部分再生成できるローカル優先の作曲支援Webアプリです。設計書の Phase 1（編集可能なMVP）を実装しています。
+音楽理論に基づくコード進行とメロディを生成し、再生を止めずに編集・部分再生成できる、ローカル優先の作曲支援Webアプリです。CPUだけで基本機能が動き、利用可能な場合だけCUDA、MPS、Core ML、DirectMLを高速化に使います。
 
-## できること
+## 最短で起動する
 
-- 12キー、Major / Natural Minor、4/4・3/4・6/8、4・8・16小節に対応
-- Pop、J-Pop、Rock、Jazz、Lo-fi、EDM、Ballad、Game Musicのスタイル別生成
-- 固定シードによる再現可能なコード進行・メロディ生成
-- ダイアトニック進行、ローマ数字、Tonic / Predominant / Dominant表示
-- Tone.jsによるループ再生と再生ヘッド
-- 1小節または連続小節の選択、選択範囲だけの部分再生成
-- 小節ロック、コード直接編集、ノート移調・時間移動・音価変更・削除
-- 再生中の変更を Immediate / Next Beat / Next Bar / Next Loop で安全に反映
-- Undo / Redo、localStorage保存、JSON入出力、2トラックMIDI出力
-- FastAPIのhealth/device/models/rank API、CUDA検出とCPU/Browserフォールバック
-
-## 必要環境
-
-- 推奨: Docker Desktop、またはDocker Engine + Compose v2
-- ネイティブ開発時のみ: Node.js 22.13以上、pnpm 11以上またはnpm、Python 3.10以上
-
-Docker起動ではホスト側のNode.js、Python、PyTorch、CUDAは不要です。macOS、Windows、Linuxで同じローカルCPU構成を起動します。ブラウザはデスクトップでもスマートフォンでも利用でき、AIランキングなどの重い処理はデスクトップ側のFastAPIへ送ります。PyTorchがない場合もCPUへフォールバックします。
-
-## セットアップ
-
-### macOS / Windows / Linux共通（推奨）
-
-Dockerだけを使用するため、ホスト側の言語ランタイム差に依存しません。
+Docker DesktopまたはDocker Engine + Compose v2がある場合、ホスト側のNode.jsやPythonは不要です。
 
 macOS / Linux:
 
@@ -34,40 +12,42 @@ macOS / Linux:
 ./scripts/start-local.sh
 ```
 
-Windows PowerShell:
+Windows 11 PowerShell:
 
 ```powershell
 .\scripts\start-local.ps1
 ```
 
-または全OS共通:
+起動ログに次の2種類のURLが表示されます。
 
-```bash
-docker compose up --build
-```
+- `Desktop URL`: 同じPCで開くURL
+- `Phone URL`: 同じ信頼できるLAN内のスマートフォンやタブレットで開くURL
 
-起動後は `http://127.0.0.1:5173` を開きます。終了は `Control + C`、バックグラウンドコンテナの停止は `docker compose down` です。
+必ず、ログに表示された `#access=...` 付きURLをそのまま開いてください。認証情報はURLフラグメントからブラウザのセッション領域へ移され、アドレス欄から直ちに削除されます。終了は `Control + C`、コンテナの停止は `docker compose down` です。
 
-Docker版はフロントエンドだけをLANへ公開し、FastAPIはコンテナ内部に留めます。同じWi-Fi上のスマートフォンから `http://<デスクトップのプライベートIP>:5173` を開いてください。公共Wi-Fiやインターネットへ直接公開しないでください。
+> 公共Wi-Fiやインターネットへポート5173を直接公開しないでください。この構成は自宅・制作室などの信頼できるローカルネットワーク向けです。
 
-### ネイティブ開発
+## Dockerを使わない起動
+
+固定している標準環境はNode.js `24.14.0`、npmまたはpnpm `11.9.0`、Python `3.12.13`です。対応範囲はNode.js 24系、Python 3.11〜3.14です。
 
 macOS / Linux:
 
 ```bash
-chmod +x scripts/*.sh
 ./scripts/setup.sh
 ./scripts/dev.sh
 ```
 
-Windows PowerShell:
+Windows 11 PowerShell:
 
 ```powershell
 .\scripts\setup.ps1
 .\scripts\dev.ps1
 ```
 
-ネイティブ開発環境を同じLANのスマートフォンへ公開する場合:
+セットアップは依存関係、Python仮想環境、`.env`、モデル、利用可能な実行環境を確認します。既存の `.env` やプロジェクトデータを削除・上書きしません。バックエンドを起動できない場合もフロントエンドは終了せず、Browser / Theory-only modeで起動します。
+
+同じLANの端末から使う場合:
 
 ```bash
 # macOS / Linux
@@ -75,115 +55,191 @@ Windows PowerShell:
 ```
 
 ```powershell
-# Windows PowerShell
+# Windows
 .\scripts\serve-lan.ps1
 ```
 
-手動で行う場合:
+通常のローカルURLは `http://127.0.0.1:5173`、FastAPIは `http://127.0.0.1:8765` です。ポートは `.env` の `MTC_FRONTEND_PORT` と `APP_PORT` で変更できます。
+
+## GPU高速化（任意）
+
+基本セットアップにはGPUランタイムを含めません。先に通常起動ができることを確認し、その後だけ追加してください。
+
+macOS / Linux:
 
 ```bash
-pnpm install
-python3 -m venv .venv
-.venv/bin/python -m pip install -e 'backend[test]'
+./scripts/setup-acceleration.sh auto
 ```
 
-npmを使う場合は、最初のコマンドを `npm install` に置き換えられます。
+Windows 11:
 
-## ネイティブ起動
-
-フロントエンドとFastAPIを一括起動:
-
-```bash
-./scripts/dev.sh
+```powershell
+.\scripts\setup-acceleration.ps1 auto
 ```
 
-ブラウザで `http://127.0.0.1:5173` を開きます。FastAPIは `http://127.0.0.1:8765` で待ち受けます。
+スクリプトは固定済み依存関係をインストールし、GPUが「存在する」だけでなく、小さな実推論が成功することを確認します。失敗してもCPU / Browser機能は残ります。Windowsでは `cuda`、`directml`、`cpu` を明示でき、macOSではMPS / Core ML、LinuxではCUDAまたはCPUを選択できます。
 
-個別起動:
+推論の基本フォールバックは次のとおりです。
 
-```bash
-pnpm --dir frontend dev
-.venv/bin/uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8765
+```text
+利用可能なローカルGPU
+  → ローカルCPU
+    → ブラウザ軽量ランキング
+      → 音楽理論だけの決定的生成
 ```
 
-FastAPIを起動しなくても、フロントエンドはBrowserモードで動作します。
+CUDAや外部モデルは必須ではありません。Docker標準構成は移植性を優先したCPU版です。GPU版Dockerは任意構成で、CUDA利用にはホスト側ドライバーとNVIDIA Container Toolkitが必要です。
+
+## 主な機能
+
+- Major / Natural Minor / Harmonic Minor / Dorian / Mixolydian
+- 7th、セカンダリードミナント、借用和音、トライトーン代理、sus / add9
+- 固定シードによる再現可能なコード・メロディ生成（`Math.random()`不使用）
+- A/B/C候補をプレビューし、採用時だけ正式データへ反映
+- Like / Dislike / Favorite / A/B選択によるカテゴリ別好み学習
+- 再生を継続したまま、次の拍・小節・ループ境界で編集を安全に反映
+- ノート追加、複数選択、ドラッグ、コピー、ペースト、複製、クオンタイズ、削除
+- 小節ロック、コード直接編集、部分再生成、候補試聴
+- Undo / Redo、履歴名変更、履歴比較、任意履歴の復元
+- JSONプロジェクト入出力、コード＋メロディの2トラックMIDI出力
+- プロジェクトはlocalStorage → セッション内メモリ、好み学習はIndexedDB → localStorage → メモリへ段階的にフォールバック
+- 環境診断、初回チュートリアル、Basic / Advanced / Developer設定
+- キーボード操作、狭い画面のドロワー、固定Transport、横スクロール可能なピアノロール
 
 ## 基本操作
 
-1. 左の生成設定でキー、スケール、スタイル、BPM、小節数、メロディ密度、シードを選ぶ。
-2. 「この設定で生成」を押す。同じ設定とシードなら同じ結果になる。
-3. 上部の再生ボタンでループを聴く。
-4. コードレーンの小節をクリックする。Shift＋クリックで連続範囲を広げられる。
-5. 鍵ボタンで変更したくない小節を保護する。
-6. 下部で再生成対象を選び、「選択範囲を再生成」を押す。
-7. ノートまたはコードを選び、右のインスペクターで編集する。
-8. MIDIまたはJSONを書き出す。JSONは後から再読込できる。
+1. 初回チュートリアルまたはサンプル曲から開始します。
+2. Basic設定でKey、Scale、Style、BPM、Barsを選び、「この設定で生成」を押します。
+3. 上部のPlayを押します。状態バーに再生中の小節、ループ、保存、接続、推論モードが表示されます。
+4. コードレーンで小節を選び、部分再生成を実行します。
+5. 候補を試聴し、内容を確認してから採用します。AI結果が自動で曲を上書きすることはありません。
+6. 再生中の編集は状態バーの `Edited · Apply at next ...` で反映時刻を確認できます。
+7. JSONまたはMIDIを書き出します。保存に失敗した場合も、JSON書き出しによる退避を案内します。
+
+主要ショートカット:
+
+- `Space`: 再生 / 一時停止（入力欄では発動しません）
+- `Cmd/Ctrl + Z`: Undo
+- `Cmd/Ctrl + Shift + Z` または `Ctrl + Y`: Redo
+- `Delete` / `Backspace`: 選択ノートを削除（Undo可能）
+- `Esc`: モーダルを閉じる
+
+## 状態表示とエラー時の動作
+
+上部の状態バーにはPlayback、現在小節、Loop、編集反映時刻、AI進捗・経過時間・Cancel、Engine、保存状態、オンライン状態、ローカルサーバー接続を表示します。状態は色だけでなくテキストとアイコンでも示します。
+
+ローカル推論が失敗しても、現在の曲は変更されません。ブラウザ軽量ランキングへ切り替わり、生成・再生・手動編集・保存を継続できます。音声開始失敗はAI失敗と分離して表示します。技術ログはDeveloperのDiagnosticsへ分離し、一般画面では「失敗した処理」「データが安全か」「次の対処」を表示します。
+
+## 設定と診断
+
+設定は段階的に分かれています。
+
+- Basic: Key、Scale、BPM、Bars、Style、Generate
+- Advanced: 高度な和声、メロディ密度、シンコペーション、跳躍、コードトーン、モチーフ
+- Developer: Backend、Device、Model、Batch、Server、Diagnostics
+
+Diagnosticsでは、build時のNode.js、接続中サーバーのPython / OS / CPU、ネットワーク、API互換性、推論バックエンド、GPU名、モデル、ストレージ、Web Audio、AudioWorklet、IndexedDB、File System Access、Web MIDI、WebSocket、WebAssembly、WebGPUを実環境または実APIから確認します。ブラウザ名だけで判定しません。
+
+## 再現性と設定ファイル
+
+- `.node-version`: Node.jsの固定版
+- `.python-version`: Pythonの固定版
+- `package-lock.json` / `pnpm-lock.yaml`: フロントエンド依存関係
+- `backend/uv.lock` / `backend/requirements*.lock`: Pythonと任意推論環境
+- `pyproject.toml`: Python対応範囲と固定した直接依存関係
+- `.env.example`: 設定例（実際の `.env` はGit対象外）
+
+主要な環境変数:
+
+```dotenv
+APP_HOST=127.0.0.1
+APP_PORT=8765
+MTC_FRONTEND_HOST=127.0.0.1
+MTC_FRONTEND_PORT=5173
+MTC_INFERENCE_MODEL=auto
+MODEL_DIRECTORY=./models
+LOG_LEVEL=INFO
+```
+
+コードにユーザー名を含む絶対パスは持たせません。曲内位置はPPQ 480を基準とする整数tickで保存し、保存時刻はUTCのISO 8601文字列です。内部のモード・和声機能は表示言語に依存しない識別子を使用します。
+
+## APIとデータ契約
+
+FastAPIのOpenAPIは `/openapi.json` で確認できます。APIはバージョン `1` とrequest IDを返し、モデルIDは許可リストからのみ選択できます。フロントエンド型はOpenAPIから生成し、CIで差分を検査します。
+
+プロジェクトJSONには `schemaVersion` と `appVersion` が含まれます。旧v1形式は安全に移行し、未知の将来バージョンは現在の曲を変更せず拒否します。読込時はサイズ、MIME / 拡張子の手掛かり、JSON構造、数値範囲、tick、MIDI値を検証します。モデル本体はGitへ含めません。
 
 ## 品質チェック
 
+macOS / Linux:
+
 ```bash
-./scripts/check.sh
+./scripts/test.sh
 ```
 
-個別コマンド:
+Windows:
+
+```powershell
+.\scripts\test.ps1
+```
+
+個別には次を実行できます。
 
 ```bash
-pnpm --dir frontend typecheck
-pnpm --dir frontend lint
-pnpm --dir frontend test
-pnpm --dir frontend build
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
 (cd backend && ../.venv/bin/python -m pytest)
 (cd backend && ../.venv/bin/python -m ruff check app tests)
+python3 scripts/check-environment.py
+python3 scripts/verify_acceleration.py --json
+pnpm test:e2e
+pnpm test:e2e:lan
 ```
+
+単体、API統合、任意GPU、ブラウザE2Eを分離し、GPUがない環境ではGPUテストを明示的にSkipします。E2EはChromiumとWebKitで、初回導線、サーバー停止、オフライン、API不一致、狭い画面、モーダルのキーボード操作、重大な自動WCAG違反を検査します。LAN E2Eは実FastAPIとVite proxyを起動し、390px幅で認証、生成、再生、保護APIを検査します。NVIDIA GPU実機はGitHub Actionsの `CUDA integration (self-hosted)` をWindowsまたはLinuxのCUDAランナーで手動実行できます。対応状況は [互換性マトリクス](docs/compatibility.md)、完成判定に必要な証跡は [リリース検証チェックリスト](docs/release-checklist.md) を参照してください。
 
 ## アーキテクチャ
 
 ```text
-React / TypeScript UI
-  ├─ pureな音楽理論・決定的生成エンジン
-  ├─ Zustand編集状態・履歴・境界反映
-  ├─ Tone.js小節単位スケジューラー
-  ├─ localStorage / JSON / MIDI
-  └─ LocalInferenceClient
-             │ HTTP
-             ▼
-FastAPI Local AI Server
-  ├─ health / device / models
-  ├─ deterministic rank API
-  ├─ optional PyTorch detection
-  └─ CPU / CUDA fallback
+React / TypeScript
+  ├─ 決定的な音楽理論・生成エンジン
+  ├─ ZustandのDraft / Committed / History
+  ├─ Tone.jsのtick基準スケジューラー
+  ├─ Versioned JSON / MIDI / 保存フォールバック
+  └─ Versioned local inference client
+                 │ same-origin HTTP + session token
+                 ▼
+FastAPI local server
+  ├─ health / device / models / rank / preferences
+  ├─ Mock / Linear / PyTorch / ONNX backend interface
+  ├─ OOM時のbatch縮小とCPUフォールバック
+  └─ CUDA / MPS / Core ML / DirectML / CPU
 ```
 
-曲データを唯一の正しい状態として保持し、Tone.jsオブジェクトは派生データとして管理しています。生成ロジックはReactコンポーネントから分離され、`Math.random()`は使用していません。
+曲データが唯一の正しい状態で、音声ノードと推論候補は派生データです。AI処理と再生処理は独立しており、推論中も再生と手動編集を続けられます。
 
 ## セキュリティ
 
-- FastAPIの既定待受は `127.0.0.1` のみです。
-- CORSはlocalhost / loopbackの明示的なoriginだけを許可します。
-- 許可originは `MTC_CORS_ORIGINS` で設定できます。例は `.env.example` を参照してください。
-- APIは任意モデルパスやシェルコマンドを受け取りません。
-- 外部から読み込むJSONは型・数値範囲・MIDI値を検証します。
-
-## Phase 1で未実装のもの
-
-以下は設計書どおり Phase 2 / 3 の対象です。
-
-- A/B/C候補の常設比較UIと個人向け好み学習
-- 7th・セカンダリードミナント・借用和音を使う高度な自動生成
-- 詳細ドラッグ編集、複数ノート選択、コピー＆ペースト、クオンタイズ
-- PyTorch / ONNXモデルのロード・アンロード、MLPランキング学習、OOM縮小再試行
-- 条件付きAI生成、TensorRT、外部MIDI機器、オートメーション
-
-未実装機能はUI上で実装済みとして表示していません。
+- バックエンド既定待受はloopbackのみです。
+- DockerではFastAPIをホストへ直接公開せず、フロントエンドのsame-origin proxyだけを公開します。
+- LAN起動時は毎回暗号学的に生成した一時トークンで変更系APIを保護します。
+- CORSは明示したloopback originだけを許可し、ワイルドカードを拒否します。
+- APIから任意パス、任意モデル、シェルコマンドを指定できません。
+- 読込失敗や推論失敗後の中間データを正式プロジェクトとして保存しません。
+- `.env`、モデルファイル、個人パスはGitへ含めません。
 
 ## ディレクトリ
 
 ```text
-frontend/src/music/      音楽理論・生成・検証
-frontend/src/audio/      Tone.js再生スケジューラー
-frontend/src/state/      Zustand編集状態と履歴
-frontend/src/storage/    ローカル永続化
-frontend/src/features/   UI機能とJSON/MIDI出力
-backend/app/             FastAPIアプリケーション
-backend/tests/           API・設定・デバイス検出テスト
+frontend/src/music/       音楽理論・生成・検証
+frontend/src/audio/       再生スケジューラー
+frontend/src/state/       Draft / Committed / History
+frontend/src/storage/     project localStorage / preference IndexedDB / memory fallback
+frontend/src/features/    UI、診断、JSON / MIDI
+frontend/src/api/         OpenAPI由来のローカル推論クライアント
+backend/app/              FastAPIと推論バックエンド
+backend/tests/            Unit / integration / optional GPU tests
+scripts/                  全OSのsetup / dev / test / diagnostics
 ```

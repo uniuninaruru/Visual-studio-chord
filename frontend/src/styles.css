@@ -11,23 +11,23 @@
   --color-surface-subtle: #f1f3f5;
   --color-text-primary: #18181b;
   --color-text-secondary: #5f6368;
-  --color-text-tertiary: #8a9099;
+  --color-text-tertiary: #666c75;
   --color-border: #dfe3e8;
   --color-border-strong: #cbd1d8;
-  --color-accent: #356ae6;
-  --color-accent-hover: #2859cc;
+  --color-accent: #2457d6;
+  --color-accent-hover: #1949bf;
   --color-accent-subtle: #eaf0ff;
   --color-accent-faint: #f4f7ff;
   --color-success: #217a58;
   --color-success-subtle: #e7f6ef;
-  --color-warning: #b56519;
+  --color-warning: #8f4d16;
   --color-danger: #c2414b;
   --color-danger-subtle: #fff0f1;
-  --color-tonic: #4f71d8;
+  --color-tonic: #2d55b2;
   --color-tonic-subtle: #edf1ff;
-  --color-predominant: #8b65bf;
+  --color-predominant: #6d4299;
   --color-predominant-subtle: #f4edff;
-  --color-dominant: #d37a42;
+  --color-dominant: #954619;
   --color-dominant-subtle: #fff1e7;
   --radius-small: 6px;
   --radius-medium: 10px;
@@ -500,14 +500,20 @@ select:focus-visible {
   cursor: pointer;
 }
 
+.range-field input[type="range"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .range-scale {
   display: flex;
   justify-content: space-between;
-  color: #a0a5ad;
+  color: var(--color-text-tertiary);
   font-size: 8px;
 }
 
 .field-hint {
+  display: block;
   margin: 6px 0 0;
   color: var(--color-text-tertiary);
   font-size: 10px;
@@ -1449,7 +1455,10 @@ select:focus-visible {
 }
 
 .save-status.is-session span,
+.save-status.is-partial span,
+.save-status.is-saving span,
 .save-status.is-unsaved span { color: var(--color-warning); }
+.save-status.is-recovery span,
 .save-status.is-error span { color: var(--color-danger); }
 .save-status.is-saved span { color: var(--color-success); }
 

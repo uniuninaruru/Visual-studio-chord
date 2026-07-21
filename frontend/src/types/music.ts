@@ -96,6 +96,14 @@ export type HarmonyComplexity = "triads" | "sevenths" | "advanced";
 export interface HarmonySettings {
   /** Triads only, diatonic sevenths, or style-aware chromatic harmony. */
   complexity: HarmonyComplexity;
+  /** 0..1. Multiplier for style-specific borrowed-chord probability. */
+  borrowedChordRate?: number;
+  /** 0..1. Multiplier for style-specific secondary-dominant probability. */
+  secondaryDominantRate?: number;
+  /** 0..1. Overall multiplier for chromatic and color-chord exploration. */
+  explorationRate?: number;
+  /** 0..1. Preference for minimizing movement from the previous chord. */
+  voiceLeadingStrength?: number;
 }
 
 export type MotifTransformation =

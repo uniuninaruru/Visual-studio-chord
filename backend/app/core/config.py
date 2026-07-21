@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from ipaddress import ip_address
+from typing import Literal
 from urllib.parse import urlsplit
 
 DEFAULT_CORS_ORIGINS = (
@@ -12,6 +14,7 @@ DEFAULT_CORS_ORIGINS = (
     "http://127.0.0.1:5173",
     "http://[::1]:5173",
 )
+InferenceModelPreference = Literal["auto", "linear", "mlp", "onnx", "mock-deterministic"]
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -56,18 +59,44 @@ def validate_cors_origin(origin: str) -> str:
 class Settings:
     app_name: str = "Music Theory Composer API"
     cors_origins: tuple[str, ...] = DEFAULT_CORS_ORIGINS
+    inference_model: InferenceModelPreference = "auto"
+    shared_token: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         validated = tuple(validate_cors_origin(origin) for origin in self.cors_origins)
         if not validated:
             raise ValueError("At least one CORS origin is required")
         object.__setattr__(self, "cors_origins", tuple(dict.fromkeys(validated)))
+        if self.inference_model not in {
+            "auto",
+            "linear",
+            "mlp",
+            "onnx",
+            "mock-deterministic",
+        }:
+            raise ValueError(
+                "MTC_INFERENCE_MODEL must be auto, linear, mlp, onnx, or mock-deterministic"
+            )
+        if self.shared_token is not None and not re.fullmatch(
+            r"[A-Za-z0-9_-]{16,512}",
+            self.shared_token,
+        ):
+            raise ValueError(
+                "MTC_SHARED_TOKEN must be a 16 to 512 character base64url-safe value"
+            )
 
     @classmethod
     def from_env(cls) -> Settings:
         raw_origins = os.getenv("MTC_CORS_ORIGINS")
-        if raw_origins is None:
-            return cls()
-
-        origins = tuple(origin for origin in raw_origins.split(",") if origin.strip())
-        return cls(cors_origins=origins)
+        origins = (
+            DEFAULT_CORS_ORIGINS
+            if raw_origins is None
+            else tuple(origin for origin in raw_origins.split(",") if origin.strip())
+        )
+        inference_model = os.getenv("MTC_INFERENCE_MODEL", "auto").strip().lower()
+        shared_token = os.getenv("MTC_SHARED_TOKEN") or None
+        return cls(  # type: ignore[arg-type]
+            cors_origins=origins,
+            inference_model=inference_model,
+            shared_token=shared_token,
+        )

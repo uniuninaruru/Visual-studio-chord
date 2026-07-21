@@ -51,7 +51,9 @@ describe("DiagnosticsPanel", () => {
         <DiagnosticsPanel
           browserCapabilities={browserCapabilities}
           backend={backend}
-          storageMode="memory"
+          projectStorageMode="localStorage"
+          historyStorageMode="memory"
+          preferenceStorageMode="indexeddb"
           onRetry={vi.fn()}
           onClose={onClose}
         />,
@@ -73,6 +75,11 @@ describe("DiagnosticsPanel", () => {
     expect(closeButton).toBe(document.activeElement);
     expect(host.textContent).toContain("オフラインでも生成・再生・編集・保存を続けられます");
     expect(host.textContent).toContain("モデルなしでもブラウザ / 理論ベース生成を利用できます");
+    expect(host.textContent).toContain("現在のプロジェクトlocalStorage");
+    expect(host.textContent).toContain("Undo履歴セッション内メモリ");
+    expect(host.textContent).toContain("好み学習IndexedDB");
+    expect(host.textContent).toContain("Frontend Node.js");
+    expect(host.textContent).toContain("Server Pythonサーバー未接続");
     expect(host.textContent).toContain("対処:");
   });
 

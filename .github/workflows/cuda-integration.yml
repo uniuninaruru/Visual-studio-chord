@@ -1,0 +1,63 @@
+name: CUDA integration (self-hosted)
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Self-hosted CUDA runner platform
+        required: true
+        default: windows
+        type: choice
+        options:
+          - windows
+          - linux
+
+permissions:
+  contents: read
+
+jobs:
+  windows-cuda:
+    if: inputs.platform == 'windows'
+    runs-on: [self-hosted, Windows, X64, cuda]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+          cache: pip
+      - name: Create the isolated backend environment
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install pip==25.0.1 setuptools==83.0.0
+          .\.venv\Scripts\python.exe -m pip install --requirement backend\requirements.lock
+          .\.venv\Scripts\python.exe -m pip install --no-deps --no-build-isolation --editable backend
+      - name: Install and prove the pinned CUDA runtime
+        shell: pwsh
+        run: |
+          .\scripts\setup-acceleration.ps1 cuda
+          .\.venv\Scripts\python.exe scripts\verify_acceleration.py --json --require-gpu
+          .\.venv\Scripts\python.exe -m pytest backend\tests\test_gpu_integration.py
+
+  linux-cuda:
+    if: inputs.platform == 'linux'
+    runs-on: [self-hosted, Linux, X64, cuda]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+          cache: pip
+      - name: Create the isolated backend environment
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install pip==25.0.1 setuptools==83.0.0
+          .venv/bin/python -m pip install --requirement backend/requirements.lock
+          .venv/bin/python -m pip install --no-deps --no-build-isolation --editable backend
+      - name: Install and prove the pinned CUDA runtime
+        run: |
+          ./scripts/setup-acceleration.sh cuda
+          .venv/bin/python scripts/verify_acceleration.py --json --require-gpu
+          .venv/bin/python -m pytest backend/tests/test_gpu_integration.py
