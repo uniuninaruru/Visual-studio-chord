@@ -7,6 +7,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 600,
   },
   server: {
+    host: process.env.MTC_FRONTEND_HOST ?? "127.0.0.1",
     port: 5173,
     strictPort: true,
     proxy: {

@@ -17,21 +17,66 @@
 
 ## 必要環境
 
-- Node.js 22.13以上（Node.js 24推奨）
-- pnpm 11以上、またはNode.js付属のnpm
-- Python 3.10以上（3.12推奨）
+- 推奨: Docker Desktop、またはDocker Engine + Compose v2
+- ネイティブ開発時のみ: Node.js 22.13以上、pnpm 11以上またはnpm、Python 3.10以上
 
-Codex Desktop内で作成した環境では、通常のTerminalにNode.jsが未導入でも、起動スクリプトがCodex同梱ランタイムを自動検出します。
-
-PyTorchは必須ではありません。入っていない場合も、生成・編集・再生・保存はブラウザだけで動作します。CUDA検出を使う場合のみ、利用環境に合うPyTorchを別途導入してください。
+Docker起動ではホスト側のNode.js、Python、PyTorch、CUDAは不要です。macOS、Windows、Linuxで同じローカルCPU構成を起動します。ブラウザはデスクトップでもスマートフォンでも利用でき、AIランキングなどの重い処理はデスクトップ側のFastAPIへ送ります。PyTorchがない場合もCPUへフォールバックします。
 
 ## セットアップ
 
-一括セットアップ:
+### macOS / Windows / Linux共通（推奨）
+
+Dockerだけを使用するため、ホスト側の言語ランタイム差に依存しません。
+
+macOS / Linux:
+
+```bash
+./scripts/start-local.sh
+```
+
+Windows PowerShell:
+
+```powershell
+.\scripts\start-local.ps1
+```
+
+または全OS共通:
+
+```bash
+docker compose up --build
+```
+
+起動後は `http://127.0.0.1:5173` を開きます。終了は `Control + C`、バックグラウンドコンテナの停止は `docker compose down` です。
+
+Docker版はフロントエンドだけをLANへ公開し、FastAPIはコンテナ内部に留めます。同じWi-Fi上のスマートフォンから `http://<デスクトップのプライベートIP>:5173` を開いてください。公共Wi-Fiやインターネットへ直接公開しないでください。
+
+### ネイティブ開発
+
+macOS / Linux:
 
 ```bash
 chmod +x scripts/*.sh
 ./scripts/setup.sh
+./scripts/dev.sh
+```
+
+Windows PowerShell:
+
+```powershell
+.\scripts\setup.ps1
+.\scripts\dev.ps1
+```
+
+ネイティブ開発環境を同じLANのスマートフォンへ公開する場合:
+
+```bash
+# macOS / Linux
+./scripts/serve-lan.sh
+```
+
+```powershell
+# Windows PowerShell
+.\scripts\serve-lan.ps1
 ```
 
 手動で行う場合:
@@ -44,7 +89,7 @@ python3 -m venv .venv
 
 npmを使う場合は、最初のコマンドを `npm install` に置き換えられます。
 
-## 起動
+## ネイティブ起動
 
 フロントエンドとFastAPIを一括起動:
 
