@@ -46,7 +46,7 @@ class RankCandidate(ApiModel):
     features: dict[str, StrictFloat] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def validate_features(self) -> "RankCandidate":
+    def validate_features(self) -> RankCandidate:
         _validate_numeric_map(self.features, field_name="features")
         return self
 
@@ -56,7 +56,7 @@ class RankRequest(ApiModel):
     preference_weights: dict[str, StrictFloat] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def validate_request(self) -> "RankRequest":
+    def validate_request(self) -> RankRequest:
         ids = [candidate.id for candidate in self.candidates]
         if len(ids) != len(set(ids)):
             raise ValueError("candidate ids must be unique")

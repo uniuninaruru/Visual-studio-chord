@@ -2,19 +2,19 @@
   "name": "harmony-lab",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@11.9.0",
   "workspaces": [
     "frontend"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace @harmony-lab/frontend",
-    "build": "npm run build --workspace @harmony-lab/frontend",
-    "typecheck": "npm run typecheck --workspace @harmony-lab/frontend",
-    "lint": "npm run lint --workspace @harmony-lab/frontend",
-    "test": "npm run test --workspace @harmony-lab/frontend",
-    "check": "npm run typecheck && npm run lint && npm run test && npm run build"
+    "dev": "pnpm --dir frontend dev",
+    "build": "pnpm --dir frontend build",
+    "typecheck": "pnpm --dir frontend typecheck",
+    "lint": "pnpm --dir frontend lint",
+    "test": "pnpm --dir frontend test",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   }
 }
-

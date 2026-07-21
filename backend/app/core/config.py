@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from ipaddress import ip_address
-import os
 from urllib.parse import urlsplit
 
 DEFAULT_CORS_ORIGINS = (
@@ -44,9 +44,11 @@ def validate_cors_origin(origin: str) -> str:
         raise ValueError(f"CORS origin is not a loopback HTTP(S) origin: {origin!r}")
 
     try:
-        parsed.port
+        port = parsed.port
     except ValueError as exc:
         raise ValueError(f"CORS origin has an invalid port: {origin!r}") from exc
+    if port is not None and port == 0:
+        raise ValueError(f"CORS origin has an invalid port: {origin!r}")
     return normalized
 
 
@@ -62,11 +64,10 @@ class Settings:
         object.__setattr__(self, "cors_origins", tuple(dict.fromkeys(validated)))
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls) -> Settings:
         raw_origins = os.getenv("MTC_CORS_ORIGINS")
         if raw_origins is None:
             return cls()
 
         origins = tuple(origin for origin in raw_origins.split(",") if origin.strip())
         return cls(cors_origins=origins)
-
