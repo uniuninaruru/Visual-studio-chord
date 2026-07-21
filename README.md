@@ -29,7 +29,7 @@ Windows 11 PowerShell:
 
 ## Dockerを使わない起動
 
-固定している標準環境はNode.js `24.14.0`、npmまたはpnpm `11.9.0`、Python `3.12.13`です。対応範囲はNode.js 24系、Python 3.11〜3.14です。
+固定している標準環境はNode.js `24.14.0`、npmまたはpnpm `11.9.0`、Python `3.12.10`です。対応範囲はNode.js 24系、Python 3.11〜3.14です。Python 3.12.10はWindows・macOS・Linuxの公式バイナリが揃う3.12系の基準版です。
 
 macOS / Linux:
 

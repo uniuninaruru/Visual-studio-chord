@@ -50,12 +50,12 @@ if ($env:MTC_PYTHON) {
 }
 
 if (-not $PythonProgram) {
-  throw "No supported Python 3.11-3.14 interpreter was found. Python 3.12.13 is recommended."
+  throw "No supported Python 3.11-3.14 interpreter was found. Python 3.12.10 is recommended."
 }
 
 & $PythonProgram @PythonArguments -c "import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] < (3, 15) else 1)"
 if ($LASTEXITCODE -ne 0) {
-  throw "The selected Python is unsupported. Use Python 3.11-3.14 (3.12.13 recommended)."
+  throw "The selected Python is unsupported. Use Python 3.11-3.14 (3.12.10 recommended)."
 }
 
 if (-not (Test-Path $VenvPython)) {
@@ -64,7 +64,7 @@ if (-not (Test-Path $VenvPython)) {
 
 & $VenvPython -c "import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] < (3, 15) else 1)"
 if ($LASTEXITCODE -ne 0) {
-  throw "The existing .venv uses an unsupported Python. Use Python 3.11-3.14 (3.12.13 recommended). It was not removed or overwritten."
+  throw "The existing .venv uses an unsupported Python. Use Python 3.11-3.14 (3.12.10 recommended). It was not removed or overwritten."
 }
 
 Invoke-Checked -Program $VenvPython -Arguments @(

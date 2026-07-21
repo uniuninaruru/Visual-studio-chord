@@ -37,7 +37,7 @@ fi
 
 if [[ -z "$PYTHON_COMMAND" ]] ||
   ! "$PYTHON_COMMAND" -c 'import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] < (3, 15) else 1)' >/dev/null 2>&1; then
-  printf 'No supported Python 3.11-3.14 interpreter was found. Python 3.12.13 is recommended.\n' >&2
+  printf 'No supported Python 3.11-3.14 interpreter was found. Python 3.12.10 is recommended.\n' >&2
   printf 'Install the version in .python-version or set MTC_PYTHON.\n' >&2
   exit 1
 fi
@@ -47,7 +47,7 @@ if [[ ! -x "$VENV_PYTHON" ]]; then
 fi
 
 if ! "$VENV_PYTHON" -c 'import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] < (3, 15) else 1)'; then
-  printf 'The existing .venv uses an unsupported Python. Use Python 3.11-3.14 (3.12.13 recommended).\n' >&2
+  printf 'The existing .venv uses an unsupported Python. Use Python 3.11-3.14 (3.12.10 recommended).\n' >&2
   printf 'The script did not remove or overwrite the existing environment.\n' >&2
   exit 1
 fi
