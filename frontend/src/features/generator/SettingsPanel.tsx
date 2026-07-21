@@ -1,0 +1,249 @@
+import type { BackendConnection } from "../../api/inferenceClient";
+import { Icon } from "../../components/Icon";
+import type { GeneratorSettingsPatch } from "../../state";
+import type {
+  BarCount,
+  GeneratorSettings,
+  Mode,
+  PitchClassName,
+  StylePresetId,
+  TimeSignature,
+} from "../../types/music";
+
+const KEY_OPTIONS: PitchClassName[] = [
+  "C",
+  "Db",
+  "D",
+  "Eb",
+  "E",
+  "F",
+  "F#",
+  "G",
+  "Ab",
+  "A",
+  "Bb",
+  "B",
+];
+
+const STYLES: Array<{ value: StylePresetId; label: string }> = [
+  { value: "pop", label: "Pop" },
+  { value: "j-pop", label: "J-Pop" },
+  { value: "rock", label: "Rock" },
+  { value: "jazz", label: "Jazz" },
+  { value: "lo-fi", label: "Lo-fi" },
+  { value: "edm", label: "EDM" },
+  { value: "ballad", label: "Ballad" },
+  { value: "game-music", label: "Game Music" },
+  { value: "random", label: "Random" },
+];
+
+interface SettingsPanelProps {
+  settings: GeneratorSettings;
+  backend: BackendConnection;
+  mobileOpen: boolean;
+  onPatch: (patch: GeneratorSettingsPatch) => void;
+  onGenerate: () => void;
+  onReset: () => void;
+  onMobileClose: () => void;
+}
+
+export function SettingsPanel({
+  settings,
+  backend,
+  mobileOpen,
+  onPatch,
+  onGenerate,
+  onReset,
+  onMobileClose,
+}: SettingsPanelProps) {
+  const deviceLabel =
+    backend.state === "connected"
+      ? backend.device.selectedDevice === "cuda"
+        ? backend.device.deviceName || "Local CUDA"
+        : "Local CPU"
+      : backend.state === "checking"
+        ? "確認中"
+        : "Browser";
+
+  return (
+    <aside className={`settings-panel ${mobileOpen ? "mobile-open" : ""}`} aria-label="生成設定">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">GENERATOR</p>
+          <h2>生成設定</h2>
+        </div>
+        <div className="panel-actions">
+          <button className="text-button mobile-close-button" type="button" onClick={onMobileClose}>閉じる</button>
+          <button className="icon-button quiet" type="button" onClick={onReset} title="初期設定へ戻す">
+            <Icon name="settings" />
+          </button>
+        </div>
+      </div>
+
+      <section className="settings-section">
+        <div className="section-label">ハーモニー</div>
+        <div className="field-grid two-columns">
+          <label className="field">
+            <span>キー</span>
+            <select
+              aria-label="キー"
+              value={settings.key}
+              onChange={(event) => onPatch({ key: event.target.value as PitchClassName })}
+            >
+              {KEY_OPTIONS.map((key) => (
+                <option key={key} value={key}>{key}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>スケール</span>
+            <select
+              aria-label="スケール"
+              value={settings.mode}
+              onChange={(event) => onPatch({ mode: event.target.value as Mode })}
+            >
+              <option value="major">Major</option>
+              <option value="naturalMinor">Natural Minor</option>
+            </select>
+          </label>
+        </div>
+
+        <label className="field">
+          <span>スタイル</span>
+          <select
+            aria-label="スタイル"
+            value={settings.style}
+            onChange={(event) => onPatch({ style: event.target.value as StylePresetId })}
+          >
+            {STYLES.map((style) => (
+              <option key={style.value} value={style.value}>{style.label}</option>
+            ))}
+          </select>
+        </label>
+      </section>
+
+      <section className="settings-section">
+        <div className="section-label">タイムライン</div>
+        <label className="field range-field">
+          <span>BPM <strong>{settings.bpm}</strong></span>
+          <input
+            aria-label="BPM"
+            type="range"
+            min="40"
+            max="240"
+            step="1"
+            value={settings.bpm}
+            onChange={(event) => onPatch({ bpm: Number(event.target.value) })}
+          />
+          <div className="range-scale"><span>40</span><span>240</span></div>
+        </label>
+        <div className="field-grid two-columns">
+          <label className="field">
+            <span>拍子</span>
+            <select
+              aria-label="拍子"
+              value={settings.timeSignature}
+              onChange={(event) => onPatch({ timeSignature: event.target.value as TimeSignature })}
+            >
+              <option value="4/4">4 / 4</option>
+              <option value="3/4">3 / 4</option>
+              <option value="6/8">6 / 8</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>小節数</span>
+            <select
+              aria-label="小節数"
+              value={settings.bars}
+              onChange={(event) => onPatch({ bars: Number(event.target.value) as BarCount })}
+            >
+              <option value={4}>4 bars</option>
+              <option value={8}>8 bars</option>
+              <option value={16}>16 bars</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="section-label">メロディ</div>
+        <label className="field range-field">
+          <span>密度 <strong>{Math.round(settings.melody.density * 100)}%</strong></span>
+          <input
+            aria-label="メロディ密度"
+            type="range"
+            min="0.15"
+            max="1"
+            step="0.05"
+            value={settings.melody.density}
+            onChange={(event) => onPatch({ melody: { density: Number(event.target.value) } })}
+          />
+        </label>
+        <label className="field range-field">
+          <span>コードトーン率 <strong>{Math.round(settings.melody.chordToneRate * 100)}%</strong></span>
+          <input
+            aria-label="コードトーン率"
+            type="range"
+            min="0.35"
+            max="1"
+            step="0.05"
+            value={settings.melody.chordToneRate}
+            onChange={(event) => onPatch({ melody: { chordToneRate: Number(event.target.value) } })}
+          />
+        </label>
+        <div className="field-grid two-columns">
+          <label className="field">
+            <span>最低音</span>
+            <select
+              aria-label="メロディ最低音"
+              value={settings.melody.minMidi}
+              onChange={(event) => onPatch({ melody: { minMidi: Number(event.target.value) } })}
+            >
+              <option value={48}>C3</option>
+              <option value={55}>G3</option>
+              <option value={60}>C4</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>最高音</span>
+            <select
+              aria-label="メロディ最高音"
+              value={settings.melody.maxMidi}
+              onChange={(event) => onPatch({ melody: { maxMidi: Number(event.target.value) } })}
+            >
+              <option value={72}>C5</option>
+              <option value={76}>E5</option>
+              <option value={84}>C6</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section className="settings-section seed-section">
+        <label className="field">
+          <span>再現シード</span>
+          <input
+            aria-label="再現シード"
+            type="text"
+            value={String(settings.seed)}
+            onChange={(event) => onPatch({ seed: event.target.value })}
+            spellCheck="false"
+          />
+        </label>
+        <p className="field-hint">同じ設定とシードは同じ曲を生成します。</p>
+      </section>
+
+      <div className="generator-footer">
+        <div className={`device-pill ${backend.state}`}>
+          <span className="status-dot" />
+          <Icon name="server" />
+          <span>{deviceLabel}</span>
+        </div>
+        <button className="primary-button generate-button" type="button" onClick={onGenerate}>
+          <Icon name="sparkles" />
+          この設定で生成
+        </button>
+      </div>
+    </aside>
+  );
+}
