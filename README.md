@@ -1,4 +1,4 @@
-# Harmony Lab
+# Visual studio chord
 
 音楽理論に基づくコード進行とメロディを生成し、再生を止めずに編集・部分再生成できる、ローカル優先の作曲支援Webアプリです。CPUだけで基本機能が動き、利用可能な場合だけCUDA、MPS、Core ML、DirectMLを高速化に使います。
 
