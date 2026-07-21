@@ -10,6 +10,12 @@ export type PlaybackStatus = "stopped" | "playing" | "paused";
 
 type TickListener = (tick: number) => void;
 
+interface SchedulingBoundary {
+  time: number;
+  effectiveTick: number;
+  repositionTick: number | null;
+}
+
 function secondsForTicks(ticks: number, bpm: number, ppq: number): number {
   return Math.max(0.025, (ticks / ppq) * (60 / bpm));
 }
@@ -21,8 +27,10 @@ function midiToFrequency(midi: number): number {
 /**
  * A single-owner Tone.js adapter. React only sends immutable composition
  * snapshots here; scheduling and synth lifetime never live in a component.
- * Each bar reads the newest snapshot at its boundary, so edits made during
- * playback take effect without cutting notes already sounding.
+ * Each sixteenth-note scheduling window reads the newest snapshot. The tick
+ * listener runs first, so a pending edit committed at a beat/bar/loop boundary
+ * is the data scheduled for that boundary. Notes that are already sounding are
+ * left alone until their natural release.
  */
 export class CompositionTransport {
   private readonly transport = Tone.getTransport();
@@ -30,9 +38,10 @@ export class CompositionTransport {
   private loop: PlaybackLoop = { startTick: 0, endTick: 1 };
   private chordSynth: Tone.PolySynth | null = null;
   private melodySynth: Tone.PolySynth | null = null;
-  private barEventId: number | null = null;
-  private tickEventId: number | null = null;
-  private barCursor = 0;
+  private schedulerEventId: number | null = null;
+  private schedulerStepTicks = 1;
+  private lastScheduledTick: number | null = null;
+  private schedulingBoundary: SchedulingBoundary | null = null;
   private status: PlaybackStatus = "stopped";
   private tickListener: TickListener | null = null;
 
@@ -59,10 +68,17 @@ export class CompositionTransport {
     loop: PlaybackLoop,
     tickListener?: TickListener,
   ): void {
+    const previousComposition = this.composition;
+    const previousTick = this.schedulingBoundary?.effectiveTick
+      ?? Math.round(this.transport.ticks);
     const loopChanged =
       this.loop.startTick !== loop.startTick ||
-      this.loop.endTick !== loop.endTick ||
-      this.composition?.ticksPerBar !== composition.ticksPerBar;
+      this.loop.endTick !== loop.endTick;
+    const ppqChanged = previousComposition?.ppq !== composition.ppq;
+    const timebaseChanged = previousComposition !== null && (
+      previousComposition.ppq !== composition.ppq
+      || previousComposition.ticksPerBar !== composition.ticksPerBar
+    );
 
     this.composition = composition;
     this.loop = {
@@ -79,16 +95,20 @@ export class CompositionTransport {
     this.transport.loopStart = `${this.loop.startTick}i`;
     this.transport.loopEnd = `${this.loop.endTick}i`;
 
-    if (loopChanged || this.barEventId === null) {
-      const wasPlaying = this.status === "playing";
-      if (wasPlaying) {
-        this.transport.pause();
-      }
+    if (ppqChanged || this.schedulerEventId === null) {
       this.scheduleLoop();
-      this.transport.ticks = this.loop.startTick;
-      if (wasPlaying) {
-        this.transport.start("+0.04");
-      }
+    }
+
+    if (timebaseChanged && previousComposition) {
+      const barPosition = previousTick / previousComposition.ticksPerBar;
+      const mappedTick = Math.round(barPosition * composition.ticksPerBar);
+      this.updateTransportTick(this.clampTickToLoop(mappedTick));
+    } else if (loopChanged && (
+      previousTick < this.loop.startTick || previousTick >= this.loop.endTick
+    )) {
+      this.updateTransportTick(this.loop.startTick);
+    } else if (this.status === "stopped") {
+      this.setTransportTick(this.loop.startTick);
     }
   }
 
@@ -98,8 +118,8 @@ export class CompositionTransport {
     }
     await this.initialize();
     if (this.status === "stopped") {
-      this.barCursor = Math.floor(this.loop.startTick / this.composition.ticksPerBar);
       this.transport.ticks = this.loop.startTick;
+      this.lastScheduledTick = null;
     }
     this.transport.start("+0.04");
     this.status = "playing";
@@ -115,6 +135,7 @@ export class CompositionTransport {
     this.transport.stop();
     this.releaseAll();
     this.transport.ticks = this.loop.startTick;
+    this.lastScheduledTick = null;
     this.status = "stopped";
     this.tickListener?.(this.loop.startTick);
   }
@@ -135,84 +156,139 @@ export class CompositionTransport {
       return;
     }
 
-    const startBar = Math.floor(this.loop.startTick / composition.ticksPerBar);
-    this.barCursor = startBar;
-    this.tickEventId = this.transport.scheduleRepeat(
-      () => {
-        const tick = Math.round(this.transport.ticks);
-        this.tickListener?.(tick);
-      },
-      `${Math.max(1, Math.floor(composition.ppq / 4))}i`,
-      `${this.loop.startTick}i`,
-    );
-    this.barEventId = this.transport.scheduleRepeat(
-      (time) => this.playCurrentBar(time),
-      `${composition.ticksPerBar}i`,
-      `${this.loop.startTick}i`,
+    this.schedulerStepTicks = Math.max(1, Math.floor(composition.ppq / 4));
+    this.schedulerEventId = this.transport.scheduleRepeat(
+      (time) => this.playCurrentWindow(time),
+      `${this.schedulerStepTicks}i`,
+      "0i",
     );
   }
 
-  private playCurrentBar(time: number): void {
-    const composition = this.composition;
-    if (!composition || !this.chordSynth || !this.melodySynth) {
-      return;
-    }
-
-    const startBar = Math.floor(this.loop.startTick / composition.ticksPerBar);
-    const endBar = Math.max(
-      startBar + 1,
-      Math.ceil(this.loop.endTick / composition.ticksPerBar),
+  private playCurrentWindow(time: number): void {
+    const initialTick = this.clampTickToLoop(
+      Math.round(this.transport.getTicksAtTime(time)),
     );
-    const barIndex = Math.min(composition.bars.length - 1, this.barCursor);
-    const barStart = barIndex * composition.ticksPerBar;
+    const boundary: SchedulingBoundary = {
+      time,
+      effectiveTick: initialTick,
+      repositionTick: null,
+    };
+    this.schedulingBoundary = boundary;
 
-    for (const chord of composition.chords) {
-      if (chord.startTick < barStart || chord.startTick >= barStart + composition.ticksPerBar) {
-        continue;
+    try {
+      this.tickListener?.(initialTick);
+
+      // The listener may synchronously commit a snapshot with a different
+      // meter. Configure records the remapped boundary without moving Tone's
+      // look-ahead position before the callback's actual audio time.
+      let windowStart = this.clampTickToLoop(boundary.effectiveTick);
+      if (windowStart !== boundary.effectiveTick) {
+        boundary.effectiveTick = windowStart;
+        boundary.repositionTick = windowStart;
       }
-      const offset = secondsForTicks(chord.startTick - barStart, composition.settings.bpm, composition.ppq);
-      const duration = secondsForTicks(chord.durationTick * 0.94, composition.settings.bpm, composition.ppq);
-      this.chordSynth.triggerAttackRelease(
-        chord.notes.map(midiToFrequency),
-        duration,
-        time + (chord.startTick === barStart ? 0 : offset),
-        0.48,
-      );
-    }
-
-    for (const note of composition.notes) {
-      if (note.startTick < barStart || note.startTick >= barStart + composition.ticksPerBar) {
-        continue;
+      if (windowStart !== initialTick) {
+        this.tickListener?.(windowStart);
+        windowStart = this.clampTickToLoop(boundary.effectiveTick);
       }
-      const offset = secondsForTicks(note.startTick - barStart, composition.settings.bpm, composition.ppq);
-      const duration = secondsForTicks(note.durationTick * 0.88, composition.settings.bpm, composition.ppq);
-      this.melodySynth.triggerAttackRelease(
-        midiToFrequency(note.midi),
-        duration,
-        time + (note.startTick === barStart ? 0 : offset),
-        Math.max(0.08, Math.min(1, note.velocity / 127)),
-      );
-    }
 
-    this.barCursor += 1;
-    if (this.barCursor >= endBar) {
-      this.barCursor = startBar;
+      const composition = this.composition;
+      if (composition && this.chordSynth && this.melodySynth) {
+        if (this.lastScheduledTick !== null && windowStart < this.lastScheduledTick) {
+          this.releaseAll(time);
+        }
+        this.lastScheduledTick = windowStart;
+        const windowEnd = Math.min(
+          this.loop.endTick,
+          windowStart + this.schedulerStepTicks,
+        );
+
+        for (const chord of composition.chords) {
+          if (chord.startTick < windowStart || chord.startTick >= windowEnd) {
+            continue;
+          }
+          const offset = secondsForTicks(
+            chord.startTick - windowStart,
+            composition.settings.bpm,
+            composition.ppq,
+          );
+          const duration = secondsForTicks(
+            Math.min(chord.durationTick * 0.94, this.loop.endTick - chord.startTick),
+            composition.settings.bpm,
+            composition.ppq,
+          );
+          this.chordSynth.triggerAttackRelease(
+            chord.notes.map(midiToFrequency),
+            duration,
+            time + (chord.startTick === windowStart ? 0 : offset),
+            0.48,
+          );
+        }
+
+        for (const note of composition.notes) {
+          if (note.startTick < windowStart || note.startTick >= windowEnd) {
+            continue;
+          }
+          const offset = secondsForTicks(
+            note.startTick - windowStart,
+            composition.settings.bpm,
+            composition.ppq,
+          );
+          const duration = secondsForTicks(
+            Math.min(note.durationTick * 0.88, this.loop.endTick - note.startTick),
+            composition.settings.bpm,
+            composition.ppq,
+          );
+          this.melodySynth.triggerAttackRelease(
+            midiToFrequency(note.midi),
+            duration,
+            time + (note.startTick === windowStart ? 0 : offset),
+            Math.max(0.08, Math.min(1, note.velocity / 127)),
+          );
+        }
+      }
+
+      if (boundary.repositionTick !== null) {
+        this.transport.pause(boundary.time);
+        this.transport.start(boundary.time, `${boundary.repositionTick}i`);
+      }
+    } finally {
+      this.schedulingBoundary = null;
     }
   }
 
   private clearEvents(): void {
-    if (this.barEventId !== null) {
-      this.transport.clear(this.barEventId);
-      this.barEventId = null;
-    }
-    if (this.tickEventId !== null) {
-      this.transport.clear(this.tickEventId);
-      this.tickEventId = null;
+    if (this.schedulerEventId !== null) {
+      this.transport.clear(this.schedulerEventId);
+      this.schedulerEventId = null;
     }
   }
 
-  private releaseAll(): void {
-    this.chordSynth?.releaseAll();
-    this.melodySynth?.releaseAll();
+  private clampTickToLoop(tick: number): number {
+    if (tick < this.loop.startTick || tick >= this.loop.endTick) {
+      return this.loop.startTick;
+    }
+    return tick;
+  }
+
+  private setTransportTick(tick: number): void {
+    if (Math.round(this.transport.ticks) !== tick) {
+      this.releaseAll();
+    }
+    this.transport.ticks = tick;
+    this.lastScheduledTick = null;
+  }
+
+  private updateTransportTick(tick: number): void {
+    if (this.schedulingBoundary && this.status === "playing") {
+      this.schedulingBoundary.effectiveTick = tick;
+      this.schedulingBoundary.repositionTick = tick;
+      return;
+    }
+    this.setTransportTick(tick);
+  }
+
+  private releaseAll(time?: number): void {
+    this.chordSynth?.releaseAll(time);
+    this.melodySynth?.releaseAll(time);
   }
 }

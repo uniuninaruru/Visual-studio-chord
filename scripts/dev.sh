@@ -2,33 +2,43 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VENV_PYTHON="$PROJECT_DIR/.venv/bin/python"
 
 # shellcheck source=runtime.sh
 source "$PROJECT_DIR/scripts/runtime.sh"
+load_project_env "$PROJECT_DIR"
 ensure_node_runtime
+PACKAGE_MANAGER="$(select_package_manager "$PROJECT_DIR")"
 
-if [[ ! -x "$PROJECT_DIR/.venv/bin/uvicorn" ]]; then
-  printf 'Backend environment not found. Run ./scripts/setup.sh first.\n' >&2
-  exit 1
+APP_HOST="${APP_HOST:-127.0.0.1}"
+APP_PORT="${APP_PORT:-8765}"
+FRONTEND_HOST="${MTC_FRONTEND_HOST:-127.0.0.1}"
+FRONTEND_PORT="${MTC_FRONTEND_PORT:-5173}"
+BACKEND_ENABLED="${MTC_BACKEND_ENABLED:-1}"
+BACKEND_PID=""
+
+if [[ "$BACKEND_ENABLED" != "0" ]] && [[ -x "$VENV_PYTHON" ]] &&
+  "$VENV_PYTHON" -c 'import uvicorn' >/dev/null 2>&1; then
+  "$VENV_PYTHON" -m uvicorn app.main:app \
+    --app-dir "$PROJECT_DIR/backend" \
+    --host "$APP_HOST" \
+    --port "$APP_PORT" \
+    --reload-dir "$PROJECT_DIR/backend" \
+    --reload &
+  BACKEND_PID=$!
+  printf 'Local inference server: http://%s:%s (optional)\n' "$APP_HOST" "$APP_PORT"
+else
+  printf 'Local inference server is unavailable; continuing in browser/theory mode.\n' >&2
+  printf 'Run ./scripts/setup.sh to enable the CPU backend.\n' >&2
 fi
 
-"$PROJECT_DIR/.venv/bin/python" -m uvicorn app.main:app \
-  --app-dir "$PROJECT_DIR/backend" \
-  --host 127.0.0.1 \
-  --port 8765 \
-  --reload &
-BACKEND_PID=$!
-
 cleanup() {
-  kill "$BACKEND_PID" 2>/dev/null || true
+  if [[ -n "$BACKEND_PID" ]]; then
+    kill "$BACKEND_PID" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT INT TERM
 
-if command -v pnpm >/dev/null 2>&1; then
-  pnpm --dir "$PROJECT_DIR/frontend" dev
-elif command -v npm >/dev/null 2>&1; then
-  npm --prefix "$PROJECT_DIR/frontend" run dev
-else
-  printf 'Node.js package manager not found. Run ./scripts/setup.sh first.\n' >&2
-  exit 1
-fi
+printf 'Web app: http://%s:%s\n' "$FRONTEND_HOST" "$FRONTEND_PORT"
+run_frontend_script "$PACKAGE_MANAGER" "$PROJECT_DIR" dev \
+  --host "$FRONTEND_HOST" --port "$FRONTEND_PORT"

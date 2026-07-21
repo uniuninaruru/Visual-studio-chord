@@ -1,4 +1,11 @@
+import { useRef, useState } from "react";
+import type {
+  CSSProperties,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import { Icon } from "../../components/Icon";
+import type { NoteMove } from "../../state";
 import type { BarRange, GeneratedComposition, NoteEvent } from "../../types/music";
 import { midiNoteName } from "../../utils/musicFormat";
 
@@ -6,22 +13,133 @@ interface PianoRollProps {
   composition: GeneratedComposition;
   currentTick: number;
   selectedRange: BarRange | null;
-  selectedNoteId: string | null;
-  onNoteSelect: (note: NoteEvent) => void;
+  selectedNoteIds: string[];
+  onNoteSelect: (note: NoteEvent, extend: boolean) => void;
+  onNoteMove: (note: NoteEvent, move: NoteMove) => void;
+  onAddNote: (midi: number, startTick: number) => void;
+  onCopyNotes: () => void;
+  onPasteNotes: () => void;
+  onDuplicateNotes: () => void;
+  onQuantizeNotes: () => void;
+  onDeleteNotes: () => void;
+  canPaste: boolean;
+  clipboardNoteCount: number;
+}
+
+interface NoteDrag {
+  note: NoteEvent;
+  pointerId: number;
+  originX: number;
+  originY: number;
+  deltaTick: number;
+  semitones: number;
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, value));
 }
 
 export function PianoRoll({
   composition,
   currentTick,
   selectedRange,
-  selectedNoteId,
+  selectedNoteIds,
   onNoteSelect,
+  onNoteMove,
+  onAddNote,
+  onCopyNotes,
+  onPasteNotes,
+  onDuplicateNotes,
+  onQuantizeNotes,
+  onDeleteNotes,
+  canPaste,
+  clipboardNoteCount,
 }: PianoRollProps) {
+  const canvasRef = useRef<HTMLDivElement | null>(null);
+  const [noteDrag, setNoteDrag] = useState<NoteDrag | null>(null);
   const minMidi = composition.settings.melody.minMidi;
   const maxMidi = composition.settings.melody.maxMidi;
   const pitchCount = maxMidi - minMidi + 1;
   const pitches = Array.from({ length: pitchCount }, (_, index) => maxMidi - index);
-  const clampedTick = Math.max(0, Math.min(composition.totalTicks, currentTick));
+  const clampedTick = clamp(currentTick, 0, composition.totalTicks);
+  const selectedIds = new Set(selectedNoteIds);
+  const selectedCount = selectedNoteIds.length;
+  const editSelectionDisabled = selectedCount === 0;
+  const gridTick = Math.max(1, Math.round(composition.ppq / 4));
+
+  const dragMove = (drag: NoteDrag, clientX: number, clientY: number): NoteMove => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { deltaTick: 0, semitones: 0 };
+    const bounds = canvas.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) {
+      return { deltaTick: 0, semitones: 0 };
+    }
+    const rawTickDelta = ((clientX - drag.originX) / bounds.width) * composition.totalTicks;
+    const rowHeight = bounds.height / pitchCount;
+    return {
+      deltaTick: Math.round(rawTickDelta / gridTick) * gridTick,
+      semitones: -Math.round((clientY - drag.originY) / rowHeight),
+    };
+  };
+
+  const handleCanvasDoubleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.target instanceof Element && event.target.closest("[data-note-id]")) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const horizontalRatio = clamp((event.clientX - bounds.left) / bounds.width, 0, 1);
+    const verticalRatio = clamp((event.clientY - bounds.top) / bounds.height, 0, 1 - Number.EPSILON);
+    const rawStartTick = horizontalRatio * composition.totalTicks;
+    const latestStartTick = Math.max(0, composition.totalTicks - gridTick);
+    const startTick = clamp(Math.round(rawStartTick / gridTick) * gridTick, 0, latestStartTick);
+    const pitchRow = Math.min(pitchCount - 1, Math.floor(verticalRatio * pitchCount));
+    onAddNote(maxMidi - pitchRow, startTick);
+  };
+
+  const handleNotePointerDown = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    note: NoteEvent,
+  ) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const extend = event.shiftKey || event.metaKey || event.ctrlKey;
+    onNoteSelect(note, extend);
+    if (typeof event.currentTarget.setPointerCapture === "function") {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+    setNoteDrag({
+      note,
+      pointerId: event.pointerId,
+      originX: event.clientX,
+      originY: event.clientY,
+      deltaTick: 0,
+      semitones: 0,
+    });
+  };
+
+  const handleNotePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!noteDrag || noteDrag.pointerId !== event.pointerId) return;
+    const move = dragMove(noteDrag, event.clientX, event.clientY);
+    setNoteDrag({
+      ...noteDrag,
+      deltaTick: move.deltaTick ?? 0,
+      semitones: move.semitones ?? 0,
+    });
+  };
+
+  const handleNotePointerUp = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!noteDrag || noteDrag.pointerId !== event.pointerId) return;
+    const move = dragMove(noteDrag, event.clientX, event.clientY);
+    if ((move.deltaTick ?? 0) !== 0 || (move.semitones ?? 0) !== 0) {
+      onNoteMove(noteDrag.note, move);
+    }
+    if (
+      typeof event.currentTarget.hasPointerCapture === "function"
+      && event.currentTarget.hasPointerCapture(event.pointerId)
+    ) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setNoteDrag(null);
+  };
 
   return (
     <section className="lane-section piano-roll-section" aria-labelledby="piano-roll-title">
@@ -37,6 +155,51 @@ export function PianoRoll({
         </div>
       </div>
 
+      <div role="toolbar" aria-label="選択したノートの編集">
+        <button
+          type="button"
+          className="text-button"
+          onClick={onCopyNotes}
+          disabled={editSelectionDisabled}
+          aria-label={`選択した${selectedCount}個のノートをコピー`}
+        >
+          コピー{selectedCount > 0 ? ` (${selectedCount})` : ""}
+        </button>
+        <button
+          type="button"
+          className="text-button"
+          onClick={onPasteNotes}
+          disabled={!canPaste}
+          aria-label={`${clipboardNoteCount}個のノートを貼り付け`}
+        >
+          貼り付け{clipboardNoteCount > 0 ? ` (${clipboardNoteCount})` : ""}
+        </button>
+        <button
+          type="button"
+          className="text-button"
+          onClick={onDuplicateNotes}
+          disabled={editSelectionDisabled}
+        >
+          複製
+        </button>
+        <button
+          type="button"
+          className="text-button"
+          onClick={onQuantizeNotes}
+          disabled={editSelectionDisabled}
+        >
+          クオンタイズ
+        </button>
+        <button
+          type="button"
+          className="text-button"
+          onClick={onDeleteNotes}
+          disabled={editSelectionDisabled}
+        >
+          削除
+        </button>
+      </div>
+
       <div className="piano-shell" data-testid="piano-roll">
         <div className="piano-labels" aria-hidden="true">
           {pitches.map((pitch) => (
@@ -50,8 +213,14 @@ export function PianoRoll({
           ))}
         </div>
         <div
+          ref={canvasRef}
           className="piano-canvas"
-          style={{ "--pitch-count": pitchCount, "--bar-count": composition.bars.length } as React.CSSProperties}
+          style={{ "--pitch-count": pitchCount, "--bar-count": composition.bars.length } as CSSProperties}
+          role="group"
+          tabIndex={0}
+          aria-label="ピアノロール編集領域"
+          aria-describedby="piano-roll-tip"
+          onDoubleClick={handleCanvasDoubleClick}
         >
           <div className="pitch-grid" aria-hidden="true">
             {pitches.map((pitch) => (
@@ -80,21 +249,44 @@ export function PianoRoll({
             />
           )}
           {composition.notes.map((note) => {
-            const top = ((maxMidi - note.midi) / pitchCount) * 100;
+            const draggingThisNote = noteDrag?.note.id === note.id;
+            const displayMidi = clamp(
+              note.midi + (draggingThisNote ? noteDrag.semitones : 0),
+              minMidi,
+              maxMidi,
+            );
+            const displayStartTick = clamp(
+              note.startTick + (draggingThisNote ? noteDrag.deltaTick : 0),
+              0,
+              Math.max(0, composition.totalTicks - note.durationTick),
+            );
+            const top = ((maxMidi - displayMidi) / pitchCount) * 100;
             const height = Math.max(2.1, (1 / pitchCount) * 100 - 0.35);
+            const selected = selectedIds.has(note.id);
             return (
               <button
                 key={note.id}
                 type="button"
-                className={`piano-note ${note.role} ${selectedNoteId === note.id ? "selected" : ""}`}
+                data-note-id={note.id}
+                className={`piano-note ${note.role} ${selected ? "selected" : ""}`}
                 style={{
-                  left: `${(note.startTick / composition.totalTicks) * 100}%`,
+                  left: `${(displayStartTick / composition.totalTicks) * 100}%`,
                   width: `${Math.max(0.8, (note.durationTick / composition.totalTicks) * 100)}%`,
                   top: `${top}%`,
                   height: `${height}%`,
+                  touchAction: "none",
                 }}
-                onClick={() => onNoteSelect(note)}
+                onPointerDown={(event) => handleNotePointerDown(event, note)}
+                onPointerMove={handleNotePointerMove}
+                onPointerUp={handleNotePointerUp}
+                onPointerCancel={() => setNoteDrag(null)}
+                onClick={(event) => {
+                  if (event.detail === 0) {
+                    onNoteSelect(note, event.shiftKey || event.metaKey || event.ctrlKey);
+                  }
+                }}
                 aria-label={`${note.noteName}、${note.barIndex + 1}小節目、長さ${note.durationTick} tick`}
+                aria-pressed={selected}
                 title={`${note.noteName} · ${note.role}`}
               >
                 <span>{note.noteName}</span>
@@ -110,7 +302,9 @@ export function PianoRoll({
           </div>
         </div>
       </div>
-      <p className="lane-tip">ノートを選択すると右側のインスペクターで移動・長さ変更・削除ができます。</p>
+      <p className="lane-tip" id="piano-roll-tip">
+        Shift／Commandを押しながら複数選択。空白をダブルクリックで追加、ノートをドラッグで移動できます。
+      </p>
     </section>
   );
 }

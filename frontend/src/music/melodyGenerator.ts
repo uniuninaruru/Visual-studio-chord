@@ -1,4 +1,12 @@
-import { PPQ, type ChordEvent, type GeneratorSettings, type NoteEvent, type NoteRole } from "../types/music";
+import {
+  PPQ,
+  type ChordEvent,
+  type GeneratorSettings,
+  type NoteEvent,
+  type NoteRole,
+  type RegenerationStrength,
+} from "../types/music";
+import { developMelodyWithMotif } from "./motifs";
 import { createSeededRandom, deriveSeed, hashSeed, type Seed } from "./random";
 import { generateRhythmBar, type RhythmSlot } from "./rhythmGenerator";
 import {
@@ -15,6 +23,7 @@ export interface MelodyGeneratorOptions {
   resolvedStyle: ConcreteStylePresetId;
   seed?: Seed;
   ppq?: number;
+  strength?: RegenerationStrength;
 }
 
 interface MelodyState {
@@ -179,6 +188,12 @@ export function generateMelody(options: MelodyGeneratorOptions): NoteEvent[] {
     notes.push(...result.notes);
     state = result.finalState;
   }
-  return notes;
+  return developMelodyWithMotif(notes, {
+    settings: options.settings,
+    chords: options.chords,
+    resolvedStyle: options.resolvedStyle,
+    seed: options.seed ?? options.settings.seed,
+    ticksPerBar: ticksPerBar(options.settings.timeSignature, options.ppq ?? PPQ),
+    strength: options.strength,
+  });
 }
-

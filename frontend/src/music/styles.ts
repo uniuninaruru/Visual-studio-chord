@@ -7,6 +7,15 @@ import type { RandomSource } from "./random";
 
 export type ConcreteStylePresetId = Exclude<StylePresetId, "random">;
 
+export type HarmonyCandidateKind =
+  | "triad"
+  | "seventh"
+  | "secondaryDominant"
+  | "borrowed"
+  | "tritoneSubstitution"
+  | "suspended"
+  | "addedTone";
+
 export interface StylePreset {
   id: ConcreteStylePresetId;
   label: string;
@@ -17,6 +26,7 @@ export interface StylePreset {
   restMultiplier: number;
   syncopationBias: number;
   chordToneBias: number;
+  harmonyWeights: Readonly<Record<HarmonyCandidateKind, number>>;
 }
 
 const cadenceWeights = (
@@ -33,6 +43,24 @@ const cadenceWeights = (
   loop,
 });
 
+const harmonyWeights = (
+  triad: number,
+  seventh: number,
+  secondaryDominant: number,
+  borrowed: number,
+  tritoneSubstitution: number,
+  suspended: number,
+  addedTone: number,
+): Readonly<Record<HarmonyCandidateKind, number>> => ({
+  triad,
+  seventh,
+  secondaryDominant,
+  borrowed,
+  tritoneSubstitution,
+  suspended,
+  addedTone,
+});
+
 export const STYLE_PRESETS: Readonly<Record<ConcreteStylePresetId, StylePreset>> = {
   pop: {
     id: "pop",
@@ -44,6 +72,7 @@ export const STYLE_PRESETS: Readonly<Record<ConcreteStylePresetId, StylePreset>>
     restMultiplier: 1,
     syncopationBias: 0.05,
     chordToneBias: 0.04,
+    harmonyWeights: harmonyWeights(5, 2, 1, 1, 0.2, 1.5, 1.5),
   },
   "j-pop": {
     id: "j-pop",
@@ -55,6 +84,7 @@ export const STYLE_PRESETS: Readonly<Record<ConcreteStylePresetId, StylePreset>>
     restMultiplier: 0.8,
     syncopationBias: 0.12,
     chordToneBias: 0.02,
+    harmonyWeights: harmonyWeights(3, 3, 2, 2, 0.5, 1, 2),
   },
   rock: {
     id: "rock",
@@ -66,6 +96,7 @@ export const STYLE_PRESETS: Readonly<Record<ConcreteStylePresetId, StylePreset>>
     restMultiplier: 0.85,
     syncopationBias: 0.02,
     chordToneBias: 0.1,
+    harmonyWeights: harmonyWeights(5, 0.7, 0.5, 2, 0.2, 2, 0.4),
   },
   jazz: {
     id: "jazz",
@@ -77,6 +108,7 @@ export const STYLE_PRESETS: Readonly<Record<ConcreteStylePresetId, StylePreset>>
     restMultiplier: 1.05,
     syncopationBias: 0.14,
     chordToneBias: -0.04,
+    harmonyWeights: harmonyWeights(1.5, 6, 4, 2.5, 4, 0.7, 2),
   },
   "lo-fi": {
     id: "lo-fi",
@@ -88,6 +120,7 @@ export const STYLE_PRESETS: Readonly<Record<ConcreteStylePresetId, StylePreset>>
     restMultiplier: 1.2,
     syncopationBias: 0.08,
     chordToneBias: 0,
+    harmonyWeights: harmonyWeights(2, 5, 2, 4, 2, 1, 3),
   },
   edm: {
     id: "edm",
@@ -99,6 +132,7 @@ export const STYLE_PRESETS: Readonly<Record<ConcreteStylePresetId, StylePreset>>
     restMultiplier: 0.6,
     syncopationBias: 0.18,
     chordToneBias: 0.1,
+    harmonyWeights: harmonyWeights(5, 1, 0.5, 1, 0.2, 3, 1),
   },
   ballad: {
     id: "ballad",
@@ -110,6 +144,7 @@ export const STYLE_PRESETS: Readonly<Record<ConcreteStylePresetId, StylePreset>>
     restMultiplier: 1.1,
     syncopationBias: -0.08,
     chordToneBias: 0.12,
+    harmonyWeights: harmonyWeights(3, 4, 2, 2, 0.5, 1.5, 3),
   },
   "game-music": {
     id: "game-music",
@@ -121,6 +156,7 @@ export const STYLE_PRESETS: Readonly<Record<ConcreteStylePresetId, StylePreset>>
     restMultiplier: 0.9,
     syncopationBias: 0.1,
     chordToneBias: 0.02,
+    harmonyWeights: harmonyWeights(2.5, 3, 2, 3, 1.5, 2, 2),
   },
 };
 
@@ -140,6 +176,7 @@ export function progressionsForMode(
   preset: StylePreset,
   mode: Mode,
 ): readonly (readonly number[])[] {
-  return mode === "major" ? preset.majorProgressions : preset.minorProgressions;
+  return mode === "major" || mode === "mixolydian"
+    ? preset.majorProgressions
+    : preset.minorProgressions;
 }
-
