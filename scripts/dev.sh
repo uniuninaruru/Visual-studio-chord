@@ -12,7 +12,7 @@ if [[ ! -x "$PROJECT_DIR/.venv/bin/uvicorn" ]]; then
   exit 1
 fi
 
-"$PROJECT_DIR/.venv/bin/uvicorn" app.main:app \
+"$PROJECT_DIR/.venv/bin/python" -m uvicorn app.main:app \
   --app-dir "$PROJECT_DIR/backend" \
   --host 127.0.0.1 \
   --port 8765 \
