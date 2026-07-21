@@ -6,6 +6,15 @@
 
 Docker DesktopまたはDocker Engine + Compose v2がある場合、ホスト側のNode.jsやPythonは不要です。
 
+Docker Desktopをインストールした後、先にDocker Engineが起動していることを確認します。
+
+```bash
+docker version
+docker compose version
+```
+
+`docker version`に`Server`欄が表示されない場合は、Docker Desktopを起動してから再実行してください。
+
 macOS / Linux:
 
 ```bash
@@ -18,6 +27,8 @@ Windows 11 PowerShell:
 .\scripts\start-local.ps1
 ```
 
+この起動スクリプトは、推測されにくい一時アクセストークンを起動ごとに生成し、固定digestのCPU版backend/frontendをビルドしてComposeで起動します。トークンを`.env`へ永続保存する必要はありません。`docker compose up`を直接実行して`MTC_SHARED_TOKEN is missing`と表示された場合も、上記スクリプトから起動してください。初回だけベースイメージと固定依存関係の取得に時間がかかり、2回目以降はDockerのキャッシュを再利用します。
+
 起動ログに次の2種類のURLが表示されます。
 
 - `Desktop URL`: 同じPCで開くURL
@@ -26,6 +37,32 @@ Windows 11 PowerShell:
 必ず、ログに表示された `#access=...` 付きURLをそのまま開いてください。認証情報はURLフラグメントからブラウザのセッション領域へ移され、アドレス欄から直ちに削除されます。終了は `Control + C`、コンテナの停止は `docker compose down` です。
 
 > 公共Wi-Fiやインターネットへポート5173を直接公開しないでください。この構成は自宅・制作室などの信頼できるローカルネットワーク向けです。
+
+ポート5173が他のアプリで使用中の場合は、起動前に別ポートを指定できます。
+
+```bash
+# macOS / Linux
+MTC_FRONTEND_PORT=5174 ./scripts/start-local.sh
+```
+
+```powershell
+# Windows 11 PowerShell
+$env:MTC_FRONTEND_PORT = "5174"
+.\scripts\start-local.ps1
+```
+
+### Docker実機検証
+
+2026-07-22にmacOS arm64のDocker Desktop 4.83.0（Engine 29.6.2、Compose 5.3.1）で次を確認済みです。
+
+- 固定digestからCPU版backend/frontendをクリーンビルドできる
+- 両コンテナがhealthyになり、UIとsame-origin APIがHTTP 200を返す
+- Docker内のPython 3.12.10 / Linux aarch64 / CPU runtimeで決定的rankが成功する
+- 認証なしは401、誤トークンは403、正しいセッショントークンは200になる
+- 390×844のChromiumで認証フラグメントが消去され、Local server / Local CPUとして主要操作が表示される
+- `docker compose down`でコンテナとネットワークを正常終了できる
+
+Linux Docker buildはGitHub Actionsでも検証しています。Windows NVIDIA CUDA、物理スマートフォン、物理Safariは別の実機リリースゲートです。Firefoxは今回の対象外です。
 
 ## Dockerを使わない起動
 
