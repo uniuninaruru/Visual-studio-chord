@@ -10,11 +10,15 @@ import type {
 import {
   diatonicQualityForDegree,
   getDiatonicChordDefinition,
+  getDiatonicSeventhChordDefinition,
   intervalsForQuality,
+  romanNumeralForChordQuality,
 } from "./chords";
-import { hasCadence, romanNumeralForDegree } from "./harmonyFunctions";
+import { explainSpecialChord } from "./advancedHarmony";
+import { hasCadence } from "./harmonyFunctions";
 import {
   getScaleMidiNotes,
+  isSupportedMode,
   midiToNoteName,
   normalizePitchClass,
   pitchClassToSemitone,
@@ -39,8 +43,8 @@ function warning(
   return { code, severity: "warning", message, ...context };
 }
 
-function isProbability(value: number): boolean {
-  return Number.isFinite(value) && value >= 0 && value <= 1;
+function isProbability(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
 export function validateGeneratorSettings(settings: GeneratorSettings): ValidationResult {
@@ -52,8 +56,13 @@ export function validateGeneratorSettings(settings: GeneratorSettings): Validati
     keyIsValid = false;
     issues.push(error("settings.key", "Key must be a supported pitch class."));
   }
-  if (settings.mode !== "major" && settings.mode !== "naturalMinor") {
-    issues.push(error("settings.mode", "Mode must be major or naturalMinor."));
+  if (!isSupportedMode(settings.mode)) {
+    issues.push(
+      error(
+        "settings.mode",
+        "Mode must be major, naturalMinor, harmonicMinor, dorian, or mixolydian.",
+      ),
+    );
   }
   if (!Number.isFinite(settings.bpm) || settings.bpm < 40 || settings.bpm > 240) {
     issues.push(error("settings.bpm", "BPM must be between 40 and 240."));
@@ -98,7 +107,7 @@ export function validateGeneratorSettings(settings: GeneratorSettings): Validati
     issues.push(error("settings.melody.range", "Melody range must use ordered MIDI integers from 0 to 127."));
   } else if (
     keyIsValid &&
-    (settings.mode === "major" || settings.mode === "naturalMinor") &&
+    isSupportedMode(settings.mode) &&
     getScaleMidiNotes(
       settings.key,
       settings.mode,
@@ -120,6 +129,47 @@ export function validateGeneratorSettings(settings: GeneratorSettings): Validati
   })) {
     if (!isProbability(value)) {
       issues.push(error(`settings.melody.${name}`, `${name} must be between 0 and 1.`));
+    }
+  }
+  if (settings.harmony) {
+    if (!["triads", "sevenths", "advanced"].includes(settings.harmony.complexity)) {
+      issues.push(
+        error(
+          "settings.harmony.complexity",
+          "Harmony complexity must be triads, sevenths, or advanced.",
+        ),
+      );
+    }
+    for (const [name, value] of Object.entries({
+      borrowedChordRate: settings.harmony.borrowedChordRate,
+      secondaryDominantRate: settings.harmony.secondaryDominantRate,
+      explorationRate: settings.harmony.explorationRate,
+      voiceLeadingStrength: settings.harmony.voiceLeadingStrength,
+    })) {
+      if (value !== undefined && !isProbability(value)) {
+        issues.push(
+          error(
+            `settings.harmony.${name}`,
+            `Harmony ${name} must be between 0 and 1.`,
+          ),
+        );
+      }
+    }
+  }
+  if (settings.motif) {
+    if (typeof settings.motif.enabled !== "boolean") {
+      issues.push(error("settings.motif.enabled", "Motif enabled must be boolean."));
+    }
+    if (settings.motif.lengthBars !== 1 && settings.motif.lengthBars !== 2) {
+      issues.push(error("settings.motif.lengthBars", "Motif length must be one or two bars."));
+    }
+    if (!isProbability(settings.motif.transformationRate)) {
+      issues.push(
+        error(
+          "settings.motif.transformationRate",
+          "Motif transformationRate must be between 0 and 1.",
+        ),
+      );
     }
   }
   return result(issues);
@@ -199,22 +249,65 @@ function validateChord(
   }
   if (chord.source === "diatonic") {
     try {
-      const expected = getDiatonicChordDefinition(
+      const expectedTriad = getDiatonicChordDefinition(
         composition.settings.key,
         composition.settings.mode,
         chord.degree,
       );
-      if (
-        expected.root !== chord.root ||
-        expected.quality !== chord.quality ||
-        expected.symbol !== chord.symbol ||
-        chord.quality !== diatonicQualityForDegree(chord.degree, composition.settings.mode) ||
-        chord.romanNumeral !== romanNumeralForDegree(chord.degree, composition.settings.mode)
-      ) {
+      const expectedSeventh = getDiatonicSeventhChordDefinition(
+        composition.settings.key,
+        composition.settings.mode,
+        chord.degree,
+      );
+      const matchesTriad =
+        expectedTriad.root === chord.root &&
+        expectedTriad.quality === chord.quality &&
+        expectedTriad.symbol === chord.symbol &&
+        chord.quality === diatonicQualityForDegree(
+          chord.degree,
+          composition.settings.mode,
+        );
+      const matchesSeventh =
+        expectedSeventh.root === chord.root &&
+        expectedSeventh.quality === chord.quality &&
+        expectedSeventh.symbol === chord.symbol;
+      const expectedRoman = romanNumeralForChordQuality(
+        chord.degree,
+        composition.settings.mode,
+        chord.quality,
+      );
+      if ((!matchesTriad && !matchesSeventh) || chord.romanNumeral !== expectedRoman) {
         issues.push(error("chord.diatonic", "Chord is not explained by its declared diatonic degree.", context));
       }
     } catch {
       issues.push(error("chord.degree", "Diatonic chord degree must be between 1 and 7.", context));
+    }
+  } else if (
+    chord.source === "secondaryDominant" ||
+    chord.source === "borrowed" ||
+    chord.source === "substitute"
+  ) {
+    const explanation = explainSpecialChord(
+      chord,
+      composition.settings.key,
+      composition.settings.mode,
+    );
+    if (explanation.allowed) {
+      issues.push(
+        warning(
+          `chord.special.${explanation.code}`,
+          explanation.message,
+          context,
+        ),
+      );
+    } else {
+      issues.push(
+        error(
+          `chord.special.${explanation.code}`,
+          explanation.message,
+          context,
+        ),
+      );
     }
   } else {
     issues.push(

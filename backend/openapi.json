@@ -1,0 +1,1394 @@
+{
+  "components": {
+    "schemas": {
+      "DeviceResponse": {
+        "additionalProperties": false,
+        "description": "Device capabilities with the shared API response envelope fields.",
+        "properties": {
+          "apiVersion": {
+            "const": "1",
+            "description": "Expose the immutable contract version as a required response field.",
+            "readOnly": true,
+            "title": "Apiversion",
+            "type": "string"
+          },
+          "coremlAvailable": {
+            "default": false,
+            "title": "Coremlavailable",
+            "type": "boolean"
+          },
+          "cudaAvailable": {
+            "title": "Cudaavailable",
+            "type": "boolean"
+          },
+          "cudaDeviceCount": {
+            "title": "Cudadevicecount",
+            "type": "integer"
+          },
+          "deviceName": {
+            "title": "Devicename",
+            "type": "string"
+          },
+          "directmlAvailable": {
+            "default": false,
+            "title": "Directmlavailable",
+            "type": "boolean"
+          },
+          "mpsAvailable": {
+            "title": "Mpsavailable",
+            "type": "boolean"
+          },
+          "onnxCudaAvailable": {
+            "default": false,
+            "title": "Onnxcudaavailable",
+            "type": "boolean"
+          },
+          "onnxRuntimeAvailable": {
+            "default": false,
+            "title": "Onnxruntimeavailable",
+            "type": "boolean"
+          },
+          "requestId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "title": "Requestid",
+            "type": "string"
+          },
+          "selectedDevice": {
+            "enum": [
+              "cpu",
+              "cuda",
+              "mps",
+              "coreml",
+              "directml"
+            ],
+            "title": "Selecteddevice",
+            "type": "string"
+          },
+          "torchAvailable": {
+            "title": "Torchavailable",
+            "type": "boolean"
+          },
+          "torchCudaAvailable": {
+            "default": false,
+            "title": "Torchcudaavailable",
+            "type": "boolean"
+          },
+          "totalMemoryMb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Totalmemorymb"
+          }
+        },
+        "required": [
+          "selectedDevice",
+          "torchAvailable",
+          "onnxRuntimeAvailable",
+          "cudaAvailable",
+          "torchCudaAvailable",
+          "onnxCudaAvailable",
+          "mpsAvailable",
+          "coremlAvailable",
+          "directmlAvailable",
+          "deviceName",
+          "cudaDeviceCount",
+          "totalMemoryMb",
+          "requestId",
+          "apiVersion"
+        ],
+        "title": "DeviceResponse",
+        "type": "object"
+      },
+      "ErrorInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "AUTHENTICATION_REQUIRED",
+              "INVALID_AUTHENTICATION_TOKEN",
+              "VALIDATION_ERROR",
+              "CONFLICT",
+              "SERVICE_UNAVAILABLE",
+              "NOT_FOUND",
+              "METHOD_NOT_ALLOWED",
+              "HTTP_ERROR",
+              "INTERNAL_ERROR"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorInfo",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "apiVersion": {
+            "const": "1",
+            "description": "Expose the immutable contract version as a required response field.",
+            "readOnly": true,
+            "title": "Apiversion",
+            "type": "string"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ErrorInfo"
+          },
+          "requestId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "title": "Requestid",
+            "type": "string"
+          },
+          "success": {
+            "const": false,
+            "readOnly": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "requestId",
+          "error",
+          "apiVersion",
+          "success"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "activeModel": {
+            "enum": [
+              "local-deterministic-v1",
+              "local-mlp-v1",
+              "local-onnx-v1",
+              "mock-deterministic-v1"
+            ],
+            "title": "Activemodel",
+            "type": "string"
+          },
+          "apiVersion": {
+            "const": "1",
+            "description": "Expose the immutable contract version as a required response field.",
+            "readOnly": true,
+            "title": "Apiversion",
+            "type": "string"
+          },
+          "authRequired": {
+            "title": "Authrequired",
+            "type": "boolean"
+          },
+          "backend": {
+            "enum": [
+              "linear",
+              "pytorch",
+              "onnx",
+              "browser",
+              "mock"
+            ],
+            "title": "Backend",
+            "type": "string"
+          },
+          "fallbackReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallbackreason"
+          },
+          "inferenceAuthorized": {
+            "title": "Inferenceauthorized",
+            "type": "boolean"
+          },
+          "mock": {
+            "title": "Mock",
+            "type": "boolean"
+          },
+          "platformMachine": {
+            "title": "Platformmachine",
+            "type": "string"
+          },
+          "platformSystem": {
+            "title": "Platformsystem",
+            "type": "string"
+          },
+          "pythonVersion": {
+            "title": "Pythonversion",
+            "type": "string"
+          },
+          "requestId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "title": "Requestid",
+            "type": "string"
+          },
+          "runtime": {
+            "enum": [
+              "cpu",
+              "cuda",
+              "mps",
+              "coreml",
+              "directml"
+            ],
+            "title": "Runtime",
+            "type": "string"
+          },
+          "service": {
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "const": "ok",
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestId",
+          "status",
+          "service",
+          "version",
+          "pythonVersion",
+          "platformSystem",
+          "platformMachine",
+          "authRequired",
+          "inferenceAuthorized",
+          "activeModel",
+          "runtime",
+          "backend",
+          "mock",
+          "fallbackReason",
+          "apiVersion"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "ModelActionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "apiVersion": {
+            "anyOf": [
+              {
+                "const": "1",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apiversion"
+          },
+          "modelId": {
+            "enum": [
+              "local-deterministic-v1",
+              "local-mlp-v1",
+              "local-onnx-v1",
+              "mock-deterministic-v1"
+            ],
+            "title": "Modelid",
+            "type": "string"
+          },
+          "requestId": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requestid"
+          }
+        },
+        "required": [
+          "modelId"
+        ],
+        "title": "ModelActionRequest",
+        "type": "object"
+      },
+      "ModelActionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "activeBackend": {
+            "enum": [
+              "linear",
+              "pytorch",
+              "onnx",
+              "browser",
+              "mock"
+            ],
+            "title": "Activebackend",
+            "type": "string"
+          },
+          "activeModel": {
+            "enum": [
+              "local-deterministic-v1",
+              "local-mlp-v1",
+              "local-onnx-v1",
+              "mock-deterministic-v1"
+            ],
+            "title": "Activemodel",
+            "type": "string"
+          },
+          "activeRuntime": {
+            "enum": [
+              "cpu",
+              "cuda",
+              "mps",
+              "coreml",
+              "directml"
+            ],
+            "title": "Activeruntime",
+            "type": "string"
+          },
+          "apiVersion": {
+            "const": "1",
+            "description": "Expose the immutable contract version as a required response field.",
+            "readOnly": true,
+            "title": "Apiversion",
+            "type": "string"
+          },
+          "cacheSize": {
+            "title": "Cachesize",
+            "type": "integer"
+          },
+          "fallbackReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallbackreason"
+          },
+          "mock": {
+            "title": "Mock",
+            "type": "boolean"
+          },
+          "model": {
+            "$ref": "#/components/schemas/ModelInfo"
+          },
+          "requestId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "title": "Requestid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestId",
+          "model",
+          "activeModel",
+          "activeRuntime",
+          "activeBackend",
+          "mock",
+          "cacheSize",
+          "fallbackReason",
+          "apiVersion"
+        ],
+        "title": "ModelActionResponse",
+        "type": "object"
+      },
+      "ModelInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "backend": {
+            "enum": [
+              "linear",
+              "pytorch",
+              "onnx",
+              "browser",
+              "mock"
+            ],
+            "title": "Backend",
+            "type": "string"
+          },
+          "capabilities": {
+            "items": {
+              "const": "rank",
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "loaded": {
+            "title": "Loaded",
+            "type": "boolean"
+          },
+          "mock": {
+            "title": "Mock",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "runtime": {
+            "enum": [
+              "browser",
+              "cpu",
+              "cuda",
+              "mps",
+              "coreml",
+              "directml"
+            ],
+            "title": "Runtime",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "runtime",
+          "available",
+          "loaded",
+          "capabilities",
+          "backend",
+          "mock"
+        ],
+        "title": "ModelInfo",
+        "type": "object"
+      },
+      "ModelsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "activeBackend": {
+            "enum": [
+              "linear",
+              "pytorch",
+              "onnx",
+              "browser",
+              "mock"
+            ],
+            "title": "Activebackend",
+            "type": "string"
+          },
+          "activeModel": {
+            "enum": [
+              "local-deterministic-v1",
+              "local-mlp-v1",
+              "local-onnx-v1",
+              "mock-deterministic-v1"
+            ],
+            "title": "Activemodel",
+            "type": "string"
+          },
+          "activeRuntime": {
+            "enum": [
+              "cpu",
+              "cuda",
+              "mps",
+              "coreml",
+              "directml"
+            ],
+            "title": "Activeruntime",
+            "type": "string"
+          },
+          "apiVersion": {
+            "const": "1",
+            "description": "Expose the immutable contract version as a required response field.",
+            "readOnly": true,
+            "title": "Apiversion",
+            "type": "string"
+          },
+          "fallbackReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallbackreason"
+          },
+          "mock": {
+            "title": "Mock",
+            "type": "boolean"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelInfo"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "requestId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "title": "Requestid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestId",
+          "models",
+          "activeModel",
+          "activeRuntime",
+          "activeBackend",
+          "mock",
+          "fallbackReason",
+          "apiVersion"
+        ],
+        "title": "ModelsResponse",
+        "type": "object"
+      },
+      "PreferenceUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "apiVersion": {
+            "anyOf": [
+              {
+                "const": "1",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apiversion"
+          },
+          "category": {
+            "enum": [
+              "chords",
+              "melody",
+              "rhythm",
+              "voicing",
+              "combined"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "features": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Features",
+            "type": "object"
+          },
+          "feedback": {
+            "enum": [
+              "like",
+              "dislike",
+              "favorite",
+              "abSelected",
+              "notMyStyle",
+              "adopted",
+              "immediateUndo",
+              "saved",
+              "midiExported",
+              "replayed",
+              "manuallyEdited"
+            ],
+            "title": "Feedback",
+            "type": "string"
+          },
+          "requestId": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requestid"
+          },
+          "weight": {
+            "default": 1.0,
+            "exclusiveMinimum": 0.0,
+            "maximum": 4.0,
+            "title": "Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "category",
+          "feedback",
+          "features"
+        ],
+        "title": "PreferenceUpdateRequest",
+        "type": "object"
+      },
+      "PreferenceUpdateResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "apiVersion": {
+            "const": "1",
+            "description": "Expose the immutable contract version as a required response field.",
+            "readOnly": true,
+            "title": "Apiversion",
+            "type": "string"
+          },
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "evaluationCount": {
+            "title": "Evaluationcount",
+            "type": "integer"
+          },
+          "requestId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "title": "Requestid",
+            "type": "string"
+          },
+          "weights": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Weights",
+            "type": "object"
+          }
+        },
+        "required": [
+          "requestId",
+          "weights",
+          "evaluationCount",
+          "confidence",
+          "apiVersion"
+        ],
+        "title": "PreferenceUpdateResponse",
+        "type": "object"
+      },
+      "RankCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "features": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Features",
+            "type": "object"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "RankCandidate",
+        "type": "object"
+      },
+      "RankRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "allowCpuFallback": {
+            "default": true,
+            "title": "Allowcpufallback",
+            "type": "boolean"
+          },
+          "apiVersion": {
+            "anyOf": [
+              {
+                "const": "1",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apiversion"
+          },
+          "batchSize": {
+            "default": 64,
+            "maximum": 128.0,
+            "minimum": 1.0,
+            "title": "Batchsize",
+            "type": "integer"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/RankCandidate"
+            },
+            "maxItems": 512,
+            "minItems": 1,
+            "title": "Candidates",
+            "type": "array"
+          },
+          "modelId": {
+            "anyOf": [
+              {
+                "enum": [
+                  "local-deterministic-v1",
+                  "local-mlp-v1",
+                  "local-onnx-v1",
+                  "mock-deterministic-v1"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modelid"
+          },
+          "preferenceCategory": {
+            "default": "combined",
+            "enum": [
+              "chords",
+              "melody",
+              "rhythm",
+              "voicing",
+              "combined"
+            ],
+            "title": "Preferencecategory",
+            "type": "string"
+          },
+          "preferenceWeights": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "Complete client preference profile when supplied; when omitted, the process-local profile for preferenceCategory is used.",
+            "title": "Preferenceweights",
+            "type": "object"
+          },
+          "requestId": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requestid"
+          }
+        },
+        "required": [
+          "candidates"
+        ],
+        "title": "RankRequest",
+        "type": "object"
+      },
+      "RankResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "apiVersion": {
+            "const": "1",
+            "description": "Expose the immutable contract version as a required response field.",
+            "readOnly": true,
+            "title": "Apiversion",
+            "type": "string"
+          },
+          "backend": {
+            "enum": [
+              "linear",
+              "pytorch",
+              "onnx",
+              "browser",
+              "mock"
+            ],
+            "title": "Backend",
+            "type": "string"
+          },
+          "batchSize": {
+            "title": "Batchsize",
+            "type": "integer"
+          },
+          "device": {
+            "enum": [
+              "cpu",
+              "cuda",
+              "mps",
+              "coreml",
+              "directml"
+            ],
+            "title": "Device",
+            "type": "string"
+          },
+          "fallbackReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallbackreason"
+          },
+          "mock": {
+            "title": "Mock",
+            "type": "boolean"
+          },
+          "modelId": {
+            "enum": [
+              "local-deterministic-v1",
+              "local-mlp-v1",
+              "local-onnx-v1",
+              "mock-deterministic-v1"
+            ],
+            "title": "Modelid",
+            "type": "string"
+          },
+          "ranked": {
+            "items": {
+              "$ref": "#/components/schemas/RankedCandidate"
+            },
+            "title": "Ranked",
+            "type": "array"
+          },
+          "requestId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "title": "Requestid",
+            "type": "string"
+          },
+          "runtime": {
+            "enum": [
+              "cpu",
+              "cuda",
+              "mps",
+              "coreml",
+              "directml"
+            ],
+            "title": "Runtime",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestId",
+          "ranked",
+          "device",
+          "modelId",
+          "runtime",
+          "batchSize",
+          "backend",
+          "mock",
+          "apiVersion"
+        ],
+        "title": "RankResponse",
+        "type": "object"
+      },
+      "RankedCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "score"
+        ],
+        "title": "RankedCandidate",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "MtcSharedToken": {
+        "description": "Shared LAN token. Required only when GET /api/health reports authRequired=true.",
+        "in": "header",
+        "name": "X-MTC-Token",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "title": "Music Theory Composer API",
+    "version": "0.2.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/device": {
+      "get": {
+        "operationId": "getDevice",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "An internal server error occurred."
+          }
+        },
+        "summary": "Device",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/health": {
+      "get": {
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "An internal server error occurred."
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/models": {
+      "get": {
+        "operationId": "listModels",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "An internal server error occurred."
+          }
+        },
+        "summary": "Models",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/models/load": {
+      "post": {
+        "operationId": "loadModel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelActionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication token is invalid."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "An internal server error occurred."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The requested service is unavailable."
+          }
+        },
+        "security": [
+          {
+            "MtcSharedToken": []
+          }
+        ],
+        "summary": "Load Model",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/api/models/unload": {
+      "post": {
+        "operationId": "unloadModel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelActionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication token is invalid."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with the current server state."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "An internal server error occurred."
+          }
+        },
+        "security": [
+          {
+            "MtcSharedToken": []
+          }
+        ],
+        "summary": "Unload Model",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/api/preferences/update": {
+      "post": {
+        "operationId": "updatePreferences",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreferenceUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreferenceUpdateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication token is invalid."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request conflicts with the current server state."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "An internal server error occurred."
+          }
+        },
+        "security": [
+          {
+            "MtcSharedToken": []
+          }
+        ],
+        "summary": "Update Preferences",
+        "tags": [
+          "preferences"
+        ]
+      }
+    },
+    "/api/rank": {
+      "post": {
+        "operationId": "rankCandidates",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RankRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RankResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication token is invalid."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "An internal server error occurred."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The requested service is unavailable."
+          }
+        },
+        "security": [
+          {
+            "MtcSharedToken": []
+          }
+        ],
+        "summary": "Rank",
+        "tags": [
+          "ranking"
+        ]
+      }
+    }
+  }
+}

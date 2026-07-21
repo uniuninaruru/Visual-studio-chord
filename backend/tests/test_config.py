@@ -43,3 +43,38 @@ def test_origins_are_configurable_from_environment(monkeypatch) -> None:
         "http://127.0.0.1:3000",
     )
 
+
+@pytest.mark.parametrize(
+    "preference",
+    ["auto", "linear", "mlp", "onnx", "mock-deterministic"],
+)
+def test_inference_preference_is_configurable(monkeypatch, preference: str) -> None:
+    monkeypatch.setenv("MTC_INFERENCE_MODEL", preference.upper())
+
+    assert Settings.from_env().inference_model == preference
+
+
+def test_invalid_inference_preference_fails_closed(monkeypatch) -> None:
+    monkeypatch.setenv("MTC_INFERENCE_MODEL", "../../model.pkl")
+
+    with pytest.raises(ValueError, match="MTC_INFERENCE_MODEL"):
+        Settings.from_env()
+
+
+def test_shared_token_is_loaded_without_being_exposed_in_repr(monkeypatch) -> None:
+    token = "test-token-1234567890"
+    monkeypatch.setenv("MTC_SHARED_TOKEN", token)
+
+    settings = Settings.from_env()
+
+    assert settings.shared_token == token
+    assert token not in repr(settings)
+
+
+@pytest.mark.parametrize(
+    "token",
+    ["too-short", 'valid-length";inject', "valid-length-token\nnext"],
+)
+def test_unsafe_shared_token_is_rejected(token: str) -> None:
+    with pytest.raises(ValueError, match="MTC_SHARED_TOKEN"):
+        Settings(shared_token=token)

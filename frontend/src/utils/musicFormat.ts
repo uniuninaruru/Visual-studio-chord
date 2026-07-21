@@ -1,5 +1,17 @@
 const NOTE_NAMES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"];
 
+const MODE_LABELS = {
+  major: "Major",
+  naturalMinor: "Natural Minor",
+  harmonicMinor: "Harmonic Minor",
+  dorian: "Dorian",
+  mixolydian: "Mixolydian",
+} as const;
+
+export function modeLabel(mode: keyof typeof MODE_LABELS): string {
+  return MODE_LABELS[mode];
+}
+
 export function midiNoteName(midi: number): string {
   const pitchClass = NOTE_NAMES[((midi % 12) + 12) % 12] ?? "C";
   return `${pitchClass}${Math.floor(midi / 12) - 1}`;

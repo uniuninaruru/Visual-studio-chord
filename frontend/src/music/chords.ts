@@ -11,6 +11,7 @@ import {
 } from "./harmonyFunctions";
 import {
   getScalePitchClasses,
+  getScaleSemitones,
   normalizePitchClass,
   pitchClassToSemitone,
   scaleDegreeForPitchClass,
@@ -32,39 +33,80 @@ const QUALITY_INTERVALS: Readonly<Record<ChordQuality, readonly number[]>> = {
   dominant7: [0, 4, 7, 10],
   major7: [0, 4, 7, 11],
   minor7: [0, 3, 7, 10],
+  halfDiminished7: [0, 3, 6, 10],
+  diminished7: [0, 3, 6, 9],
+  minorMajor7: [0, 3, 7, 11],
+  augmentedMajor7: [0, 4, 8, 11],
+  sus2: [0, 2, 7],
+  sus4: [0, 5, 7],
+  // Close-position voicings keep the ninth inside the first octave.
+  add9: [0, 2, 4, 7],
+  minorAdd9: [0, 2, 3, 7],
 };
 
-const MAJOR_TRIAD_QUALITIES: readonly ChordQuality[] = [
-  "major",
-  "minor",
-  "minor",
-  "major",
-  "major",
-  "minor",
-  "diminished",
-];
-
-const MINOR_TRIAD_QUALITIES: readonly ChordQuality[] = [
-  "minor",
-  "diminished",
-  "major",
-  "minor",
-  "minor",
-  "major",
-  "major",
-];
+const INTERVALS_TO_QUALITY: Readonly<Record<string, ChordQuality>> = {
+  "0,4,7": "major",
+  "0,3,7": "minor",
+  "0,3,6": "diminished",
+  "0,4,8": "augmented",
+  "0,4,7,10": "dominant7",
+  "0,4,7,11": "major7",
+  "0,3,7,10": "minor7",
+  "0,3,6,10": "halfDiminished7",
+  "0,3,6,9": "diminished7",
+  "0,3,7,11": "minorMajor7",
+  "0,4,8,11": "augmentedMajor7",
+};
 
 export function intervalsForQuality(quality: ChordQuality): readonly number[] {
   return QUALITY_INTERVALS[quality];
 }
 
-export function diatonicQualityForDegree(degree: number, mode: Mode): ChordQuality {
+function assertDegree(degree: number): void {
   if (!Number.isInteger(degree) || degree < 1 || degree > 7) {
     throw new RangeError("Scale degree must be an integer from 1 to 7.");
   }
-  return (mode === "major" ? MAJOR_TRIAD_QUALITIES : MINOR_TRIAD_QUALITIES)[
-    degree - 1
-  ] as ChordQuality;
+}
+
+function stackedThirdIntervals(
+  mode: Mode,
+  degree: number,
+  noteCount: 3 | 4,
+): number[] {
+  assertDegree(degree);
+  const scale = getScaleSemitones("C", mode);
+  const rootIndex = degree - 1;
+  const root = scale[rootIndex] as number;
+  return Array.from({ length: noteCount }, (_, stackIndex) => {
+    const scaleIndex = rootIndex + stackIndex * 2;
+    const octave = Math.floor(scaleIndex / 7) * 12;
+    const pitch = (scale[scaleIndex % 7] as number) + octave;
+    return pitch - root;
+  });
+}
+
+function qualityForDiatonicStack(
+  mode: Mode,
+  degree: number,
+  noteCount: 3 | 4,
+): ChordQuality {
+  const key = stackedThirdIntervals(mode, degree, noteCount).join(",");
+  const quality = INTERVALS_TO_QUALITY[key];
+  if (!quality) {
+    throw new Error(`Unsupported diatonic chord intervals: ${key}`);
+  }
+  return quality;
+}
+
+export function diatonicQualityForDegree(degree: number, mode: Mode): ChordQuality {
+  return qualityForDiatonicStack(mode, degree, 3);
+}
+
+export function diatonicSeventhQualityForDegree(
+  degree: number,
+  mode: Mode,
+): ChordQuality {
+  return qualityForDiatonicStack(mode, degree, 4);
 }
 
 export function formatChordSymbol(
@@ -79,8 +121,36 @@ export function formatChordSymbol(
     dominant7: "7",
     major7: "maj7",
     minor7: "m7",
+    halfDiminished7: "m7b5",
+    diminished7: "dim7",
+    minorMajor7: "mMaj7",
+    augmentedMajor7: "augMaj7",
+    sus2: "sus2",
+    sus4: "sus4",
+    add9: "add9",
+    minorAdd9: "madd9",
   };
   return `${normalizePitchClass(root)}${suffix[quality]}`;
+}
+
+function getDiatonicDefinition(
+  key: PitchClassName,
+  mode: Mode,
+  degree: number,
+  seventh: boolean,
+): ChordDefinition {
+  assertDegree(degree);
+  const root = getScalePitchClasses(key, mode)[degree - 1];
+  if (!root) throw new RangeError("Could not resolve scale degree.");
+  const quality = seventh
+    ? diatonicSeventhQualityForDegree(degree, mode)
+    : diatonicQualityForDegree(degree, mode);
+  return {
+    root,
+    quality,
+    intervals: intervalsForQuality(quality),
+    symbol: formatChordSymbol(root, quality),
+  };
 }
 
 export function getDiatonicChordDefinition(
@@ -88,18 +158,15 @@ export function getDiatonicChordDefinition(
   mode: Mode,
   degree: number,
 ): ChordDefinition {
-  if (!Number.isInteger(degree) || degree < 1 || degree > 7) {
-    throw new RangeError("Scale degree must be an integer from 1 to 7.");
-  }
-  const root = getScalePitchClasses(key, mode)[degree - 1];
-  if (!root) throw new RangeError("Could not resolve scale degree.");
-  const quality = diatonicQualityForDegree(degree, mode);
-  return {
-    root,
-    quality,
-    intervals: intervalsForQuality(quality),
-    symbol: formatChordSymbol(root, quality),
-  };
+  return getDiatonicDefinition(key, mode, degree, false);
+}
+
+export function getDiatonicSeventhChordDefinition(
+  key: PitchClassName,
+  mode: Mode,
+  degree: number,
+): ChordDefinition {
+  return getDiatonicDefinition(key, mode, degree, true);
 }
 
 function chordCandidates(
@@ -121,7 +188,7 @@ function chordCandidates(
     ];
     for (let rootMidi = rootSemitone + 36; rootMidi <= rootSemitone + 72; rootMidi += 12) {
       const notes = reordered.map((interval) => rootMidi + interval);
-      if ((notes[0] as number) >= 43 && (notes[notes.length - 1] as number) <= 79) {
+      if ((notes[0] as number) >= 43 && (notes[notes.length - 1] as number) <= 84) {
         candidates.push({ notes, inversion });
       }
     }
@@ -129,7 +196,11 @@ function chordCandidates(
   return candidates;
 }
 
-function voicingCost(notes: readonly number[], previousNotes?: readonly number[]): number {
+function voicingCost(
+  notes: readonly number[],
+  previousNotes: readonly number[] | undefined,
+  voiceLeadingStrength: number,
+): number {
   const centerCost = notes.reduce((sum, note) => sum + Math.abs(note - 60), 0) * 0.08;
   const bassCost = Math.abs((notes[0] as number) - 50) * 0.12;
   if (!previousNotes || previousNotes.length === 0) return centerCost + bassCost;
@@ -141,7 +212,16 @@ function voicingCost(notes: readonly number[], previousNotes?: readonly number[]
   const commonPitchClasses = notes.filter((note) =>
     previousNotes.some((prior) => prior % 12 === note % 12),
   ).length;
-  return movement + centerCost + bassCost - commonPitchClasses * 1.5;
+  // Preserve the exact operation order used by the original implementation at
+  // the default strength so seeded tie-breaking cannot drift.
+  if (voiceLeadingStrength === 1) {
+    return movement + centerCost + bassCost - commonPitchClasses * 1.5;
+  }
+  return (
+    (movement - commonPitchClasses * 1.5) * voiceLeadingStrength
+    + centerCost
+    + bassCost
+  );
 }
 
 /** Closed-position voicing with deterministic, lightweight voice-leading. */
@@ -150,7 +230,15 @@ export function voiceChord(
   quality: ChordQuality,
   previousNotes?: readonly number[],
   requestedInversion?: number,
+  voiceLeadingStrength = 1,
 ): { notes: number[]; inversion: number } {
+  if (
+    !Number.isFinite(voiceLeadingStrength)
+    || voiceLeadingStrength < 0
+    || voiceLeadingStrength > 1
+  ) {
+    throw new RangeError("voiceLeadingStrength must be between 0 and 1.");
+  }
   const candidates = chordCandidates(
     pitchClassToSemitone(root),
     quality,
@@ -158,11 +246,53 @@ export function voiceChord(
   );
   if (candidates.length === 0) throw new Error("No playable chord voicing found.");
   return candidates.reduce((best, candidate) => {
-    const bestCost = voicingCost(best.notes, previousNotes);
-    const candidateCost = voicingCost(candidate.notes, previousNotes);
+    const bestCost = voicingCost(best.notes, previousNotes, voiceLeadingStrength);
+    const candidateCost = voicingCost(candidate.notes, previousNotes, voiceLeadingStrength);
     if (candidateCost !== bestCost) return candidateCost < bestCost ? candidate : best;
     return candidate.notes.join(",") < best.notes.join(",") ? candidate : best;
   });
+}
+
+export function romanNumeralForChordQuality(
+  degree: number,
+  mode: Mode,
+  quality: ChordQuality,
+): string {
+  const base = romanNumeralForDegree(degree, mode).replace(/[°+]$/, "");
+  const upper = base.toUpperCase();
+  const lower = base.toLowerCase();
+  switch (quality) {
+    case "minor":
+      return lower;
+    case "diminished":
+      return `${lower}°`;
+    case "augmented":
+      return `${upper}+`;
+    case "dominant7":
+      return `${upper}7`;
+    case "major7":
+      return `${upper}maj7`;
+    case "minor7":
+      return `${lower}7`;
+    case "halfDiminished7":
+      return `${lower}ø7`;
+    case "diminished7":
+      return `${lower}°7`;
+    case "minorMajor7":
+      return `${lower}(maj7)`;
+    case "augmentedMajor7":
+      return `${upper}+(maj7)`;
+    case "sus2":
+      return `${upper}sus2`;
+    case "sus4":
+      return `${upper}sus4`;
+    case "add9":
+      return `${upper}add9`;
+    case "minorAdd9":
+      return `${lower}add9`;
+    case "major":
+      return upper;
+  }
 }
 
 export interface CreateDiatonicChordOptions {
@@ -173,25 +303,31 @@ export interface CreateDiatonicChordOptions {
   durationTick: number;
   id: string;
   previousNotes?: readonly number[];
+  seventh?: boolean;
+  voiceLeadingStrength?: number;
 }
 
 export function createDiatonicChordEvent(
   options: CreateDiatonicChordOptions,
 ): ChordEvent {
-  const definition = getDiatonicChordDefinition(
-    options.key,
-    options.mode,
-    options.degree,
-  );
+  const definition = options.seventh
+    ? getDiatonicSeventhChordDefinition(options.key, options.mode, options.degree)
+    : getDiatonicChordDefinition(options.key, options.mode, options.degree);
   const voicing = voiceChord(
     definition.root,
     definition.quality,
     options.previousNotes,
+    undefined,
+    options.voiceLeadingStrength,
   );
   return {
     id: options.id,
     symbol: definition.symbol,
-    romanNumeral: romanNumeralForDegree(options.degree, options.mode),
+    romanNumeral: romanNumeralForChordQuality(
+      options.degree,
+      options.mode,
+      definition.quality,
+    ),
     function: harmonyFunctionForDegree(options.degree, options.mode),
     degree: options.degree,
     quality: definition.quality,
@@ -205,7 +341,7 @@ export function createDiatonicChordEvent(
 }
 
 export function parseChordSymbol(symbol: string): ChordDefinition {
-  const match = /^\s*([A-Ga-g])([#b]?)(maj7|M7|m7|min7|dim|°|aug|\+|7|m|min)?\s*$/.exec(
+  const match = /^\s*([A-Ga-g])([#b]?)(augMaj7|mMaj7|madd9|add9|m7b5|ø7|dim7|maj7|M7|m7|min7|sus2|sus4|dim|°|aug|\+|7|m|min)?\s*$/.exec(
     symbol,
   );
   if (!match) {
@@ -213,34 +349,31 @@ export function parseChordSymbol(symbol: string): ChordDefinition {
   }
   const root = `${(match[1] as string).toUpperCase()}${match[2] ?? ""}` as PitchClassName;
   const suffix = match[3] ?? "";
-  let quality: ChordQuality;
-  switch (suffix) {
-    case "m":
-    case "min":
-      quality = "minor";
-      break;
-    case "dim":
-    case "°":
-      quality = "diminished";
-      break;
-    case "aug":
-    case "+":
-      quality = "augmented";
-      break;
-    case "7":
-      quality = "dominant7";
-      break;
-    case "maj7":
-    case "M7":
-      quality = "major7";
-      break;
-    case "m7":
-    case "min7":
-      quality = "minor7";
-      break;
-    default:
-      quality = "major";
-  }
+  const qualities: Readonly<Record<string, ChordQuality>> = {
+    "": "major",
+    m: "minor",
+    min: "minor",
+    dim: "diminished",
+    "°": "diminished",
+    aug: "augmented",
+    "+": "augmented",
+    "7": "dominant7",
+    maj7: "major7",
+    M7: "major7",
+    m7: "minor7",
+    min7: "minor7",
+    m7b5: "halfDiminished7",
+    "ø7": "halfDiminished7",
+    dim7: "diminished7",
+    mMaj7: "minorMajor7",
+    augMaj7: "augmentedMajor7",
+    sus2: "sus2",
+    sus4: "sus4",
+    add9: "add9",
+    madd9: "minorAdd9",
+  };
+  const quality = qualities[suffix];
+  if (!quality) throw new Error(`Unsupported chord symbol: ${symbol}`);
   const normalizedRoot = normalizePitchClass(root);
   return {
     root: normalizedRoot,
@@ -250,19 +383,39 @@ export function parseChordSymbol(symbol: string): ChordDefinition {
   };
 }
 
-function romanForEditedChord(degree: number, quality: ChordQuality): string {
-  const base = ["I", "II", "III", "IV", "V", "VI", "VII"][degree - 1] as string;
-  if (quality === "minor" || quality === "minor7") return base.toLowerCase() + (quality === "minor7" ? "7" : "");
-  if (quality === "diminished") return `${base.toLowerCase()}°`;
-  if (quality === "dominant7" || quality === "major7") return `${base}7`;
-  if (quality === "augmented") return `${base}+`;
-  return base;
+function colorSource(
+  degree: number | null,
+  definition: ChordDefinition,
+  key: PitchClassName,
+  mode: Mode,
+): Pick<ChordEvent, "source" | "specialKind" | "explanation"> {
+  if (!degree) return { source: "other" };
+  const triad = getDiatonicChordDefinition(key, mode, degree);
+  const seventh = getDiatonicSeventhChordDefinition(key, mode, degree);
+  if (
+    definition.root === triad.root &&
+    (definition.quality === triad.quality || definition.quality === seventh.quality)
+  ) {
+    return { source: "diatonic" };
+  }
+  if (definition.quality === "sus2" || definition.quality === "sus4") {
+    return {
+      source: "substitute",
+      specialKind: "suspended",
+      explanation: `Scale degree ${degree} replaces its third with a suspension.`,
+    };
+  }
+  if (definition.quality === "add9" || definition.quality === "minorAdd9") {
+    return {
+      source: "substitute",
+      specialKind: "addedTone",
+      explanation: `Scale degree ${degree} adds the diatonic ninth as color.`,
+    };
+  }
+  return { source: "other" };
 }
 
-/**
- * Rebuilds all derived chord fields after a direct symbol edit. Unsupported
- * or chromatic symbols are marked as `other` instead of pretending diatonicity.
- */
+/** Rebuilds all derived chord fields after a direct symbol edit. */
 export function replaceChordSymbol(
   chord: ChordEvent,
   symbol: string,
@@ -272,22 +425,24 @@ export function replaceChordSymbol(
 ): ChordEvent {
   const definition = parseChordSymbol(symbol);
   const degree = scaleDegreeForPitchClass(definition.root, key, mode);
-  const expectedQuality = degree ? diatonicQualityForDegree(degree, mode) : null;
-  const source: ChordSource = degree && expectedQuality === definition.quality
-    ? "diatonic"
-    : "other";
+  const classification = colorSource(degree, definition, key, mode);
   const voicing = voiceChord(definition.root, definition.quality, undefined, inversion);
   return {
     ...chord,
     symbol: definition.symbol,
-    romanNumeral: degree ? romanForEditedChord(degree, definition.quality) : "?",
+    romanNumeral: degree
+      ? romanNumeralForChordQuality(degree, mode, definition.quality)
+      : "?",
     function: degree ? harmonyFunctionForDegree(degree, mode) : "other",
     degree: degree ?? 0,
     quality: definition.quality,
     root: semitoneToPitchClass(pitchClassToSemitone(definition.root)),
     notes: voicing.notes,
     inversion: voicing.inversion,
-    source,
+    source: classification.source as ChordSource,
+    specialKind: classification.specialKind,
+    explanation: classification.explanation,
+    targetDegree: undefined,
+    borrowedFromMode: undefined,
   };
 }
-

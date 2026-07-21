@@ -7,11 +7,16 @@ import { validateComposition } from "../../music";
 
 export const COMPOSITION_JSON_FORMAT = "music-theory-composer";
 export const COMPOSITION_JSON_VERSION = 1;
+export const PROJECT_SCHEMA_VERSION = 1;
+export const PROJECT_APP_VERSION = "0.2.0";
 export const MAX_COMPOSITION_JSON_CHARACTERS = 5_000_000;
+export const MAX_COMPOSITION_FILE_BYTES = 6_000_000;
 
 export interface CompositionJsonDocument {
   format: typeof COMPOSITION_JSON_FORMAT;
   version: typeof COMPOSITION_JSON_VERSION;
+  schemaVersion: typeof PROJECT_SCHEMA_VERSION;
+  appVersion: string;
   exportedAt: string;
   composition: GeneratedComposition;
 }
@@ -23,12 +28,56 @@ export class CompositionImportError extends Error {
   }
 }
 
+export interface CompositionFileLike {
+  name: string;
+  size: number;
+  type: string;
+  text(): Promise<string>;
+}
+
+export interface ValidatedCompositionFile {
+  json: string;
+  composition: GeneratedComposition;
+}
+
+/**
+ * Checks size, MIME/extension hints, and finally the document content. Empty
+ * MIME types are accepted for Safari and desktop file pickers only when the
+ * extension is JSON; the strict schema validator remains the source of truth.
+ */
+export async function importCompositionFile(
+  file: CompositionFileLike,
+): Promise<ValidatedCompositionFile> {
+  if (!Number.isFinite(file.size) || file.size < 0 || file.size > MAX_COMPOSITION_FILE_BYTES) {
+    throw new CompositionImportError("Project file is too large (maximum 6 MB).");
+  }
+  const mime = file.type.trim().toLowerCase();
+  const jsonMime = mime === "application/json" || mime === "text/json" || mime === "application/x-json";
+  const neutralMime = mime === "" || mime === "application/octet-stream";
+  const jsonExtension = /\.json$/i.test(file.name.trim());
+  if (!jsonMime && !(neutralMime && jsonExtension)) {
+    throw new CompositionImportError("Choose a JSON project file. The current composition is unchanged.");
+  }
+  const json = await file.text();
+  return { json, composition: importCompositionJson(json) };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function isOptionalProbability(
+  value: Record<string, unknown>,
+  field: string,
+): boolean {
+  const candidate = value[field];
+  return candidate === undefined || (
+    isFiniteNumber(candidate) && candidate >= 0 && candidate <= 1
+  );
 }
 
 function registerUnique(values: Set<string>, value: string): boolean {
@@ -44,7 +93,7 @@ export function isGeneratorSettings(value: unknown): value is GeneratorSettings 
     return false;
   }
 
-  const modes = ["major", "naturalMinor"];
+  const modes = ["major", "naturalMinor", "harmonicMinor", "dorian", "mixolydian"];
   const signatures = ["4/4", "3/4", "6/8"];
   const pitchClasses = [
     "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
@@ -84,7 +133,28 @@ export function isGeneratorSettings(value: unknown): value is GeneratorSettings 
   }
 
   const melody = value.melody;
+  const validHarmony = value.harmony === undefined || (
+    isRecord(value.harmony) &&
+    typeof value.harmony.complexity === "string" &&
+    ["triads", "sevenths", "advanced"].includes(value.harmony.complexity) &&
+    [
+      "borrowedChordRate",
+      "secondaryDominantRate",
+      "explorationRate",
+      "voiceLeadingStrength",
+    ].every((field) => isOptionalProbability(value.harmony as Record<string, unknown>, field))
+  );
+  const validMotif = value.motif === undefined || (
+    isRecord(value.motif) &&
+    typeof value.motif.enabled === "boolean" &&
+    (value.motif.lengthBars === 1 || value.motif.lengthBars === 2) &&
+    isFiniteNumber(value.motif.transformationRate) &&
+    value.motif.transformationRate >= 0 &&
+    value.motif.transformationRate <= 1
+  );
   return (
+    validHarmony &&
+    validMotif &&
     Number.isInteger(melody.minMidi) &&
     Number.isInteger(melody.maxMidi) &&
     (melody.minMidi as number) >= 0 &&
@@ -162,9 +232,15 @@ export function isGeneratedComposition(value: unknown): value is GeneratedCompos
   const functions = ["tonic", "predominant", "dominant", "other"];
   const qualities = [
     "major", "minor", "diminished", "augmented", "dominant7", "major7", "minor7",
+    "halfDiminished7", "diminished7", "minorMajor7", "augmentedMajor7",
+    "sus2", "sus4", "add9", "minorAdd9",
   ];
   const roots = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
   const sources = ["diatonic", "secondaryDominant", "borrowed", "substitute", "other"];
+  const specialKinds = [
+    "secondaryDominant", "borrowed", "tritoneSubstitution", "suspended", "addedTone",
+  ];
+  const modes = ["major", "naturalMinor", "harmonicMinor", "dorian", "mixolydian"];
   const chordIds = new Set<string>();
   const validChord = value.chords.every((item) => {
     if (!isRecord(item)) {
@@ -199,7 +275,21 @@ export function isGeneratedComposition(value: unknown): value is GeneratedCompos
       (item.inversion as number) >= 0 &&
       (item.inversion as number) < item.notes.length &&
       typeof item.source === "string" &&
-      sources.includes(item.source)
+      sources.includes(item.source) &&
+      (item.specialKind === undefined || (
+        typeof item.specialKind === "string" && specialKinds.includes(item.specialKind)
+      )) &&
+      (item.targetDegree === undefined || (
+        Number.isInteger(item.targetDegree) &&
+        (item.targetDegree as number) >= 1 &&
+        (item.targetDegree as number) <= 7
+      )) &&
+      (item.borrowedFromMode === undefined || (
+        typeof item.borrowedFromMode === "string" && modes.includes(item.borrowedFromMode)
+      )) &&
+      (item.explanation === undefined || (
+        typeof item.explanation === "string" && item.explanation.length <= 1_000
+      ))
     );
   });
 
@@ -245,6 +335,8 @@ function makeDocument(
   return {
     format: COMPOSITION_JSON_FORMAT,
     version: COMPOSITION_JSON_VERSION,
+    schemaVersion: PROJECT_SCHEMA_VERSION,
+    appVersion: PROJECT_APP_VERSION,
     exportedAt,
     composition,
   };
@@ -279,6 +371,20 @@ export function importCompositionJson(json: string): GeneratedComposition {
 
   if (parsed.version !== COMPOSITION_JSON_VERSION) {
     throw new CompositionImportError(`Unsupported composition version: ${String(parsed.version)}.`);
+  }
+
+  // Files exported before schemaVersion/appVersion were added are migrated as
+  // schema v1. Unknown newer schemas are rejected instead of guessed.
+  if (
+    parsed.schemaVersion !== undefined
+    && parsed.schemaVersion !== PROJECT_SCHEMA_VERSION
+  ) {
+    throw new CompositionImportError(
+      `Unsupported project schema version: ${String(parsed.schemaVersion)}.`,
+    );
+  }
+  if (parsed.appVersion !== undefined && typeof parsed.appVersion !== "string") {
+    throw new CompositionImportError("The project app version is invalid.");
   }
 
   if (!isGeneratedComposition(parsed.composition)) {

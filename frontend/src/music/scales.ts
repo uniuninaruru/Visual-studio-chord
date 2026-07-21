@@ -46,7 +46,22 @@ const PITCH_CLASS_ALIASES: Readonly<Record<PitchClassName, CanonicalPitchClass>>
 export const SCALE_INTERVALS: Readonly<Record<Mode, readonly number[]>> = {
   major: [0, 2, 4, 5, 7, 9, 11],
   naturalMinor: [0, 2, 3, 5, 7, 8, 10],
+  harmonicMinor: [0, 2, 3, 5, 7, 8, 11],
+  dorian: [0, 2, 3, 5, 7, 9, 10],
+  mixolydian: [0, 2, 4, 5, 7, 9, 10],
 };
+
+export const SUPPORTED_MODES: readonly Mode[] = [
+  "major",
+  "naturalMinor",
+  "harmonicMinor",
+  "dorian",
+  "mixolydian",
+] as const;
+
+export function isSupportedMode(value: unknown): value is Mode {
+  return typeof value === "string" && SUPPORTED_MODES.includes(value as Mode);
+}
 
 export function normalizePitchClass(name: PitchClassName): CanonicalPitchClass {
   const normalized = PITCH_CLASS_ALIASES[name];

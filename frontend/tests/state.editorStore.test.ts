@@ -120,6 +120,133 @@ describe("useComposerStore", () => {
     );
   });
 
+  it("uses the audible meter for a pending next-bar change", () => {
+    const initial = useComposerStore.getState().draftComposition;
+    expect(initial.timeSignature).toBe("4/4");
+    expect(initial.ticksPerBar).toBe(1_920);
+
+    useComposerStore.getState().setPlaybackStatus("playing");
+    useComposerStore.getState().setUpdateTiming("nextBar");
+    useComposerStore.getState().generateComposition({ timeSignature: "3/4" });
+
+    let state = useComposerStore.getState();
+    expect(state.pendingCommit).toBe(true);
+    expect(state.draftComposition.ticksPerBar).toBe(1_440);
+    expect(state.committedComposition.ticksPerBar).toBe(1_920);
+    expect(state.playbackLoopRange.endTick).toBe(initial.totalTicks);
+    expect(state.loopRange.endTick).toBe(state.draftComposition.totalTicks);
+
+    state.setCurrentTick(1_439);
+    useComposerStore.getState().setCurrentTick(1_440);
+    expect(useComposerStore.getState().pendingCommit).toBe(true);
+    useComposerStore.getState().setCurrentTick(1_919);
+    useComposerStore.getState().setCurrentTick(1_920);
+
+    state = useComposerStore.getState();
+    expect(state.pendingCommit).toBe(false);
+    expect(state.committedComposition.timeSignature).toBe("3/4");
+    expect(state.playbackLoopRange).toEqual(state.loopRange);
+  });
+
+  it("uses the audible compound beat for a pending next-beat change", () => {
+    useComposerStore.getState().generateComposition({ timeSignature: "6/8" });
+    useComposerStore.getState().setPlaybackStatus("playing");
+    useComposerStore.getState().setUpdateTiming("nextBeat");
+    useComposerStore.getState().generateComposition({ timeSignature: "4/4" });
+
+    useComposerStore.getState().setCurrentTick(479);
+    useComposerStore.getState().setCurrentTick(480);
+    expect(useComposerStore.getState().pendingCommit).toBe(true);
+    useComposerStore.getState().setCurrentTick(719);
+    useComposerStore.getState().setCurrentTick(720);
+    expect(useComposerStore.getState().pendingCommit).toBe(false);
+  });
+
+  it("keeps a pending playback edit isolated while preview candidates are generated", async () => {
+    const note = useComposerStore.getState().draftComposition.notes[0];
+    expect(note).toBeDefined();
+    if (!note) return;
+
+    useComposerStore.getState().setPlaybackStatus("playing");
+    useComposerStore.getState().setUpdateTiming("nextBar");
+    const committedBeforeEdit = useComposerStore.getState().committedComposition;
+    useComposerStore.getState().transposeNote(note.id, 1);
+    useComposerStore.getState().setSelectedRange({ startBar: 0, endBar: 1 });
+
+    expect(await useComposerStore.getState().generatePreviewVariations()).toBeGreaterThan(0);
+    expect(useComposerStore.getState().pendingCommit).toBe(true);
+    expect(useComposerStore.getState().committedComposition).toEqual(committedBeforeEdit);
+  });
+
+  it("restores pending playback data after a candidate audition ends", async () => {
+    const note = useComposerStore.getState().draftComposition.notes[0];
+    expect(note).toBeDefined();
+    if (!note) return;
+
+    useComposerStore.getState().setPlaybackStatus("playing");
+    useComposerStore.getState().setUpdateTiming("nextBar");
+    const committedBeforeEdit = useComposerStore.getState().committedComposition;
+    useComposerStore.getState().transposeNote(note.id, 1);
+    useComposerStore.getState().setSelectedRange({ startBar: 0, endBar: 1 });
+    await useComposerStore.getState().generatePreviewVariations();
+
+    expect(useComposerStore.getState().auditionPreviewVariation(0)).toBe(true);
+    expect(useComposerStore.getState().auditionedVariationIndex).toBe(0);
+    expect(useComposerStore.getState().auditionPreviewVariation(null)).toBe(true);
+    expect(useComposerStore.getState().committedComposition).toEqual(committedBeforeEdit);
+    expect(useComposerStore.getState().pendingCommit).toBe(true);
+  });
+
+  it("uses the candidate meter only while auditioning a structural pending edit", async () => {
+    useComposerStore.getState().setPlaybackStatus("playing");
+    useComposerStore.getState().setUpdateTiming("nextBar");
+    useComposerStore.getState().generateComposition({ timeSignature: "3/4" });
+    useComposerStore.getState().setSelectedRange({ startBar: 0, endBar: 1 });
+    const baseLoop = useComposerStore.getState().playbackLoopRange;
+    expect(baseLoop.endTick).toBe(1_920);
+
+    await useComposerStore.getState().generatePreviewVariations();
+    expect(useComposerStore.getState().auditionPreviewVariation(0)).toBe(true);
+    expect(useComposerStore.getState().playbackLoopRange.endTick).toBe(1_440);
+
+    expect(useComposerStore.getState().auditionPreviewVariation(null)).toBe(true);
+    expect(useComposerStore.getState().playbackLoopRange).toEqual(baseLoop);
+    expect(useComposerStore.getState().committedComposition.timeSignature).toBe("4/4");
+    expect(useComposerStore.getState().pendingCommit).toBe(true);
+  });
+
+  it("cancels chunked candidate generation without publishing partial previews", async () => {
+    useComposerStore.getState().setSelectedRange({ startBar: 0, endBar: 1 });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      useComposerStore.getState().generatePreviewVariations({}, { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(useComposerStore.getState().previewVariations).toEqual([]);
+  });
+
+  it("does not overwrite a manual edit made while candidates are generating", async () => {
+    useComposerStore.getState().setSelectedRange({ startBar: 1, endBar: 2 });
+    const note = useComposerStore.getState().draftComposition.notes.find(
+      (candidate) => candidate.barIndex === 0,
+    );
+    expect(note).toBeDefined();
+    if (!note) return;
+
+    const generation = useComposerStore.getState().generatePreviewVariations();
+    useComposerStore.getState().transposeNote(note.id, 1);
+    const editedDraft = useComposerStore.getState().draftComposition;
+    const editedCommitted = useComposerStore.getState().committedComposition;
+    expect(await generation).toBeGreaterThan(0);
+
+    const after = useComposerStore.getState();
+    expect(after.draftComposition).toEqual(editedDraft);
+    expect(after.committedComposition).toEqual(editedCommitted);
+    expect(after.previewVariations[0]?.notes.find((candidate) => candidate.id === note.id)?.midi)
+      .toBe(note.midi + 1);
+  });
+
   it("maps the selected half-open bar range to the loop range", () => {
     const ticksPerBar = useComposerStore.getState().draftComposition.ticksPerBar;
     useComposerStore.getState().setSelectedRange({ startBar: 1, endBar: 3 });
