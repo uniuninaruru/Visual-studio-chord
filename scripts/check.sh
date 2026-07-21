@@ -3,6 +3,10 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# shellcheck source=runtime.sh
+source "$PROJECT_DIR/scripts/runtime.sh"
+ensure_node_runtime
+
 if command -v pnpm >/dev/null 2>&1; then
   pnpm --dir "$PROJECT_DIR/frontend" typecheck
   pnpm --dir "$PROJECT_DIR/frontend" lint
