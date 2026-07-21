@@ -27,7 +27,12 @@ export type PitchClassName =
   | "E#"
   | "Fb";
 
-export type Mode = "major" | "naturalMinor";
+export type Mode =
+  | "major"
+  | "naturalMinor"
+  | "harmonicMinor"
+  | "dorian"
+  | "mixolydian";
 export type TimeSignature = "4/4" | "3/4" | "6/8";
 export type BarCount = 4 | 8 | 16;
 
@@ -62,7 +67,15 @@ export type ChordQuality =
   | "augmented"
   | "dominant7"
   | "major7"
-  | "minor7";
+  | "minor7"
+  | "halfDiminished7"
+  | "diminished7"
+  | "minorMajor7"
+  | "augmentedMajor7"
+  | "sus2"
+  | "sus4"
+  | "add9"
+  | "minorAdd9";
 
 export type ChordSource =
   | "diatonic"
@@ -70,6 +83,36 @@ export type ChordSource =
   | "borrowed"
   | "substitute"
   | "other";
+
+export type ChordSpecialKind =
+  | "secondaryDominant"
+  | "borrowed"
+  | "tritoneSubstitution"
+  | "suspended"
+  | "addedTone";
+
+export type HarmonyComplexity = "triads" | "sevenths" | "advanced";
+
+export interface HarmonySettings {
+  /** Triads only, diatonic sevenths, or style-aware chromatic harmony. */
+  complexity: HarmonyComplexity;
+}
+
+export type MotifTransformation =
+  | "repetition"
+  | "transposition"
+  | "rhythmicVariation"
+  | "inversion"
+  | "sequence"
+  | "fragmentation"
+  | "augmentation";
+
+export interface MotifSettings {
+  enabled: boolean;
+  lengthBars: 1 | 2;
+  /** 0..1. Probability that each later phrase uses a motif transformation. */
+  transformationRate: number;
+}
 
 export type NoteRole =
   | "chordTone"
@@ -104,6 +147,10 @@ export interface GeneratorSettings {
   style: StylePresetId;
   seed: string | number;
   melody: MelodySettings;
+  /** Optional so Phase 1 JSON and callers remain compatible. */
+  harmony?: HarmonySettings;
+  /** Optional so Phase 1 JSON and callers remain compatible. */
+  motif?: MotifSettings;
 }
 
 export interface BarEvent {
@@ -136,6 +183,14 @@ export interface ChordEvent {
   notes: number[];
   inversion: number;
   source: ChordSource;
+  /** Phase 2 analysis metadata for non-diatonic or color chords. */
+  specialKind?: ChordSpecialKind;
+  /** Scale degree that a dominant/substitute resolves to. */
+  targetDegree?: number;
+  /** Parallel mode used to justify a borrowed chord. */
+  borrowedFromMode?: Mode;
+  /** Human-readable theory explanation generated with the chord. */
+  explanation?: string;
 }
 
 export interface GeneratedComposition {
@@ -170,12 +225,16 @@ export type RegenerationTarget =
   | "rhythm"
   | "voicing";
 
+export type RegenerationStrength = "subtle" | "moderate" | "strong";
+
 export interface RegenerationOptions {
   target?: RegenerationTarget;
   /** Mixed into the seed. Defaults to 1, so regeneration makes a variation. */
   seedOffset?: number;
   /** Defaults to true. */
   respectLocks?: boolean;
+  /** Controls how far the variation moves from the source. Defaults to moderate. */
+  strength?: RegenerationStrength;
 }
 
 export type ValidationSeverity = "error" | "warning";
@@ -193,4 +252,3 @@ export interface ValidationResult {
   errors: ValidationIssue[];
   warnings: ValidationIssue[];
 }
-

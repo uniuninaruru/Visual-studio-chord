@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { BackendConnection } from "../../api/inferenceClient";
 import { Icon } from "../../components/Icon";
 import type { GeneratorSettingsPatch } from "../../state";
@@ -44,6 +45,7 @@ interface SettingsPanelProps {
   onPatch: (patch: GeneratorSettingsPatch) => void;
   onGenerate: () => void;
   onReset: () => void;
+  onOpenDiagnostics: () => void;
   onMobileClose: () => void;
 }
 
@@ -54,13 +56,17 @@ export function SettingsPanel({
   onPatch,
   onGenerate,
   onReset,
+  onOpenDiagnostics,
   onMobileClose,
 }: SettingsPanelProps) {
+  const [activeTab, setActiveTab] = useState<"basic" | "advanced" | "developer">("basic");
+  const motif = settings.motif ?? { enabled: false, lengthBars: 1, transformationRate: 0.65 };
+  const harmony = settings.harmony ?? { complexity: "triads" as const };
   const deviceLabel =
     backend.state === "connected"
-      ? backend.device.selectedDevice === "cuda"
-        ? backend.device.deviceName || "Local CUDA"
-        : "Local CPU"
+      ? backend.device.selectedDevice === "cpu"
+        ? "Local CPU"
+        : backend.device.deviceName || `Local ${backend.device.selectedDevice.toUpperCase()}`
       : backend.state === "checking"
         ? "確認中"
         : "Browser";
@@ -80,7 +86,22 @@ export function SettingsPanel({
         </div>
       </div>
 
-      <section className="settings-section">
+      <div className="settings-tabs" role="tablist" aria-label="設定レベル">
+        {(["basic", "advanced", "developer"] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab}
+            className={activeTab === tab ? "active" : ""}
+            onClick={() => setActiveTab(tab)}
+          >
+            {tab[0]?.toUpperCase()}{tab.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      <section className="settings-section" hidden={activeTab !== "basic"}>
         <div className="section-label">ハーモニー</div>
         <div className="field-grid two-columns">
           <label className="field">
@@ -104,12 +125,15 @@ export function SettingsPanel({
             >
               <option value="major">Major</option>
               <option value="naturalMinor">Natural Minor</option>
+              <option value="harmonicMinor">Harmonic Minor</option>
+              <option value="dorian">Dorian</option>
+              <option value="mixolydian">Mixolydian</option>
             </select>
           </label>
         </div>
 
         <label className="field">
-          <span>スタイル</span>
+          <span>スタイル / ムード</span>
           <select
             aria-label="スタイル"
             value={settings.style}
@@ -122,7 +146,7 @@ export function SettingsPanel({
         </label>
       </section>
 
-      <section className="settings-section">
+      <section className="settings-section" hidden={activeTab !== "basic"}>
         <div className="section-label">タイムライン</div>
         <label className="field range-field">
           <span>BPM <strong>{settings.bpm}</strong></span>
@@ -165,8 +189,22 @@ export function SettingsPanel({
         </div>
       </section>
 
-      <section className="settings-section">
+      <section className="settings-section" hidden={activeTab !== "advanced"}>
         <div className="section-label">メロディ</div>
+        <label className="field">
+          <span>コードの複雑さ</span>
+          <select
+            aria-label="コードの複雑さ"
+            value={harmony.complexity}
+            onChange={(event) => onPatch({
+              harmony: { complexity: event.target.value as "triads" | "sevenths" | "advanced" },
+            })}
+          >
+            <option value="triads">Triads</option>
+            <option value="sevenths">7th chords</option>
+            <option value="advanced">Advanced / 借用和音</option>
+          </select>
+        </label>
         <label className="field range-field">
           <span>密度 <strong>{Math.round(settings.melody.density * 100)}%</strong></span>
           <input
@@ -177,6 +215,30 @@ export function SettingsPanel({
             step="0.05"
             value={settings.melody.density}
             onChange={(event) => onPatch({ melody: { density: Number(event.target.value) } })}
+          />
+        </label>
+        <label className="field range-field">
+          <span>シンコペーション <strong>{Math.round(settings.melody.syncopation * 100)}%</strong></span>
+          <input
+            aria-label="シンコペーション"
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={settings.melody.syncopation}
+            onChange={(event) => onPatch({ melody: { syncopation: Number(event.target.value) } })}
+          />
+        </label>
+        <label className="field range-field">
+          <span>跳躍量 <strong>{Math.round(settings.melody.leapProbability * 100)}%</strong></span>
+          <input
+            aria-label="メロディ跳躍量"
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={settings.melody.leapProbability}
+            onChange={(event) => onPatch({ melody: { leapProbability: Number(event.target.value) } })}
           />
         </label>
         <label className="field range-field">
@@ -217,9 +279,49 @@ export function SettingsPanel({
             </select>
           </label>
         </div>
+        <label className="field checkbox-field">
+          <span>モチーフ展開</span>
+          <input
+            aria-label="モチーフ展開"
+            type="checkbox"
+            checked={motif.enabled}
+            onChange={(event) => onPatch({ motif: { ...motif, enabled: event.target.checked } })}
+          />
+        </label>
+        {motif.enabled && (
+          <>
+            <label className="field">
+              <span>モチーフ長</span>
+              <select
+                aria-label="モチーフ長"
+                value={motif.lengthBars}
+                onChange={(event) => onPatch({
+                  motif: { ...motif, lengthBars: Number(event.target.value) as 1 | 2 },
+                })}
+              >
+                <option value={1}>1 bar</option>
+                <option value={2}>2 bars</option>
+              </select>
+            </label>
+            <label className="field range-field">
+              <span>変形率 <strong>{Math.round(motif.transformationRate * 100)}%</strong></span>
+              <input
+                aria-label="モチーフ変形率"
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={motif.transformationRate}
+                onChange={(event) => onPatch({
+                  motif: { ...motif, transformationRate: Number(event.target.value) },
+                })}
+              />
+            </label>
+          </>
+        )}
       </section>
 
-      <section className="settings-section seed-section">
+      <section className="settings-section seed-section" hidden={activeTab !== "basic"}>
         <label className="field">
           <span>再現シード</span>
           <input
@@ -231,6 +333,22 @@ export function SettingsPanel({
           />
         </label>
         <p className="field-hint">同じ設定とシードは同じ曲を生成します。</p>
+      </section>
+
+      <section className="settings-section developer-settings" hidden={activeTab !== "developer"}>
+        <div className="section-label">推論と診断</div>
+        <dl className="developer-setting-list">
+          <div><dt>Backend</dt><dd>{backend.state === "connected" ? "Local API" : "Browser fallback"}</dd></div>
+          <div><dt>Device</dt><dd>{backend.state === "connected" ? backend.device.deviceName : "Browser CPU"}</dd></div>
+          <div><dt>Model</dt><dd>{backend.state === "connected" ? backend.models.activeModel : "browser-linear-v1"}</dd></div>
+          <div><dt>Precision</dt><dd>FP32</dd></div>
+          <div><dt>Batch size</dt><dd>64（OOM時に自動縮小）</dd></div>
+          <div><dt>Server URL</dt><dd>Same origin / API proxy</dd></div>
+        </dl>
+        <button className="secondary-button diagnostics-open-button" type="button" onClick={onOpenDiagnostics}>
+          Diagnosticsを開く
+        </button>
+        <p className="field-hint">CUDA、ONNX、MPSを理解しなくてもAutoで安全な実行モードを選びます。</p>
       </section>
 
       <div className="generator-footer">

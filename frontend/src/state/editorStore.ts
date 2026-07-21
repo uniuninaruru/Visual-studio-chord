@@ -4,6 +4,7 @@ import {
   generateComposition as buildComposition,
   regenerateRange,
   replaceChordSymbol,
+  validateComposition,
 } from "../music";
 import type {
   BarRange,
@@ -21,6 +22,7 @@ import {
 import {
   clearEditorSnapshot,
   getSafeStorage,
+  getSafeStorageMode,
   loadEditorSnapshot,
   saveEditorSnapshot,
   type PersistedEditorSnapshot,
@@ -28,6 +30,7 @@ import {
 
 export type PlaybackStatus = "stopped" | "playing" | "paused";
 export type UpdateTiming = "immediate" | "nextBeat" | "nextBar" | "nextLoop";
+export type ProjectSaveStatus = "saved" | "unsaved" | "session" | "error";
 
 export interface TickRange {
   startTick: number;
@@ -42,6 +45,7 @@ export interface PlaybackState {
 
 export interface HistoryEntry {
   id: string;
+  name: string;
   action: string;
   timestamp: string;
   seed: string;
@@ -72,6 +76,7 @@ export interface ComposerStoreState {
   committedComposition: GeneratedComposition;
   draftComposition: GeneratedComposition;
   previewVariations: GeneratedComposition[];
+  auditionedVariationIndex: number | null;
   selectedBarRange: BarRange | null;
   loopRange: TickRange;
   lockedBars: number[];
@@ -80,20 +85,32 @@ export interface ComposerStoreState {
   historyIndex: number;
   regenerationIteration: number;
   pendingCommit: boolean;
+  projectSaveStatus: ProjectSaveStatus;
+  lastSavedAt: string | null;
 }
 
 export interface ComposerStoreActions {
   generateComposition(settings?: GeneratorSettingsPatch): void;
   regenerateSelected(options?: RegenerationOptions): boolean;
+  generatePreviewVariations(options?: RegenerationOptions): number;
+  auditionPreviewVariation(index: number | null): boolean;
+  adoptPreviewVariation(index: number): boolean;
   editChord(chordId: string, edit: ChordEdit): boolean;
   transposeNote(noteId: string, semitones: number): boolean;
   moveNote(noteId: string, move: NoteMove): boolean;
+  moveNotes(noteIds: string[], move: NoteMove): number;
+  addNote(midi: number, startTick: number, durationTick?: number): string | null;
   deleteNote(noteId: string): boolean;
+  deleteNotes(noteIds: string[]): number;
+  duplicateNotes(noteIds: string[], deltaTick?: number): string[];
+  quantizeNotes(noteIds: string[], gridTick?: number): number;
   toggleBarLock(barIndex: number): void;
   setSelectedRange(range: BarRange | null): void;
   setLoopRange(range: TickRange | BarRange | null): void;
   undo(): boolean;
   redo(): boolean;
+  renameHistoryEntry(historyId: string, name: string): boolean;
+  restoreHistoryEntry(historyId: string): boolean;
   setPlaybackStatus(status: PlaybackStatus): void;
   setCurrentTick(tick: number): void;
   setUpdateTiming(updateTiming: UpdateTiming): void;
@@ -111,6 +128,7 @@ export type ComposerStore = ComposerStoreState & ComposerStoreActions;
 const HISTORY_LIMIT = 100;
 const storage = getSafeStorage();
 let historySerial = 0;
+let noteSerial = 0;
 
 function clone<T>(value: T): T {
   if (typeof structuredClone === "function") {
@@ -136,6 +154,43 @@ function settingsWithPatch(
 function noteName(midi: number): string {
   const pitches = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
   return `${pitches[midi % 12] ?? "C"}${Math.floor(midi / 12) - 1}`;
+}
+
+function movedNote(
+  composition: GeneratedComposition,
+  current: NoteEvent,
+  move: NoteMove,
+): NoteEvent {
+  const midi = clampInteger(
+    move.midi ?? current.midi + (move.semitones ?? 0),
+    composition.settings.melody.minMidi,
+    composition.settings.melody.maxMidi,
+  );
+  const startTick = clampInteger(
+    move.startTick ?? current.startTick + (move.deltaTick ?? 0),
+    0,
+    Math.max(0, composition.totalTicks - 1),
+  );
+  const barIndex = Math.floor(startTick / composition.ticksPerBar);
+  const durationTick = clampInteger(
+    move.durationTick ?? current.durationTick,
+    1,
+    Math.max(1, (barIndex + 1) * composition.ticksPerBar - startTick),
+  );
+  return {
+    ...current,
+    midi,
+    noteName: noteName(midi),
+    startTick,
+    durationTick,
+    barIndex,
+  };
+}
+
+function sortNotes(notes: NoteEvent[]): NoteEvent[] {
+  return notes.sort(
+    (left, right) => left.startTick - right.startTick || left.midi - right.midi || left.id.localeCompare(right.id),
+  );
 }
 
 function clampInteger(value: number, minimum: number, maximum: number): number {
@@ -180,8 +235,10 @@ function makeHistoryEntry(
   range: BarRange | null,
 ): HistoryEntry {
   historySerial += 1;
+  const barLabel = range ? ` · ${range.startBar + 1}–${range.endBar}小節` : "";
   return {
     id: `history-${Date.now()}-${historySerial}`,
+    name: `${action}${barLabel}`,
     action,
     timestamp: new Date().toISOString(),
     seed: seedString(composition),
@@ -199,6 +256,7 @@ function freshState(settingsPatch: GeneratorSettingsPatch = {}): ComposerStoreSt
     committedComposition: clone(composition),
     draftComposition: clone(composition),
     previewVariations: [],
+    auditionedVariationIndex: null,
     selectedBarRange: null,
     loopRange: { startTick: 0, endTick: composition.totalTicks },
     lockedBars: [...composition.lockedBars],
@@ -211,6 +269,8 @@ function freshState(settingsPatch: GeneratorSettingsPatch = {}): ComposerStoreSt
     historyIndex: 0,
     regenerationIteration: 0,
     pendingCommit: false,
+    projectSaveStatus: getSafeStorageMode() === "localStorage" ? "saved" : "session",
+    lastSavedAt: new Date().toISOString(),
   };
 }
 
@@ -228,6 +288,7 @@ function restoredState(snapshot: PersistedEditorSnapshot): ComposerStoreState {
     committedComposition: clone(composition),
     draftComposition: composition,
     previewVariations: [],
+    auditionedVariationIndex: null,
     selectedBarRange,
     loopRange,
     lockedBars,
@@ -236,10 +297,15 @@ function restoredState(snapshot: PersistedEditorSnapshot): ComposerStoreState {
       currentTick: 0,
       updateTiming: snapshot.updateTiming,
     },
-    history: clone(snapshot.history),
+    history: snapshot.history.map((entry) => ({
+      ...clone(entry),
+      name: entry.name?.trim() || entry.action,
+    })),
     historyIndex: snapshot.historyIndex,
     regenerationIteration: snapshot.regenerationIteration,
     pendingCommit: false,
+    projectSaveStatus: getSafeStorageMode() === "localStorage" ? "saved" : "session",
+    lastSavedAt: new Date().toISOString(),
   };
 }
 
@@ -307,10 +373,12 @@ function stateAfterComposition(
     draftComposition: next,
     committedComposition: applyImmediately ? clone(next) : state.committedComposition,
     previewVariations: [],
+    auditionedVariationIndex: null,
     lockedBars: [...next.lockedBars],
     history,
     historyIndex: history.length - 1,
     pendingCommit: !applyImmediately,
+    projectSaveStatus: "unsaved",
   };
 }
 
@@ -360,6 +428,66 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     return true;
   },
 
+  generatePreviewVariations: (options = {}) => {
+    const state = get();
+    const range = normalizedBarRange(state.selectedBarRange, state.draftComposition);
+    if (range === null) return 0;
+
+    const source = clone(state.draftComposition);
+    source.lockedBars = [...state.lockedBars];
+    const previews: GeneratedComposition[] = [];
+    const firstOffset = state.regenerationIteration + 1;
+    // Invalid candidates are discarded before they can be auditioned or adopted.
+    for (let attempt = 0; attempt < 9 && previews.length < 3; attempt += 1) {
+      const seedOffset = options.seedOffset ?? firstOffset + attempt;
+      const candidate = regenerateRange(source, source.settings, range, {
+        ...options,
+        seedOffset,
+        respectLocks: options.respectLocks ?? true,
+      });
+      if (validateComposition(candidate).valid) previews.push(candidate);
+      if (options.seedOffset !== undefined) break;
+    }
+    set({
+      previewVariations: previews,
+      auditionedVariationIndex: null,
+      committedComposition: clone(state.draftComposition),
+      pendingCommit: false,
+      regenerationIteration: state.regenerationIteration + Math.max(1, previews.length),
+    });
+    return previews.length;
+  },
+
+  auditionPreviewVariation: (index) => {
+    const state = get();
+    if (index === null) {
+      set({
+        auditionedVariationIndex: null,
+        committedComposition: clone(state.draftComposition),
+        pendingCommit: false,
+      });
+      return true;
+    }
+    const candidate = state.previewVariations[index];
+    if (!candidate || !validateComposition(candidate).valid) return false;
+    set({
+      auditionedVariationIndex: index,
+      committedComposition: clone(candidate),
+      pendingCommit: false,
+    });
+    return true;
+  },
+
+  adoptPreviewVariation: (index) => {
+    const state = get();
+    const candidate = state.previewVariations[index];
+    const range = normalizedBarRange(state.selectedBarRange, state.draftComposition);
+    if (!candidate || !validateComposition(candidate).valid) return false;
+    const label = String.fromCharCode(65 + index);
+    set(stateAfterComposition(state, candidate, `adopt-variation-${label}`, range));
+    return true;
+  },
+
   editChord: (chordId, edit) => {
     const state = get();
     const index = state.draftComposition.chords.findIndex((chord) => chord.id === chordId);
@@ -406,62 +534,129 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     return true;
   },
 
-  transposeNote: (noteId, semitones) => get().moveNote(noteId, { semitones }),
+  transposeNote: (noteId, semitones) => get().moveNotes([noteId], { semitones }) > 0,
 
-  moveNote: (noteId, move) => {
+  moveNote: (noteId, move) => get().moveNotes([noteId], move) > 0,
+
+  moveNotes: (noteIds, move) => {
     const state = get();
-    const index = state.draftComposition.notes.findIndex((note) => note.id === noteId);
-    if (index < 0) {
-      return false;
-    }
-
+    const ids = new Set(noteIds);
+    const selected = state.draftComposition.notes.filter((note) => ids.has(note.id));
+    if (selected.length === 0) return 0;
     const composition = clone(state.draftComposition);
-    const current = composition.notes[index]!;
-    const midi = clampInteger(
-      move.midi ?? current.midi + (move.semitones ?? 0),
+    const moved = new Map<string, NoteEvent>();
+    composition.notes = sortNotes(composition.notes.map((note) => {
+      if (!ids.has(note.id)) return note;
+      const next = movedNote(composition, note, move);
+      moved.set(note.id, next);
+      return next;
+    }));
+    const bars = [
+      ...selected.map((note) => note.barIndex),
+      ...Array.from(moved.values(), (note) => note.barIndex),
+    ];
+    set(stateAfterComposition(state, composition, selected.length > 1 ? "move-notes" : "move-note", {
+      startBar: Math.min(...bars),
+      endBar: Math.max(...bars) + 1,
+    }));
+    return selected.length;
+  },
+
+  addNote: (midi, startTick, durationTick) => {
+    const state = get();
+    const composition = clone(state.draftComposition);
+    const boundedMidi = clampInteger(
+      midi,
       composition.settings.melody.minMidi,
       composition.settings.melody.maxMidi,
     );
-    const startTick = clampInteger(
-      move.startTick ?? current.startTick + (move.deltaTick ?? 0),
-      0,
-      Math.max(0, composition.totalTicks - 1),
-    );
-    const barIndex = Math.floor(startTick / composition.ticksPerBar);
-    const durationTick = clampInteger(
-      move.durationTick ?? current.durationTick,
+    const boundedStart = clampInteger(startTick, 0, Math.max(0, composition.totalTicks - 1));
+    const barIndex = Math.floor(boundedStart / composition.ticksPerBar);
+    const boundedDuration = clampInteger(
+      durationTick ?? composition.ppq / 2,
       1,
-      (barIndex + 1) * composition.ticksPerBar - startTick,
+      Math.max(1, (barIndex + 1) * composition.ticksPerBar - boundedStart),
     );
-    const nextNote: NoteEvent = {
-      ...current,
-      midi,
-      noteName: noteName(midi),
-      startTick,
-      durationTick,
+    noteSerial += 1;
+    const id = `note-user-${Date.now()}-${noteSerial}`;
+    composition.notes = sortNotes([...composition.notes, {
+      id,
+      midi: boundedMidi,
+      noteName: noteName(boundedMidi),
+      startTick: boundedStart,
+      durationTick: boundedDuration,
+      velocity: composition.settings.melody.velocity,
       barIndex,
-    };
-    composition.notes[index] = nextNote;
-    set(stateAfterComposition(state, composition, "move-note", {
-      startBar: Math.min(current.barIndex, nextNote.barIndex),
-      endBar: Math.max(current.barIndex, nextNote.barIndex) + 1,
+      role: "scaleTone",
+    }]);
+    set(stateAfterComposition(state, composition, "add-note", {
+      startBar: barIndex,
+      endBar: barIndex + 1,
     }));
-    return true;
+    return id;
   },
 
   deleteNote: (noteId) => {
+    return get().deleteNotes([noteId]) > 0;
+  },
+
+  deleteNotes: (noteIds) => {
     const state = get();
-    const note = state.draftComposition.notes.find((item) => item.id === noteId);
-    if (!note) {
-      return false;
-    }
+    const ids = new Set(noteIds);
+    const notes = state.draftComposition.notes.filter((item) => ids.has(item.id));
+    if (notes.length === 0) return 0;
     const composition = clone(state.draftComposition);
-    composition.notes = composition.notes.filter((item) => item.id !== noteId);
+    composition.notes = composition.notes.filter((item) => !ids.has(item.id));
     set(stateAfterComposition(state, composition, "delete-note", {
-      startBar: note.barIndex,
-      endBar: note.barIndex + 1,
+      startBar: Math.min(...notes.map((note) => note.barIndex)),
+      endBar: Math.max(...notes.map((note) => note.barIndex)) + 1,
     }));
-    return true;
+    return notes.length;
+  },
+
+  duplicateNotes: (noteIds, deltaTick) => {
+    const state = get();
+    const ids = new Set(noteIds);
+    const source = state.draftComposition.notes.filter((note) => ids.has(note.id));
+    if (source.length === 0) return [];
+    const composition = clone(state.draftComposition);
+    const offset = Math.round(deltaTick ?? composition.ppq / 2);
+    const added: NoteEvent[] = [];
+    for (const note of source) {
+      noteSerial += 1;
+      const duplicate = movedNote(composition, {
+        ...note,
+        id: `note-user-${Date.now()}-${noteSerial}`,
+      }, { deltaTick: offset });
+      added.push(duplicate);
+    }
+    composition.notes = sortNotes([...composition.notes, ...added]);
+    const bars = [...source, ...added].map((note) => note.barIndex);
+    set(stateAfterComposition(state, composition, "duplicate-notes", {
+      startBar: Math.min(...bars),
+      endBar: Math.max(...bars) + 1,
+    }));
+    return added.map((note) => note.id);
+  },
+
+  quantizeNotes: (noteIds, gridTick) => {
+    const state = get();
+    const ids = new Set(noteIds);
+    const selected = state.draftComposition.notes.filter((note) => ids.has(note.id));
+    if (selected.length === 0) return 0;
+    const composition = clone(state.draftComposition);
+    const grid = clampInteger(gridTick ?? composition.ppq / 4, 1, composition.ticksPerBar);
+    composition.notes = sortNotes(composition.notes.map((note) => {
+      if (!ids.has(note.id)) return note;
+      const startTick = Math.round(note.startTick / grid) * grid;
+      const durationTick = Math.max(grid, Math.round(note.durationTick / grid) * grid);
+      return movedNote(composition, note, { startTick, durationTick });
+    }));
+    set(stateAfterComposition(state, composition, "quantize-notes", {
+      startBar: Math.min(...selected.map((note) => note.barIndex)),
+      endBar: Math.max(...selected.map((note) => note.barIndex)) + 1,
+    }));
+    return selected.length;
   },
 
   toggleBarLock: (barIndex) => {
@@ -528,6 +723,7 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
       historyIndex,
       pendingCommit: !applyImmediately,
       previewVariations: [],
+      auditionedVariationIndex: null,
     });
     return true;
   },
@@ -552,6 +748,35 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
       historyIndex,
       pendingCommit: !applyImmediately,
       previewVariations: [],
+      auditionedVariationIndex: null,
+    });
+    return true;
+  },
+
+  renameHistoryEntry: (historyId, name) => {
+    const normalized = name.trim().slice(0, 80);
+    if (!normalized) return false;
+    const state = get();
+    const index = state.history.findIndex((entry) => entry.id === historyId);
+    if (index < 0) return false;
+    const history = state.history.map((entry, entryIndex) =>
+      entryIndex === index ? { ...entry, name: normalized } : entry
+    );
+    set({ history });
+    return true;
+  },
+
+  restoreHistoryEntry: (historyId) => {
+    const state = get();
+    const entry = state.history.find((item) => item.id === historyId);
+    if (!entry) return false;
+    const composition = clone(entry.composition);
+    set({
+      ...stateAfterComposition(state, composition, `restore:${entry.name}`, entry.range, true),
+      selectedBarRange: normalizedBarRange(entry.range, composition),
+      loopRange: entry.range
+        ? rangeToTicks(entry.range, composition)
+        : { startTick: 0, endTick: composition.totalTicks },
     });
     return true;
   },
@@ -646,6 +871,16 @@ useComposerStore.subscribe((state, previous) => {
     state.historyIndex !== previous.historyIndex ||
     state.regenerationIteration !== previous.regenerationIteration;
   if (changed) {
-    saveEditorSnapshot(persistentSnapshot(state), storage);
+    const saved = saveEditorSnapshot(persistentSnapshot(state), storage);
+    const persistenceMode = getSafeStorageMode();
+    const projectSaveStatus: ProjectSaveStatus = !saved
+      ? "error"
+      : persistenceMode === "localStorage"
+        ? "saved"
+        : "session";
+    useComposerStore.setState({
+      projectSaveStatus,
+      lastSavedAt: saved ? new Date().toISOString() : state.lastSavedAt,
+    });
   }
 });

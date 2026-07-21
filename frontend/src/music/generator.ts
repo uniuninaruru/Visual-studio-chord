@@ -4,6 +4,8 @@ import {
   type ChordEvent,
   type GeneratedComposition,
   type GeneratorSettings,
+  type HarmonySettings,
+  type MotifSettings,
   type NoteEvent,
   type RegenerationOptions,
 } from "../types/music";
@@ -14,6 +16,16 @@ import { deriveSeed, hashSeed, seedToString } from "./random";
 import { midiToNoteName } from "./scales";
 import { createBars, tickToBarIndex, ticksPerBar } from "./time";
 import { assertValidGeneratorSettings } from "./validation";
+
+export const DEFAULT_HARMONY_SETTINGS: Readonly<HarmonySettings> = Object.freeze({
+  complexity: "triads",
+});
+
+export const DEFAULT_MOTIF_SETTINGS: Readonly<MotifSettings> = Object.freeze({
+  enabled: false,
+  lengthBars: 1,
+  transformationRate: 0.65,
+});
 
 export const DEFAULT_GENERATOR_SETTINGS: Readonly<GeneratorSettings> = Object.freeze({
   key: "C",
@@ -33,10 +45,17 @@ export const DEFAULT_GENERATOR_SETTINGS: Readonly<GeneratorSettings> = Object.fr
     syncopation: 0.18,
     leapProbability: 0.12,
   }),
+  harmony: DEFAULT_HARMONY_SETTINGS,
+  motif: DEFAULT_MOTIF_SETTINGS,
 });
 
 function copySettings(settings: GeneratorSettings): GeneratorSettings {
-  return { ...settings, melody: { ...settings.melody } };
+  return {
+    ...settings,
+    melody: { ...settings.melody },
+    harmony: settings.harmony ? { ...settings.harmony } : undefined,
+    motif: settings.motif ? { ...settings.motif } : undefined,
+  };
 }
 
 function compositionFingerprint(settings: GeneratorSettings): string {
@@ -56,6 +75,10 @@ function compositionFingerprint(settings: GeneratorSettings): string {
     settings.melody.restRate,
     settings.melody.syncopation,
     settings.melody.leapProbability,
+    settings.harmony?.complexity ?? DEFAULT_HARMONY_SETTINGS.complexity,
+    settings.motif?.enabled ?? DEFAULT_MOTIF_SETTINGS.enabled,
+    settings.motif?.lengthBars ?? DEFAULT_MOTIF_SETTINGS.lengthBars,
+    settings.motif?.transformationRate ?? DEFAULT_MOTIF_SETTINGS.transformationRate,
   ].join("|");
 }
 
@@ -238,11 +261,15 @@ export function regenerateRange(
 
   const target = options.target ?? "all";
   const seedOffset = options.seedOffset ?? 1;
+  const strength = options.strength ?? "moderate";
   if (!["all", "chords", "melody", "pitch", "rhythm", "voicing"].includes(target)) {
     throw new RangeError("Unsupported regeneration target.");
   }
   if (!Number.isFinite(seedOffset)) {
     throw new RangeError("seedOffset must be finite.");
+  }
+  if (!["subtle", "moderate", "strong"].includes(strength)) {
+    throw new RangeError("Unsupported regeneration strength.");
   }
   const respectLocks = options.respectLocks ?? true;
   const locked = new Set(respectLocks ? composition.lockedBars : []);
@@ -253,7 +280,19 @@ export function regenerateRange(
     (_, barIndex) => barIndex,
   ).some(shouldReplace);
   if (!hasReplaceableBar) return composition;
-  const variationSeed = deriveSeed(settings.seed, "regenerate", seedOffset);
+  const replaceableBars = Array.from(
+    { length: composition.settings.bars },
+    (_, barIndex) => barIndex,
+  ).filter(shouldReplace);
+  const subtleAnchor = replaceableBars[
+    hashSeed(deriveSeed(settings.seed, "subtle-anchor", seedOffset)) % replaceableBars.length
+  ] as number;
+  const shouldReplaceForStrength = (barIndex: number): boolean =>
+    shouldReplace(barIndex) &&
+    (strength !== "subtle" ||
+      barIndex === subtleAnchor ||
+      hashSeed(deriveSeed(settings.seed, "subtle-bar", seedOffset, barIndex)) % 3 === 0);
+  const variationSeed = deriveSeed(settings.seed, "regenerate", strength, seedOffset);
   const variationSettings: GeneratorSettings = {
     ...copySettings(settings),
     seed: variationSeed,
@@ -269,23 +308,23 @@ export function regenerateRange(
       composition.chords,
       progression.chords,
       composition.ticksPerBar,
-      shouldReplace,
+      shouldReplaceForStrength,
     );
     const finalBar = composition.settings.bars - 1;
-    if (shouldReplace(finalBar - 1) && shouldReplace(finalBar)) {
+    if (shouldReplaceForStrength(finalBar - 1) && shouldReplaceForStrength(finalBar)) {
       cadence = progression.cadence;
     }
     const everyBarReplaced = Array.from(
       { length: composition.settings.bars },
       (_, barIndex) => barIndex,
-    ).every(shouldReplace);
+    ).every(shouldReplaceForStrength);
     if (everyBarReplaced) {
       resolvedStyle = progression.resolvedStyle;
     }
   } else if (target === "voicing") {
     chords = revoiceBars(
       composition.chords,
-      shouldReplace,
+      shouldReplaceForStrength,
       composition.ticksPerBar,
       seedOffset,
     );
@@ -299,13 +338,14 @@ export function regenerateRange(
       resolvedStyle,
       seed: variationSeed,
       ppq: composition.ppq,
+      strength,
     });
-    if (target === "pitch") {
-      notes = replacePitches(composition.notes, candidateNotes, shouldReplace);
+    if (target === "pitch" || (target === "all" && strength === "subtle")) {
+      notes = replacePitches(composition.notes, candidateNotes, shouldReplaceForStrength);
     } else if (target === "rhythm") {
-      notes = replaceRhythm(composition.notes, candidateNotes, shouldReplace);
+      notes = replaceRhythm(composition.notes, candidateNotes, shouldReplaceForStrength);
     } else {
-      notes = replaceNoteBars(composition.notes, candidateNotes, shouldReplace);
+      notes = replaceNoteBars(composition.notes, candidateNotes, shouldReplaceForStrength);
     }
   }
 
@@ -315,6 +355,7 @@ export function regenerateRange(
     range.startBar,
     range.endBar,
     target,
+    strength,
   );
   return {
     ...composition,

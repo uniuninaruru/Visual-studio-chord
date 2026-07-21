@@ -44,7 +44,7 @@ export function isGeneratorSettings(value: unknown): value is GeneratorSettings 
     return false;
   }
 
-  const modes = ["major", "naturalMinor"];
+  const modes = ["major", "naturalMinor", "harmonicMinor", "dorian", "mixolydian"];
   const signatures = ["4/4", "3/4", "6/8"];
   const pitchClasses = [
     "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
@@ -84,7 +84,22 @@ export function isGeneratorSettings(value: unknown): value is GeneratorSettings 
   }
 
   const melody = value.melody;
+  const validHarmony = value.harmony === undefined || (
+    isRecord(value.harmony) &&
+    typeof value.harmony.complexity === "string" &&
+    ["triads", "sevenths", "advanced"].includes(value.harmony.complexity)
+  );
+  const validMotif = value.motif === undefined || (
+    isRecord(value.motif) &&
+    typeof value.motif.enabled === "boolean" &&
+    (value.motif.lengthBars === 1 || value.motif.lengthBars === 2) &&
+    isFiniteNumber(value.motif.transformationRate) &&
+    value.motif.transformationRate >= 0 &&
+    value.motif.transformationRate <= 1
+  );
   return (
+    validHarmony &&
+    validMotif &&
     Number.isInteger(melody.minMidi) &&
     Number.isInteger(melody.maxMidi) &&
     (melody.minMidi as number) >= 0 &&
@@ -162,9 +177,15 @@ export function isGeneratedComposition(value: unknown): value is GeneratedCompos
   const functions = ["tonic", "predominant", "dominant", "other"];
   const qualities = [
     "major", "minor", "diminished", "augmented", "dominant7", "major7", "minor7",
+    "halfDiminished7", "diminished7", "minorMajor7", "augmentedMajor7",
+    "sus2", "sus4", "add9", "minorAdd9",
   ];
   const roots = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
   const sources = ["diatonic", "secondaryDominant", "borrowed", "substitute", "other"];
+  const specialKinds = [
+    "secondaryDominant", "borrowed", "tritoneSubstitution", "suspended", "addedTone",
+  ];
+  const modes = ["major", "naturalMinor", "harmonicMinor", "dorian", "mixolydian"];
   const chordIds = new Set<string>();
   const validChord = value.chords.every((item) => {
     if (!isRecord(item)) {
@@ -199,7 +220,21 @@ export function isGeneratedComposition(value: unknown): value is GeneratedCompos
       (item.inversion as number) >= 0 &&
       (item.inversion as number) < item.notes.length &&
       typeof item.source === "string" &&
-      sources.includes(item.source)
+      sources.includes(item.source) &&
+      (item.specialKind === undefined || (
+        typeof item.specialKind === "string" && specialKinds.includes(item.specialKind)
+      )) &&
+      (item.targetDegree === undefined || (
+        Number.isInteger(item.targetDegree) &&
+        (item.targetDegree as number) >= 1 &&
+        (item.targetDegree as number) <= 7
+      )) &&
+      (item.borrowedFromMode === undefined || (
+        typeof item.borrowedFromMode === "string" && modes.includes(item.borrowedFromMode)
+      )) &&
+      (item.explanation === undefined || (
+        typeof item.explanation === "string" && item.explanation.length <= 1_000
+      ))
     );
   });
 
