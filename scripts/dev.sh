@@ -3,6 +3,10 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# shellcheck source=runtime.sh
+source "$PROJECT_DIR/scripts/runtime.sh"
+ensure_node_runtime
+
 if [[ ! -x "$PROJECT_DIR/.venv/bin/uvicorn" ]]; then
   printf 'Backend environment not found. Run ./scripts/setup.sh first.\n' >&2
   exit 1
