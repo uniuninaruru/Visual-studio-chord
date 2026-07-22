@@ -54,7 +54,7 @@ def validate_cors_origin(origin: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    app_name: str = "Music Theory Composer API"
+    app_name: str = "Visual Studio Chord API"
     cors_origins: tuple[str, ...] = DEFAULT_CORS_ORIGINS
 
     def __post_init__(self) -> None:
@@ -65,7 +65,7 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> Settings:
-        raw_origins = os.getenv("MTC_CORS_ORIGINS")
+        raw_origins = os.getenv("VSC_CORS_ORIGINS")
         if raw_origins is None:
             return cls()
 

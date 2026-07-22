@@ -15,7 +15,7 @@ import { downloadBlob, formatBarBeat } from "./utils/musicFormat";
 
 function compositionFilename(seed: string, extension: "json" | "mid"): string {
   const safeSeed = seed.replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 32) || "composition";
-  return `harmony-lab-${safeSeed}.${extension}`;
+  return `visual-studio-chord-${safeSeed}.${extension}`;
 }
 
 export default function App() {

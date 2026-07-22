@@ -5,7 +5,9 @@ import type {
 } from "../../types/music";
 import { validateComposition } from "../../music";
 
-export const COMPOSITION_JSON_FORMAT = "music-theory-composer";
+export const COMPOSITION_JSON_FORMAT = "visual-studio-chord";
+/** Format identifiers from earlier project names, still accepted on import. */
+export const LEGACY_COMPOSITION_JSON_FORMATS = ["music-theory-composer"] as const;
 export const COMPOSITION_JSON_VERSION = 1;
 export const MAX_COMPOSITION_JSON_CHARACTERS = 5_000_000;
 
@@ -273,8 +275,12 @@ export function importCompositionJson(json: string): GeneratedComposition {
     throw new CompositionImportError("The JSON document must be an object.");
   }
 
-  if (parsed.format !== COMPOSITION_JSON_FORMAT) {
-    throw new CompositionImportError("This is not a Music Theory Composer document.");
+  const acceptedFormats: readonly string[] = [
+    COMPOSITION_JSON_FORMAT,
+    ...LEGACY_COMPOSITION_JSON_FORMATS,
+  ];
+  if (typeof parsed.format !== "string" || !acceptedFormats.includes(parsed.format)) {
+    throw new CompositionImportError("This is not a Visual Studio Chord document.");
   }
 
   if (parsed.version !== COMPOSITION_JSON_VERSION) {

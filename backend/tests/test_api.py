@@ -14,7 +14,7 @@ def test_health() -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ok",
-        "service": "music-theory-composer-api",
+        "service": "visual-studio-chord-api",
         "version": "0.1.0",
     }
 

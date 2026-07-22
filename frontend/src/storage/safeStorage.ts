@@ -75,7 +75,7 @@ function browserLocalStorage(): StorageLike | null {
 
   try {
     const storage = window.localStorage;
-    const probeKey = "__music_theory_composer_storage_probe__";
+    const probeKey = "__visual_studio_chord_storage_probe__";
     storage.setItem(probeKey, "1");
     storage.removeItem(probeKey);
     return storage;

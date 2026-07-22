@@ -8,7 +8,9 @@ import {
   writeJson,
 } from "./safeStorage";
 
-export const EDITOR_STORAGE_KEY = "music-theory-composer:editor:v1";
+export const EDITOR_STORAGE_KEY = "visual-studio-chord:editor:v1";
+/** Storage key from an earlier project name; migrated on first load. */
+export const LEGACY_EDITOR_STORAGE_KEYS = ["music-theory-composer:editor:v1"] as const;
 export const EDITOR_STORAGE_VERSION = 1;
 
 export interface PersistedTickRange {
@@ -109,7 +111,22 @@ export function isPersistedEditorSnapshot(value: unknown): value is PersistedEdi
 export function loadEditorSnapshot(
   storage: StorageLike = getSafeStorage(),
 ): PersistedEditorSnapshot | null {
-  return readJson(EDITOR_STORAGE_KEY, isPersistedEditorSnapshot, storage);
+  const current = readJson(EDITOR_STORAGE_KEY, isPersistedEditorSnapshot, storage);
+  if (current) {
+    return current;
+  }
+  // Migrate a snapshot saved under an earlier project name so a rename does not
+  // orphan the user's local work. The first successful read is re-saved under
+  // the current key and the legacy copy removed.
+  for (const legacyKey of LEGACY_EDITOR_STORAGE_KEYS) {
+    const legacy = readJson(legacyKey, isPersistedEditorSnapshot, storage);
+    if (legacy) {
+      writeJson(EDITOR_STORAGE_KEY, legacy, storage);
+      removeStoredValue(legacyKey, storage);
+      return legacy;
+    }
+  }
+  return null;
 }
 
 export function saveEditorSnapshot(

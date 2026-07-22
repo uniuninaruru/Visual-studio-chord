@@ -14,7 +14,7 @@ router = APIRouter(tags=["system"])
 def health() -> HealthResponse:
     return HealthResponse(
         status="ok",
-        service="music-theory-composer-api",
+        service="visual-studio-chord-api",
         version=__version__,
     )
 
