@@ -1,4 +1,11 @@
-import { PPQ, type ChordEvent, type GeneratorSettings, type NoteEvent, type NoteRole } from "../types/music";
+import {
+  PPQ,
+  type CadenceType,
+  type ChordEvent,
+  type GeneratorSettings,
+  type NoteEvent,
+  type NoteRole,
+} from "../types/music";
 import { createSeededRandom, deriveSeed, hashSeed, type Seed } from "./random";
 import { generateRhythmBar, type RhythmSlot } from "./rhythmGenerator";
 import {
@@ -13,8 +20,28 @@ export interface MelodyGeneratorOptions {
   settings: GeneratorSettings;
   chords: readonly ChordEvent[];
   resolvedStyle: ConcreteStylePresetId;
+  /** Cadence of the progression, used to shape the final phrase landing. */
+  cadence?: CadenceType;
+  /**
+   * Bars per melodic phrase. Only the last note of a phrase boundary bar is
+   * treated as a phrase end. Defaults to 4 (clamped to the piece length).
+   */
+  phraseLengthBars?: number;
   seed?: Seed;
   ppq?: number;
+}
+
+/**
+ * `none` — an ordinary note. `intermediate` — the last note of an inner phrase,
+ * pulled gently toward a chord tone. `final` — the closing note of the piece,
+ * pulled strongly toward the cadence's target.
+ */
+type PhraseEndKind = "none" | "intermediate" | "final";
+
+function normalizePhraseLength(value: number | undefined, totalBars: number): number {
+  const fallback = Math.min(4, totalBars);
+  if (value === undefined || !Number.isInteger(value) || value < 1) return fallback;
+  return Math.min(value, totalBars);
 }
 
 interface MelodyState {
@@ -42,7 +69,8 @@ function pitchWeight(
   metric: number,
   chordToneRate: number,
   leapProbability: number,
-  isPhraseEnd: boolean,
+  phraseEndKind: PhraseEndKind,
+  resolvesToTonic: boolean,
   tonicSemitone: number,
 ): number {
   const chordPitchClasses = new Set(chord.notes.map((note) => note % 12));
@@ -67,9 +95,16 @@ function pitchWeight(
     }
   }
 
-  if (isPhraseEnd) {
-    if (isChordTone) weight *= 4;
-    if (midi % 12 === tonicSemitone) weight *= 5;
+  if (phraseEndKind !== "none") {
+    // A phrase resolves onto a chord tone; the piece's final phrase does so more
+    // decisively than the interior ones so inner phrases keep their momentum.
+    if (isChordTone) weight *= phraseEndKind === "final" ? 4 : 2;
+    // Only pull toward the tonic when the cadence actually lands there. Half and
+    // deceptive cadences resolve onto the dominant/submediant instead, so the
+    // chord-tone bias above already points the line at the right target.
+    if (phraseEndKind === "final" && resolvesToTonic && midi % 12 === tonicSemitone) {
+      weight *= 5;
+    }
   }
   return Math.max(weight, 0.0001);
 }
@@ -130,13 +165,29 @@ export function generateMelodyBar(
   const notes: NoteEvent[] = [];
   const soundedSlots = rhythm.filter((slot) => !slot.isRest);
 
+  // A phrase end is the last note of a phrase-boundary bar — not every bar end.
+  const totalBars = options.settings.bars;
+  const phraseLengthBars = normalizePhraseLength(options.phraseLengthBars, totalBars);
+  const isFinalBar = barIndex === totalBars - 1;
+  const isPhraseBoundaryBar = (barIndex + 1) % phraseLengthBars === 0 || isFinalBar;
+  const resolvesToTonic =
+    options.cadence === undefined ||
+    options.cadence === "authentic" ||
+    options.cadence === "plagal";
+  const tonicSemitone = pitchClassToSemitone(options.settings.key);
+
   for (const [soundedIndex, slot] of soundedSlots.entries()) {
     const chord = activeChord(options.chords, slot.startTick);
     if (!chord) throw new Error(`No chord covers melody tick ${slot.startTick}.`);
     const localTick = slot.startTick - barIndex * barDuration;
     const metric = metricStrength(localTick, options.settings.timeSignature, ppq);
-    const isPhraseEnd = soundedIndex === soundedSlots.length - 1;
-    const tonicSemitone = pitchClassToSemitone(options.settings.key);
+    const isLastSoundedNote = soundedIndex === soundedSlots.length - 1;
+    const phraseEndKind: PhraseEndKind =
+      isLastSoundedNote && isPhraseBoundaryBar
+        ? isFinalBar
+          ? "final"
+          : "intermediate"
+        : "none";
     const weights = candidates.map((midi) =>
       pitchWeight(
         midi,
@@ -145,7 +196,8 @@ export function generateMelodyBar(
         metric,
         clamp01(options.settings.melody.chordToneRate + style.chordToneBias),
         clamp01(options.settings.melody.leapProbability),
-        isPhraseEnd,
+        phraseEndKind,
+        resolvesToTonic,
         tonicSemitone,
       ),
     );

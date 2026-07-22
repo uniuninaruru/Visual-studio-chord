@@ -15,6 +15,7 @@ import {
 import { hasCadence, romanNumeralForDegree } from "./harmonyFunctions";
 import {
   getScaleMidiNotes,
+  getScalePitchClasses,
   midiToNoteName,
   normalizePitchClass,
   pitchClassToSemitone,
@@ -175,6 +176,28 @@ function validateNote(
   return issues;
 }
 
+/**
+ * A minor cadence's dominant is a major `V` borrowed from the harmonic minor.
+ * It is non-diatonic but fully explained, so it should not raise a warning. The
+ * voicing check below still confirms the notes match a major triad on degree 5.
+ */
+function isCadentialDominant(
+  chord: ChordEvent,
+  composition: GeneratedComposition,
+): boolean {
+  if (chord.source !== "borrowed") return false;
+  const dominantRoot = getScalePitchClasses(
+    composition.settings.key,
+    composition.settings.mode,
+  )[4];
+  return (
+    chord.degree === 5 &&
+    chord.quality === "major" &&
+    chord.romanNumeral === "V" &&
+    chord.root === dominantRoot
+  );
+}
+
 function validateChord(
   chord: ChordEvent,
   composition: GeneratedComposition,
@@ -216,7 +239,7 @@ function validateChord(
     } catch {
       issues.push(error("chord.degree", "Diatonic chord degree must be between 1 and 7.", context));
     }
-  } else {
+  } else if (!isCadentialDominant(chord, composition)) {
     issues.push(
       warning(
         "chord.special",
@@ -338,9 +361,15 @@ export function validateComposition(composition: GeneratedComposition): Validati
       sortedChords.slice(-2).map((chord) => chord.degree),
       composition.cadence,
       composition.settings.mode,
+      sortedChords.slice(-2).map((chord) => ({ degree: chord.degree, quality: chord.quality })),
     )
   ) {
-    issues.push(warning("cadence.metadata", "Ending chords do not match the stored cadence label."));
+    issues.push(
+      warning(
+        "cadence.metadata",
+        "Ending chords do not match the stored cadence label or its dominant lacks a leading tone.",
+      ),
+    );
   }
   return result(issues);
 }
