@@ -34,7 +34,7 @@ def test_non_loopback_or_non_origin_cors_values_are_rejected(origin: str) -> Non
 
 def test_origins_are_configurable_from_environment(monkeypatch) -> None:
     monkeypatch.setenv(
-        "MTC_CORS_ORIGINS",
+        "VSC_CORS_ORIGINS",
         "http://localhost:3000, http://127.0.0.1:3000/",
     )
 

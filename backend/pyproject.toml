@@ -3,9 +3,9 @@ requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "music-theory-composer-backend"
+name = "visual-studio-chord-backend"
 version = "0.1.0"
-description = "Local FastAPI service for Music Theory Composer"
+description = "Local FastAPI service for Visual Studio Chord"
 requires-python = ">=3.10"
 dependencies = [
   "fastapi>=0.115,<1.0",

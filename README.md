@@ -1,4 +1,4 @@
-# Harmony Lab
+# Visual Studio Chord
 
 音楽理論に基づくコード進行とメロディを生成し、聴きながら部分編集・部分再生成できるローカル優先の作曲支援Webアプリです。設計書の Phase 1（編集可能なMVP）を実装しています。
 
@@ -115,7 +115,7 @@ FastAPI Local AI Server
 
 - FastAPIの既定待受は `127.0.0.1` のみです。
 - CORSはlocalhost / loopbackの明示的なoriginだけを許可します。
-- 許可originは `MTC_CORS_ORIGINS` で設定できます。例は `.env.example` を参照してください。
+- 許可originは `VSC_CORS_ORIGINS` で設定できます。例は `.env.example` を参照してください。
 - APIは任意モデルパスやシェルコマンドを受け取りません。
 - 外部から読み込むJSONは型・数値範囲・MIDI値を検証します。
 

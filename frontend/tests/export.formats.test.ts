@@ -21,6 +21,16 @@ describe("composition export", () => {
     expect(imported).not.toBe(composition);
   });
 
+  it("still imports documents saved under the previous project name", () => {
+    const legacy = JSON.parse(exportCompositionJson(composition)) as {
+      format: string;
+      composition: unknown;
+    };
+    legacy.format = "music-theory-composer";
+    const imported = importCompositionJson(JSON.stringify(legacy));
+    expect(imported).toEqual(composition);
+  });
+
   it("rejects malformed and unsupported JSON documents", () => {
     expect(() => importCompositionJson("not-json")).toThrow(CompositionImportError);
     expect(() =>

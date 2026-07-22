@@ -52,7 +52,7 @@ export function TransportBar({
           <span />
         </div>
         <div>
-          <strong>Harmony Lab</strong>
+          <strong>Visual Studio Chord</strong>
           <span>THEORY COMPOSER</span>
         </div>
       </div>
