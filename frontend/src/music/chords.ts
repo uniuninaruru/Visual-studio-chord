@@ -204,6 +204,65 @@ export function createDiatonicChordEvent(
   };
 }
 
+/**
+ * The functional dominant used by authentic/half/deceptive cadences.
+ *
+ * On scale degree 5 the natural-minor diatonic triad is minor (`v`) and has no
+ * leading tone, so a genuine dominant raises the seventh to a major `V` —
+ * borrowed from the harmonic minor. In major keys degree 5 is already major, so
+ * this returns the same chord as the diatonic builder.
+ */
+export function getCadentialDominantDefinition(
+  key: PitchClassName,
+  mode: Mode,
+): ChordDefinition {
+  const root = getScalePitchClasses(key, mode)[4]; // scale degree 5
+  if (!root) throw new RangeError("Could not resolve the dominant scale degree.");
+  const quality: ChordQuality = "major";
+  return {
+    root,
+    quality,
+    intervals: intervalsForQuality(quality),
+    symbol: formatChordSymbol(root, quality),
+  };
+}
+
+export interface CreateCadentialDominantOptions {
+  key: PitchClassName;
+  mode: Mode;
+  startTick: number;
+  durationTick: number;
+  id: string;
+  previousNotes?: readonly number[];
+}
+
+/**
+ * Builds the cadential dominant chord event. In minor the raised leading tone
+ * makes this non-diatonic, so it is tagged `borrowed`; in major it is the
+ * ordinary diatonic `V`.
+ */
+export function createCadentialDominantChordEvent(
+  options: CreateCadentialDominantOptions,
+): ChordEvent {
+  const definition = getCadentialDominantDefinition(options.key, options.mode);
+  const voicing = voiceChord(definition.root, definition.quality, options.previousNotes);
+  const raisedLeadingTone = definition.quality !== diatonicQualityForDegree(5, options.mode);
+  return {
+    id: options.id,
+    symbol: definition.symbol,
+    romanNumeral: "V",
+    function: "dominant",
+    degree: 5,
+    quality: definition.quality,
+    root: definition.root,
+    startTick: options.startTick,
+    durationTick: options.durationTick,
+    notes: voicing.notes,
+    inversion: voicing.inversion,
+    source: raisedLeadingTone ? "borrowed" : "diatonic",
+  };
+}
+
 export function parseChordSymbol(symbol: string): ChordDefinition {
   const match = /^\s*([A-Ga-g])([#b]?)(maj7|M7|m7|min7|dim|°|aug|\+|7|m|min)?\s*$/.exec(
     symbol,

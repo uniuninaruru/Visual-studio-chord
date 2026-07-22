@@ -7,8 +7,8 @@ import type {
   StylePresetId,
   TimeSignature,
 } from "../types/music";
-import { createDiatonicChordEvent } from "./chords";
-import { cadenceDegrees } from "./harmonyFunctions";
+import { createCadentialDominantChordEvent, createDiatonicChordEvent } from "./chords";
+import { cadenceDegrees, cadenceDominantPosition } from "./harmonyFunctions";
 import { createSeededRandom, deriveSeed, hashSeed, type Seed } from "./random";
 import {
   progressionsForMode,
@@ -74,6 +74,16 @@ export function generateProgression(
 
   if (cadence === "loop") degrees[0] = 1;
 
+  // Bar carrying the cadence's functional dominant; it takes a raised leading
+  // tone (a major V) even in minor, where the diatonic degree-5 triad is minor.
+  const dominantPosition = cadenceDominantPosition(cadence);
+  const dominantBarIndex =
+    dominantPosition === "penultimate"
+      ? degrees.length - 2
+      : dominantPosition === "final"
+        ? degrees.length - 1
+        : null;
+
   const durationTick = ticksPerBar(settings.timeSignature, settings.ppq);
   const chords: ChordEvent[] = [];
   for (let barIndex = 0; barIndex < degrees.length; barIndex += 1) {
@@ -81,16 +91,27 @@ export function generateProgression(
     const idHash = hashSeed(
       deriveSeed(settings.seed, "chord", preset.id, barIndex, degree),
     ).toString(36);
+    const id = `chord-${barIndex}-${idHash}`;
+    const previousNotes = chords[chords.length - 1]?.notes;
     chords.push(
-      createDiatonicChordEvent({
-        key: settings.key,
-        mode: settings.mode,
-        degree,
-        startTick: barIndex * durationTick,
-        durationTick,
-        id: `chord-${barIndex}-${idHash}`,
-        previousNotes: chords[chords.length - 1]?.notes,
-      }),
+      barIndex === dominantBarIndex
+        ? createCadentialDominantChordEvent({
+            key: settings.key,
+            mode: settings.mode,
+            startTick: barIndex * durationTick,
+            durationTick,
+            id,
+            previousNotes,
+          })
+        : createDiatonicChordEvent({
+            key: settings.key,
+            mode: settings.mode,
+            degree,
+            startTick: barIndex * durationTick,
+            durationTick,
+            id,
+            previousNotes,
+          }),
     );
   }
 
