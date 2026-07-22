@@ -431,9 +431,15 @@ export function validateComposition(composition: GeneratedComposition): Validati
       sortedChords.slice(-2).map((chord) => chord.degree),
       composition.cadence,
       composition.settings.mode,
+      sortedChords.slice(-2).map((chord) => ({ degree: chord.degree, quality: chord.quality })),
     )
   ) {
-    issues.push(warning("cadence.metadata", "Ending chords do not match the stored cadence label."));
+    issues.push(
+      warning(
+        "cadence.metadata",
+        "Ending chords do not match the stored cadence label or its dominant lacks a leading tone.",
+      ),
+    );
   }
   return result(issues);
 }

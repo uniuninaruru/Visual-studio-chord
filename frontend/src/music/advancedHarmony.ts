@@ -267,6 +267,23 @@ export function explainSpecialChord(
   }
 
   if (chord.source === "borrowed") {
+    // Cadential dominant: minor/modal keys borrow a raised leading tone from the
+    // harmonic minor to form a functional major V on scale degree 5.
+    if (chord.borrowedFromMode === "harmonicMinor" && chord.degree === 5) {
+      const dominantRoot = getScalePitchClasses(key, mode)[4];
+      if (
+        chord.specialKind === "borrowed" &&
+        chord.quality === "major" &&
+        chord.root === dominantRoot &&
+        chord.romanNumeral === "V"
+      ) {
+        return explained(chord, "Allowed raised leading-tone dominant (V) from the harmonic minor.");
+      }
+      return invalid(
+        "borrowed.cadentialDominant",
+        "Cadential dominant must be a major V on scale degree 5 with a raised leading tone.",
+      );
+    }
     if (chord.specialKind !== "borrowed" || chord.borrowedFromMode !== parallelModeFor(mode)) {
       return invalid("borrowed.mode", "Borrowed chord must identify the supported parallel mode.");
     }
