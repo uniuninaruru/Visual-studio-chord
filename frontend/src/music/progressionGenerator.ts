@@ -12,7 +12,11 @@ import {
   canCreateHarmonyCandidate,
   createAdvancedChordEvent,
 } from "./advancedHarmony";
-import { cadenceDegrees } from "./harmonyFunctions";
+import {
+  cadentialDominantRaisesLeadingTone,
+  createCadentialDominantChordEvent,
+} from "./chords";
+import { cadenceDegrees, cadenceDominantPosition } from "./harmonyFunctions";
 import { createSeededRandom, deriveSeed, hashSeed, type Seed } from "./random";
 import {
   progressionsForMode,
@@ -177,6 +181,18 @@ export function generateProgression(
 
   const kinds = chooseChordKinds(settings, preset, degrees);
 
+  // Bar carrying the cadence's functional dominant. In modes whose diatonic V is
+  // minor (natural minor, dorian, mixolydian) this bar takes a raised leading
+  // tone — a major V — so a labelled authentic/half/deceptive cadence is real.
+  const dominantPosition = cadenceDominantPosition(cadence);
+  const raiseCadentialDominant = cadentialDominantRaisesLeadingTone(settings.mode);
+  const dominantBarIndex =
+    !raiseCadentialDominant || dominantPosition === null
+      ? null
+      : dominantPosition === "penultimate"
+        ? degrees.length - 2
+        : degrees.length - 1;
+
   const durationTick = ticksPerBar(settings.timeSignature, settings.ppq);
   const chords: ChordEvent[] = [];
   for (let barIndex = 0; barIndex < degrees.length; barIndex += 1) {
@@ -185,22 +201,34 @@ export function generateProgression(
     const idHash = hashSeed(
       deriveSeed(settings.seed, "chord", preset.id, barIndex, degree, kind),
     ).toString(36);
+    const id = `chord-${barIndex}-${idHash}`;
+    const previousNotes = chords[chords.length - 1]?.notes;
     chords.push(
-      createAdvancedChordEvent({
-        kind,
-        key: settings.key,
-        mode: settings.mode,
-        degree,
-        targetDegree: degrees[barIndex + 1],
-        startTick: barIndex * durationTick,
-        durationTick,
-        id: `chord-${barIndex}-${idHash}`,
-        previousNotes: chords[chords.length - 1]?.notes,
-        voiceLeadingStrength: settings.harmony?.voiceLeadingStrength ?? 1,
-        suspension: hashSeed(deriveSeed(settings.seed, "suspension", barIndex)) % 2 === 0
-          ? 2
-          : 4,
-      }),
+      barIndex === dominantBarIndex
+        ? createCadentialDominantChordEvent({
+            key: settings.key,
+            mode: settings.mode,
+            startTick: barIndex * durationTick,
+            durationTick,
+            id,
+            previousNotes,
+            voiceLeadingStrength: settings.harmony?.voiceLeadingStrength ?? 1,
+          })
+        : createAdvancedChordEvent({
+            kind,
+            key: settings.key,
+            mode: settings.mode,
+            degree,
+            targetDegree: degrees[barIndex + 1],
+            startTick: barIndex * durationTick,
+            durationTick,
+            id,
+            previousNotes,
+            voiceLeadingStrength: settings.harmony?.voiceLeadingStrength ?? 1,
+            suspension: hashSeed(deriveSeed(settings.seed, "suspension", barIndex)) % 2 === 0
+              ? 2
+              : 4,
+          }),
     );
   }
 

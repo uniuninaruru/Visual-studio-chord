@@ -3,13 +3,17 @@ import {
   DEFAULT_GENERATOR_SETTINGS,
   PITCH_CLASSES,
   cadenceDegrees,
+  cadenceDominantPosition,
   generateComposition,
+  generateMelody,
   generateProgression,
   generateRhythmBar,
+  getCadentialDominantDefinition,
   getDiatonicChordDefinition,
   getScalePitchClasses,
   hasCadence,
   normalizePitchClass,
+  pitchClassToSemitone,
   replaceChordSymbol,
   rhythmExactlyCoversBar,
   ticksPerBar,
@@ -18,6 +22,7 @@ import {
 import type {
   BarCount,
   GeneratorSettings,
+  Mode,
   TimeSignature,
 } from "../src/types/music";
 
@@ -107,7 +112,21 @@ describe("music theory primitives", () => {
       seed: "minor-progression",
     });
     expect(progression.chords).toHaveLength(8);
-    expect(progression.chords.every((chord) => chord.source === "diatonic")).toBe(true);
+    // Every chord is diatonic except an optional cadential dominant, which
+    // borrows a raised leading tone (a major V) in a natural-minor key.
+    const dominantIndex =
+      cadenceDominantPosition(progression.cadence) === "penultimate"
+        ? progression.chords.length - 2
+        : cadenceDominantPosition(progression.cadence) === "final"
+          ? progression.chords.length - 1
+          : null;
+    progression.chords.forEach((chord, index) => {
+      if (index === dominantIndex) {
+        expect(chord).toMatchObject({ degree: 5, quality: "major", romanNumeral: "V", source: "borrowed" });
+      } else {
+        expect(chord.source).toBe("diatonic");
+      }
+    });
     expect(
       hasCadence(
         progression.degrees,
@@ -118,6 +137,130 @@ describe("music theory primitives", () => {
     expect(progression.degrees.slice(-2)).toEqual(
       cadenceDegrees(progression.cadence, "naturalMinor"),
     );
+  });
+});
+
+describe("cadential dominant leading tone", () => {
+  it("builds a major V on scale degree 5, raising the seventh where needed", () => {
+    // A natural minor: E major (E–G#–B), a dorian: A major (A–C#–E),
+    // C mixolydian: G major (G–B–D). Each supplies the missing leading tone.
+    expect(getCadentialDominantDefinition("A", "naturalMinor")).toMatchObject({ root: "E", quality: "major", symbol: "E" });
+    expect(getCadentialDominantDefinition("D", "dorian")).toMatchObject({ root: "A", quality: "major", symbol: "A" });
+    expect(getCadentialDominantDefinition("C", "mixolydian")).toMatchObject({ root: "G", quality: "major", symbol: "G" });
+  });
+
+  it.each(["naturalMinor", "dorian", "mixolydian"] satisfies Mode[])(
+    "gives %s dominant cadences a raised leading tone",
+    (mode) => {
+      const leadingTone = (pitchClassToSemitone("A") + 11) % 12; // a semitone below the A tonic
+      let sawDominantCadence = false;
+      for (const seed of ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"]) {
+        const progression = generateProgression({
+          key: "A",
+          mode,
+          bars: 8,
+          timeSignature: "4/4",
+          style: "pop",
+          seed,
+        });
+        const position = cadenceDominantPosition(progression.cadence);
+        if (position === null) continue; // plagal / loop keep the modal iv/v
+        sawDominantCadence = true;
+        const dominant =
+          position === "final" ? progression.chords.at(-1)! : progression.chords.at(-2)!;
+        expect(dominant.degree).toBe(5);
+        expect(dominant.quality).toBe("major");
+        expect(dominant.romanNumeral).toBe("V");
+        expect(dominant.source).toBe("borrowed");
+        expect(dominant.notes.some((midi) => midi % 12 === leadingTone)).toBe(true);
+      }
+      expect(sawDominantCadence).toBe(true);
+    },
+  );
+
+  it.each(["major", "harmonicMinor"] satisfies Mode[])(
+    "keeps a diatonic major V in %s (no borrow needed)",
+    (mode) => {
+      for (const seed of ["a", "b", "c", "d", "e", "f", "g", "h"]) {
+        const progression = generateProgression({
+          key: "C",
+          mode,
+          bars: 8,
+          timeSignature: "4/4",
+          style: "pop",
+          seed,
+        });
+        const position = cadenceDominantPosition(progression.cadence);
+        if (position === null) continue;
+        const dominant =
+          position === "final" ? progression.chords.at(-1)! : progression.chords.at(-2)!;
+        // The diatonic V is already major here, so it is never a borrowed cadential dominant.
+        expect(dominant.source).not.toBe("borrowed");
+      }
+    },
+  );
+
+  it("rejects a minor v→i as an authentic cadence once chord quality is known", () => {
+    // Same 5→1 degree shape, but a minor dominant has no leading tone.
+    expect(hasCadence([5, 1], "authentic", "naturalMinor")).toBe(true);
+    expect(
+      hasCadence([5, 1], "authentic", "naturalMinor", [
+        { degree: 5, quality: "minor" },
+        { degree: 1, quality: "minor" },
+      ]),
+    ).toBe(false);
+    expect(
+      hasCadence([5, 1], "authentic", "naturalMinor", [
+        { degree: 5, quality: "major" },
+        { degree: 1, quality: "minor" },
+      ]),
+    ).toBe(true);
+  });
+
+  it.each(["naturalMinor", "dorian", "mixolydian"] satisfies Mode[])(
+    "%s compositions stay valid with the raised leading tone",
+    (mode) => {
+      for (const seed of ["v1", "v2", "v3", "v4", "v5", "v6"]) {
+        const composition = generateComposition(settings({ key: "A", mode, bars: 8, style: "pop", seed }));
+        const validation = validateComposition(composition);
+        // No errors: the borrowed cadential dominant is recognized as explained.
+        expect(validation.errors).toEqual([]);
+        // The cadence label now matches a genuine leading-tone dominant.
+        expect(validation.warnings.map((issue) => issue.code)).not.toContain("cadence.metadata");
+      }
+    },
+  );
+});
+
+describe("melodic phrase structure", () => {
+  function melodyFor(phraseLengthBars: number | undefined, seed = "phrase-seed") {
+    const base = settings({ key: "C", mode: "major", bars: 16, style: "pop", seed });
+    const progression = generateProgression({
+      key: base.key,
+      mode: base.mode,
+      bars: base.bars,
+      timeSignature: base.timeSignature,
+      style: base.style,
+      seed: base.seed,
+    });
+    return generateMelody({
+      settings: base,
+      chords: progression.chords,
+      resolvedStyle: progression.resolvedStyle,
+      cadence: progression.cadence,
+      phraseLengthBars,
+    });
+  }
+
+  it("generates the same melody for identical phrase settings", () => {
+    expect(melodyFor(4)).toEqual(melodyFor(4));
+  });
+
+  it("shapes the line around the configured phrase length", () => {
+    // Different phrase lengths move the phrase-end landings, which cascade
+    // through the running melodic state. If phraseLengthBars were ignored these
+    // 16-bar lines would be byte-identical.
+    expect(melodyFor(2)).not.toEqual(melodyFor(8));
   });
 });
 

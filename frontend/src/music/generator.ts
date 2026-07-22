@@ -108,6 +108,7 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
     settings: copiedSettings,
     chords: progression.chords,
     resolvedStyle: progression.resolvedStyle,
+    cadence: progression.cadence,
     ppq: PPQ,
   });
   const durationTick = ticksPerBar(copiedSettings.timeSignature, PPQ);
@@ -362,6 +363,7 @@ export function regenerateRange(
       settings: variationSettings,
       chords,
       resolvedStyle,
+      cadence,
       seed: variationSeed,
       ppq: composition.ppq,
       strength,
