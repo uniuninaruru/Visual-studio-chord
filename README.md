@@ -13,7 +13,8 @@ CUDA / MPS / Core ML / DirectML は「利用可能な場合だけ」高速化に
 
 ## スクリーンショット
 
-*(キャプチャ準備中)*
+*(<img width="1710" height="993" alt="スクリーンショット 2026-07-23 21 51 06" src="https://github.com/user-attachments/assets/25408cdc-9e18-473b-bc3f-40ebe987208c" />
+)*
 
 <!-- 画像を docs/images/ に置いたら、以下のコメントを外してください
 ![全体画面](docs/images/overview.png)
