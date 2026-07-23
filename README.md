@@ -140,10 +140,11 @@ Windows 11 PowerShell:
 .\scripts\setup.ps1
 .\scripts\dev.ps1
 ```
-2026年 7月24日 追記
 
-## コマンドを実行できないとき（Windows版）
 
+## コマンドを実行できないとき（Windows版）　
+2026-07-24にwindows版で起動できないトラブルが発生
+原因はWindowsくんが「この .ps1 という謎のファイル、実行していいか分からんので拒否します」と門番してる状態。
 PowerShellでコマンドを実行したときに、赤い文字でエラーが表示されて実行できない場合は、次のコマンドをコピーしてPowerShellに貼り付け、Enterキーを押してください。
 
 ```powershell
