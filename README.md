@@ -140,6 +140,22 @@ Windows 11 PowerShell:
 .\scripts\setup.ps1
 .\scripts\dev.ps1
 ```
+2026年 7月24日 追記
+
+## コマンドを実行できないとき（Windows版）
+
+PowerShellでコマンドを実行したときに、赤い文字でエラーが表示されて実行できない場合は、次のコマンドをコピーしてPowerShellに貼り付け、Enterキーを押してください。
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+
+その後、実行できなかったコマンドをもう一度試してください。
+
+この設定は、**現在開いているPowerShellだけ**に適用されます。PowerShellを閉じると元の設定に戻るため、パソコン全体の設定がずっと変更されるわけではありません。
+
+> [!NOTE]\
+> この手順はWindows版でのみ必要です。通常は、PowerShellを管理者として起動する必要はありません。
 
 セットアップは依存関係、Python仮想環境、`.env`、モデル、利用可能な実行環境を確認します。既存の `.env` やプロジェクトデータを削除・上書きしません。バックエンドを起動できない場合もフロントエンドは終了せず、Browser / Theory-only mode で起動します。
 
