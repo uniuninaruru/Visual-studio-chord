@@ -57,7 +57,7 @@ def validate_cors_origin(origin: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    app_name: str = "Music Theory Composer API"
+    app_name: str = "Visual studio chord API"
     cors_origins: tuple[str, ...] = DEFAULT_CORS_ORIGINS
     inference_model: InferenceModelPreference = "auto"
     shared_token: str | None = field(default=None, repr=False)

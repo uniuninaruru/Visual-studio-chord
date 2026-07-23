@@ -60,7 +60,7 @@ import { downloadBlob, formatBarBeat, modeLabel } from "./utils/musicFormat";
 
 function compositionFilename(seed: string, extension: "json" | "mid"): string {
   const safeSeed = seed.replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 32) || "composition";
-  return `harmony-lab-${safeSeed}.${extension}`;
+  return `visual-studio-chord-${safeSeed}.${extension}`;
 }
 
 function serverPreferenceCategory(category: PreferenceCategory) {
@@ -626,7 +626,7 @@ export default function App() {
   const handlePreferenceExport = () => {
     downloadBlob(
       new Blob([preferenceProfile.exportJson()], { type: "application/json;charset=utf-8" }),
-      "harmony-lab-preferences-v1.json",
+      "visual-studio-chord-preferences-v1.json",
     );
     setToast("好み学習データを書き出しました。");
   };
