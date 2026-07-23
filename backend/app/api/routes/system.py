@@ -30,7 +30,7 @@ def health(request: Request) -> HealthResponse:
     return HealthResponse(
         request_id=resolve_request_id(request),
         status="ok",
-        service="music-theory-composer-api",
+        service="visual-studio-chord-api",
         version=__version__,
         python_version=platform.python_version(),
         platform_system=platform.system() or "Unknown",

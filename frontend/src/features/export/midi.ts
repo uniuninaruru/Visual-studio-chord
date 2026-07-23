@@ -27,7 +27,7 @@ export function exportCompositionMidi(
   options: MidiExportOptions = {},
 ): Uint8Array {
   const midi = new Midi();
-  const name = options.name?.trim() || "Music Theory Composer";
+  const name = options.name?.trim() || "Visual studio chord";
   const includeChords = options.includeChords ?? true;
   const includeMelody = options.includeMelody ?? true;
   const chordVelocity = clampVelocity(options.chordVelocity ?? 0.62);

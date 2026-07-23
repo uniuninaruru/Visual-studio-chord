@@ -32,7 +32,7 @@ def test_health() -> None:
     assert payload["apiVersion"] == "1"
     assert len(payload["requestId"]) == 32
     assert payload["status"] == "ok"
-    assert payload["service"] == "music-theory-composer-api"
+    assert payload["service"] == "visual-studio-chord-api"
     assert payload["version"] == "0.2.0"
     assert payload["pythonVersion"]
     assert payload["platformSystem"]
