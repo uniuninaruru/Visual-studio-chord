@@ -366,7 +366,7 @@ export function importCompositionJson(json: string): GeneratedComposition {
   }
 
   if (parsed.format !== COMPOSITION_JSON_FORMAT) {
-    throw new CompositionImportError("This is not a Music Theory Composer document.");
+    throw new CompositionImportError("This is not a Visual studio chord document.");
   }
 
   if (parsed.version !== COMPOSITION_JSON_VERSION) {
