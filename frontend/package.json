@@ -1,7 +1,8 @@
 {
-  "name": "@harmony-lab/frontend",
+  "name": "@visual-studio-chord/frontend",
   "version": "0.2.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
