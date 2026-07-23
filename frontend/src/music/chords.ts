@@ -340,6 +340,95 @@ export function createDiatonicChordEvent(
   };
 }
 
+/**
+ * True when the diatonic triad on scale degree 5 is not major — i.e. the mode
+ * has no built-in leading tone (natural minor, dorian, mixolydian). A functional
+ * cadence in those modes must raise the seventh to a major V.
+ */
+export function cadentialDominantRaisesLeadingTone(mode: Mode): boolean {
+  return diatonicQualityForDegree(5, mode) !== "major";
+}
+
+/**
+ * The functional dominant used by authentic/half/deceptive cadences: a major
+ * triad on scale degree 5, whose major third is the leading tone (a semitone
+ * below the tonic). In major and harmonic minor this equals the diatonic V; in
+ * natural minor, dorian, and mixolydian the seventh is raised (borrowed from the
+ * harmonic minor).
+ */
+export function getCadentialDominantDefinition(
+  key: PitchClassName,
+  mode: Mode,
+): ChordDefinition {
+  const root = getScalePitchClasses(key, mode)[4]; // scale degree 5 (a perfect fifth above the tonic)
+  if (!root) throw new RangeError("Could not resolve the dominant scale degree.");
+  const quality: ChordQuality = "major";
+  return {
+    root,
+    quality,
+    intervals: intervalsForQuality(quality),
+    symbol: formatChordSymbol(root, quality),
+  };
+}
+
+export interface CreateCadentialDominantOptions {
+  key: PitchClassName;
+  mode: Mode;
+  startTick: number;
+  durationTick: number;
+  id: string;
+  previousNotes?: readonly number[];
+  voiceLeadingStrength?: number;
+}
+
+/**
+ * Builds the cadential dominant chord event. When the mode already has a major V
+ * (major, harmonic minor) this is the ordinary diatonic dominant; otherwise the
+ * raised leading tone makes it a major V borrowed from the harmonic minor.
+ */
+export function createCadentialDominantChordEvent(
+  options: CreateCadentialDominantOptions,
+): ChordEvent {
+  if (!cadentialDominantRaisesLeadingTone(options.mode)) {
+    return createDiatonicChordEvent({
+      key: options.key,
+      mode: options.mode,
+      degree: 5,
+      startTick: options.startTick,
+      durationTick: options.durationTick,
+      id: options.id,
+      previousNotes: options.previousNotes,
+      voiceLeadingStrength: options.voiceLeadingStrength,
+    });
+  }
+  const definition = getCadentialDominantDefinition(options.key, options.mode);
+  const voicing = voiceChord(
+    definition.root,
+    definition.quality,
+    options.previousNotes,
+    undefined,
+    options.voiceLeadingStrength,
+  );
+  return {
+    id: options.id,
+    symbol: definition.symbol,
+    romanNumeral: "V",
+    function: "dominant",
+    degree: 5,
+    quality: definition.quality,
+    root: definition.root,
+    startTick: options.startTick,
+    durationTick: options.durationTick,
+    notes: voicing.notes,
+    inversion: voicing.inversion,
+    source: "borrowed",
+    specialKind: "borrowed",
+    borrowedFromMode: "harmonicMinor",
+    explanation:
+      "Raised leading tone: a major V borrowed from the harmonic minor gives a functional cadence.",
+  };
+}
+
 export function parseChordSymbol(symbol: string): ChordDefinition {
   const match = /^\s*([A-Ga-g])([#b]?)(augMaj7|mMaj7|madd9|add9|m7b5|ø7|dim7|maj7|M7|m7|min7|sus2|sus4|dim|°|aug|\+|7|m|min)?\s*$/.exec(
     symbol,

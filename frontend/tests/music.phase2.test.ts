@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_GENERATOR_SETTINGS,
+  cadenceDominantPosition,
   createAdvancedChordEvent,
   diatonicSeventhQualityForDegree,
   explainSpecialChord,
@@ -89,7 +90,21 @@ describe("Phase 2 scales and seventh chords", () => {
     const second = generateComposition(settings);
     expect(second).toEqual(first);
     expect(first.chords.some((chord) => chord.notes.length === 4)).toBe(true);
-    expect(first.chords.every((chord) => chord.source === "diatonic")).toBe(true);
+    // Every chord is a diatonic seventh/triad except an optional cadential
+    // dominant, which raises the leading tone to a major V in dorian.
+    const dominantIndex =
+      cadenceDominantPosition(first.cadence) === "penultimate"
+        ? first.chords.length - 2
+        : cadenceDominantPosition(first.cadence) === "final"
+          ? first.chords.length - 1
+          : null;
+    first.chords.forEach((chord, index) => {
+      if (index === dominantIndex) {
+        expect(chord).toMatchObject({ degree: 5, quality: "major", romanNumeral: "V", source: "borrowed" });
+      } else {
+        expect(chord.source).toBe("diatonic");
+      }
+    });
     expect(validateComposition(first)).toMatchObject({ valid: true, errors: [] });
   });
 });
