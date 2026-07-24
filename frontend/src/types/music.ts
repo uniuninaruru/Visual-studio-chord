@@ -89,7 +89,65 @@ export type ChordSpecialKind =
   | "borrowed"
   | "tritoneSubstitution"
   | "suspended"
-  | "addedTone";
+  | "addedTone"
+  | "passingDiminished"
+  | "chromatic";
+
+/**
+ * Colour tones stacked above a base triad/seventh. Kept separate from
+ * ChordQuality so a chord can carry a seventh *and* a ninth at once, which the
+ * closed ChordQuality enum cannot express (e.g. maj9 = major7 + 9).
+ */
+export type Tension =
+  | "6"
+  | "9"
+  | "b9"
+  | "#9"
+  | "11"
+  | "#11"
+  | "13"
+  | "b13";
+
+/** Chromatic displacement of a scale degree, e.g. bII, #IV. */
+export type DegreeAlteration = -1 | 1;
+
+/**
+ * One chord slot of a named progression. Only `degree` is required; everything
+ * else overrides the diatonic default, which is what lets a template pin a
+ * specific quality (the III7 of the Marunouchi progression) or a bass note that
+ * is not a chord tone (the bII of a Blackadder chord).
+ */
+export interface ProgressionStep {
+  degree: number;
+  alteration?: DegreeAlteration;
+  quality?: ChordQuality;
+  tensions?: readonly Tension[];
+  /** Slash-chord bass. May be a non-chord tone. */
+  bassDegree?: number;
+  bassAlteration?: DegreeAlteration;
+  role?: ChordSpecialKind;
+  /** Scale degree a secondary dominant or tritone substitute resolves to. */
+  targetDegree?: number;
+}
+
+/** Where a progression is idiomatically used inside a song. */
+export type ProgressionUsage =
+  | "verse"
+  | "preChorus"
+  | "chorus"
+  | "bridge"
+  | "any";
+
+export interface ProgressionTemplate {
+  /** Stable identifier; selection hashes this, never the array index. */
+  id: string;
+  label: string;
+  /** Japanese practitioner shorthand, e.g. "4536". */
+  numeric?: string;
+  steps: readonly ProgressionStep[];
+  usage?: ProgressionUsage;
+  modes: readonly Mode[];
+}
 
 export type HarmonyComplexity = "triads" | "sevenths" | "advanced";
 
@@ -159,6 +217,11 @@ export interface GeneratorSettings {
   harmony?: HarmonySettings;
   /** Optional so Phase 1 JSON and callers remain compatible. */
   motif?: MotifSettings;
+  /**
+   * Explicit named progression (e.g. "royal-road"). When omitted the style
+   * preset picks one deterministically from the seed.
+   */
+  progressionId?: string;
 }
 
 export interface BarEvent {
@@ -191,6 +254,13 @@ export interface ChordEvent {
   notes: number[];
   inversion: number;
   source: ChordSource;
+  /** Colour tones above the base quality (9th/11th/13th/6th and alterations). */
+  tensions?: readonly Tension[];
+  /**
+   * Slash-chord bass. Present only when the sounding bass is not the chord
+   * root; it may be a tone outside the chord (Vaug/bII, FM7/G).
+   */
+  bass?: CanonicalPitchClass;
   /** Phase 2 analysis metadata for non-diatonic or color chords. */
   specialKind?: ChordSpecialKind;
   /** Scale degree that a dominant/substitute resolves to. */
