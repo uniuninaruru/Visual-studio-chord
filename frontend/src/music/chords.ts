@@ -4,6 +4,8 @@ import type {
   ChordSource,
   Mode,
   PitchClassName,
+  ProgressionStep,
+  Tension,
 } from "../types/music";
 import {
   harmonyFunctionForDegree,
@@ -11,6 +13,7 @@ import {
 } from "./harmonyFunctions";
 import {
   getScalePitchClasses,
+  parallelModeFor,
   getScaleSemitones,
   normalizePitchClass,
   pitchClassToSemitone,
@@ -60,6 +63,77 @@ const INTERVALS_TO_QUALITY: Readonly<Record<string, ChordQuality>> = {
 
 export function intervalsForQuality(quality: ChordQuality): readonly number[] {
   return QUALITY_INTERVALS[quality];
+}
+
+/** Semitones above the root for each colour tone, in its sounding octave. */
+const TENSION_INTERVALS: Readonly<Record<Tension, number>> = {
+  "6": 9,
+  "9": 14,
+  b9: 13,
+  "#9": 15,
+  "11": 17,
+  "#11": 18,
+  "13": 21,
+  b13: 20,
+};
+
+export function intervalForTension(tension: Tension): number {
+  return TENSION_INTERVALS[tension];
+}
+
+function hasMajorThird(quality: ChordQuality): boolean {
+  return intervalsForQuality(quality).includes(4);
+}
+
+/**
+ * A natural 11th a semitone above a major third is the classic avoid note, so
+ * it is raised to #11 instead. Sources describe the same two escapes (drop the
+ * third, or sharpen the eleventh); sharpening keeps the third intact, which
+ * matters because the third is a guide tone.
+ */
+export function resolveAvoidNotes(
+  quality: ChordQuality,
+  tensions: readonly Tension[],
+): Tension[] {
+  if (!hasMajorThird(quality)) return [...tensions];
+  return tensions.map((tension) => (tension === "11" ? "#11" : tension));
+}
+
+/**
+ * Chooses which tones actually sound. A literal 1-3-5-7-9-11-13 stack spans 21
+ * semitones and is unplayable, so practice keeps the guide tones (3rd and 7th),
+ * drops the fifth first and the root next, and voices colour tones above the
+ * seventh so a 13th is not heard as a 6th.
+ */
+function reduceStack(
+  quality: ChordQuality,
+  tensions: readonly Tension[],
+  dropRoot: boolean,
+): number[] {
+  const base = intervalsForQuality(quality);
+  const seventh = base.find((interval) => interval === 10 || interval === 11);
+  const third = base.find((interval) => interval === 3 || interval === 4);
+  const kept: number[] = [];
+
+  if (!dropRoot) kept.push(0);
+  if (third !== undefined) kept.push(third);
+  // The fifth is the first tone to go once colour tones need room.
+  const fifth = base.find((interval) => interval === 6 || interval === 7 || interval === 8);
+  if (fifth !== undefined && tensions.length < 2) kept.push(fifth);
+  if (seventh !== undefined) kept.push(seventh);
+  // Any base tone not covered above (sus2/sus4/add9 style shapes).
+  for (const interval of base) {
+    if (!kept.includes(interval) && interval !== fifth) kept.push(interval);
+  }
+
+  const top = seventh ?? third ?? 0;
+  for (const tension of tensions) {
+    let interval = intervalForTension(tension);
+    // Keep colour tones above the seventh so their function reads correctly.
+    while (interval <= top) interval += 12;
+    kept.push(interval);
+  }
+  return [...new Set(kept)].sort((left, right) => left - right);
 }
 
 function assertDegree(degree: number): void {
@@ -253,6 +327,72 @@ export function voiceChord(
   });
 }
 
+export interface ExtendedVoicingOptions {
+  root: PitchClassName;
+  quality: ChordQuality;
+  tensions?: readonly Tension[];
+  /** Sounding bass; may be outside the chord (slash chord). */
+  bass?: PitchClassName;
+  previousNotes?: readonly number[];
+  voiceLeadingStrength?: number;
+}
+
+/**
+ * Voices a chord that may carry colour tones and/or a slash bass.
+ *
+ * Falls back to the plain triad/seventh voicer when neither is present so that
+ * existing seeded output is untouched.
+ */
+export function voiceExtendedChord(
+  options: ExtendedVoicingOptions,
+): { notes: number[]; inversion: number } {
+  const tensions = resolveAvoidNotes(options.quality, options.tensions ?? []);
+  if (tensions.length === 0 && options.bass === undefined) {
+    return voiceChord(
+      options.root,
+      options.quality,
+      options.previousNotes,
+      undefined,
+      options.voiceLeadingStrength,
+    );
+  }
+
+  const rootSemitone = pitchClassToSemitone(options.root);
+  const hasBass = options.bass !== undefined;
+  const intervals = reduceStack(options.quality, tensions, hasBass);
+
+  // Place the upper structure in a comfortable register, then put the bass below it.
+  let best: { notes: number[]; cost: number } | null = null;
+  for (let rootMidi = rootSemitone + 48; rootMidi <= rootSemitone + 72; rootMidi += 12) {
+    const upper = intervals.map((interval) => rootMidi + interval);
+    if ((upper[upper.length - 1] as number) > 88) continue;
+    let notes = upper;
+    if (hasBass) {
+      const bassSemitone = pitchClassToSemitone(options.bass as PitchClassName);
+      let bassMidi = bassSemitone + 36;
+      while (bassMidi + 12 <= (upper[0] as number) - 3) bassMidi += 12;
+      if (bassMidi >= (upper[0] as number)) continue;
+      notes = [bassMidi, ...upper];
+    }
+    if ((notes[0] as number) < 33) continue;
+    const cost = voicingCost(notes, options.previousNotes, options.voiceLeadingStrength ?? 1);
+    if (!best || cost < best.cost) best = { notes, cost };
+  }
+
+  if (!best) {
+    // Extremely wide stacks can fail the register checks; fall back to the
+    // plain chord rather than emitting nothing.
+    return voiceChord(
+      options.root,
+      options.quality,
+      options.previousNotes,
+      undefined,
+      options.voiceLeadingStrength,
+    );
+  }
+  return { notes: best.notes, inversion: 0 };
+}
+
 export function romanNumeralForChordQuality(
   degree: number,
   mode: Mode,
@@ -426,6 +566,150 @@ export function createCadentialDominantChordEvent(
     borrowedFromMode: "harmonicMinor",
     explanation:
       "Raised leading tone: a major V borrowed from the harmonic minor gives a functional cadence.",
+  };
+}
+
+/** Root pitch class of a possibly-altered scale degree (bVI, #IV, ...). */
+export function rootForStep(
+  key: PitchClassName,
+  mode: Mode,
+  degree: number,
+  alteration?: -1 | 1,
+): ReturnType<typeof normalizePitchClass> {
+  assertDegree(degree);
+  const diatonic = getScalePitchClasses(key, mode)[degree - 1];
+  if (!diatonic) throw new RangeError("Could not resolve scale degree.");
+  if (!alteration) return diatonic;
+  return semitoneToPitchClass(pitchClassToSemitone(diatonic) + alteration);
+}
+
+function tensionSuffix(tensions: readonly Tension[]): string {
+  return tensions.length === 0 ? "" : `(${tensions.join(",")})`;
+}
+
+export interface CreateStepChordOptions {
+  key: PitchClassName;
+  mode: Mode;
+  step: ProgressionStep;
+  startTick: number;
+  durationTick: number;
+  id: string;
+  previousNotes?: readonly number[];
+  voiceLeadingStrength?: number;
+}
+
+/**
+ * Materialises one step of a named progression.
+ *
+ * This is the path that can express what the plain degree pipeline cannot:
+ * chromatic roots, pinned qualities, colour tones, and a bass that is not a
+ * chord tone.
+ */
+export function createStepChordEvent(options: CreateStepChordOptions): ChordEvent {
+  const { step, key, mode } = options;
+  const root = rootForStep(key, mode, step.degree, step.alteration);
+  // A chromatically altered root no longer belongs to the scale, so the
+  // diatonic quality of the unaltered degree is meaningless for it (bVII is a
+  // major triad, not the vii° the scale has). Default such chords to major.
+  const quality = step.quality
+    ?? (step.alteration !== undefined
+      ? "major"
+      : diatonicQualityForDegree(step.degree, mode));
+  const tensions = resolveAvoidNotes(quality, step.tensions ?? []);
+  const bass = step.bassDegree === undefined
+    ? undefined
+    : rootForStep(key, mode, step.bassDegree, step.bassAlteration);
+
+  const voicing = voiceExtendedChord({
+    root,
+    quality,
+    tensions,
+    bass,
+    previousNotes: options.previousNotes,
+    voiceLeadingStrength: options.voiceLeadingStrength,
+  });
+
+  const altered = step.alteration !== undefined;
+  const diatonicRoot = altered
+    ? null
+    : getScalePitchClasses(key, mode)[step.degree - 1];
+  // A chord counts as diatonic only when its root and quality both match the
+  // scale. Both the triad and the seventh are valid diatonic spellings, but a
+  // pinned quality that is neither is not: in C major a I7 (C-E-G-Bb) shares
+  // the triad with I yet the scale's seventh on that degree is major7.
+  // Any colour tone or slash bass also takes the chord out of the plain
+  // diatonic contract that validateComposition enforces.
+  const diatonicTriad = altered ? null : diatonicQualityForDegree(step.degree, mode);
+  const diatonicSeventh = altered
+    ? null
+    : diatonicSeventhQualityForDegree(step.degree, mode);
+  const isDiatonic =
+    !altered &&
+    bass === undefined &&
+    tensions.length === 0 &&
+    step.role === undefined &&
+    diatonicRoot === root &&
+    (quality === diatonicTriad || quality === diatonicSeventh);
+
+  // Anything that is not diatonic must land on a non-diatonic source; the
+  // fallback is "other" so a pinned quality or colour tone can never be
+  // silently reported as diatonic.
+  const source: ChordSource = isDiatonic
+    ? "diatonic"
+    : step.role === "secondaryDominant"
+      ? "secondaryDominant"
+      : step.role === "borrowed"
+        ? "borrowed"
+        : step.role === "tritoneSubstitution"
+          ? "substitute"
+          : "other";
+
+  // validateComposition requires every non-diatonic chord to carry its own
+  // theory justification, so build one from the step's declared role.
+  const explanation = isDiatonic
+    ? undefined
+    : step.role === "secondaryDominant"
+      ? `Secondary dominant; resolves by fifth to degree ${step.targetDegree ?? "?"}.`
+      : step.role === "tritoneSubstitution"
+        ? `Tritone substitute; resolves down a semitone to degree ${step.targetDegree ?? "?"}.`
+        : step.role === "borrowed"
+          ? `Borrowed from the parallel mode on degree ${step.degree}.`
+          : step.role === "passingDiminished"
+            ? `Passing diminished chord linking degree ${step.degree} to the next.`
+            : step.role === "chromatic"
+              ? `Chromatic colour chord on degree ${step.degree}.`
+              : bass !== undefined
+                ? `Slash chord: ${formatChordSymbol(root, quality)} over ${bass}.`
+                : tensions.length > 0
+                  ? `Degree ${step.degree} extended with ${tensions.join(", ")}.`
+                  : `Non-diatonic chord on degree ${step.degree}.`;
+
+  const accidental = step.alteration === -1 ? "♭" : step.alteration === 1 ? "♯" : "";
+  const romanBase = `${accidental}${romanNumeralForChordQuality(step.degree, mode, quality)}`;
+  const bassRoman = step.bassDegree === undefined
+    ? ""
+    : `/${step.bassAlteration === -1 ? "♭" : step.bassAlteration === 1 ? "♯" : ""}${step.bassDegree}`;
+
+  return {
+    id: options.id,
+    symbol: `${formatChordSymbol(root, quality)}${tensionSuffix(tensions)}${bass ? `/${bass}` : ""}`,
+    romanNumeral: `${romanBase}${tensionSuffix(tensions)}${bassRoman}`,
+    function: altered ? "other" : harmonyFunctionForDegree(step.degree, mode),
+    degree: step.degree,
+    quality,
+    root,
+    startTick: options.startTick,
+    durationTick: options.durationTick,
+    notes: voicing.notes,
+    inversion: voicing.inversion,
+    source,
+    ...(tensions.length > 0 ? { tensions } : {}),
+    ...(bass ? { bass } : {}),
+    ...(step.role ? { specialKind: step.role } : {}),
+    ...(step.targetDegree !== undefined ? { targetDegree: step.targetDegree } : {}),
+    // A borrowed chord must name the mode it came from for validation to accept it.
+    ...(step.role === "borrowed" ? { borrowedFromMode: parallelModeFor(mode) } : {}),
+    ...(explanation ? { explanation } : {}),
   };
 }
 
