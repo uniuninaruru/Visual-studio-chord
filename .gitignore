@@ -23,3 +23,6 @@ models/*.pt
 models/*.pth
 models/*.onnx
 models/*.safetensors
+
+# Word/Office lock files
+~$*

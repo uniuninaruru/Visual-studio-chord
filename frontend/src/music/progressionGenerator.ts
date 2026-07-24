@@ -5,6 +5,8 @@ import type {
   HarmonySettings,
   Mode,
   PitchClassName,
+  ProgressionStep,
+  ProgressionTemplate,
   StylePresetId,
   TimeSignature,
 } from "../types/music";
@@ -15,7 +17,9 @@ import {
 import {
   cadentialDominantRaisesLeadingTone,
   createCadentialDominantChordEvent,
+  createStepChordEvent,
 } from "./chords";
+import { getProgressionTemplate } from "./progressions";
 import { cadenceDegrees, cadenceDominantPosition } from "./harmonyFunctions";
 import { createSeededRandom, deriveSeed, hashSeed, type Seed } from "./random";
 import {
@@ -36,6 +40,8 @@ export interface ProgressionGeneratorSettings {
   seed: Seed;
   ppq?: number;
   harmony?: HarmonySettings;
+  /** Named progression to use instead of the seeded style pick. */
+  progressionId?: string;
 }
 
 export interface ProgressionResult {
@@ -161,11 +167,82 @@ function chooseChordKinds(
   return kinds;
 }
 
+/**
+ * Builds a progression from an explicitly named template.
+ *
+ * Kept separate from the legacy degree pipeline because these templates can
+ * carry pinned qualities, chromatic roots, colour tones and slash basses, none
+ * of which the plain `number[]` path can represent.
+ */
+function generateNamedProgression(
+  settings: ProgressionGeneratorSettings,
+  template: ProgressionTemplate,
+  preset: StylePreset,
+): ProgressionResult {
+  const durationTick = ticksPerBar(settings.timeSignature, settings.ppq);
+  const steps = Array.from(
+    { length: settings.bars },
+    (_, index) => template.steps[index % template.steps.length] as ProgressionStep,
+  );
+
+  const chords: ChordEvent[] = [];
+  for (let barIndex = 0; barIndex < steps.length; barIndex += 1) {
+    const step = steps[barIndex] as ProgressionStep;
+    const idHash = hashSeed(
+      deriveSeed(settings.seed, "chord", template.id, barIndex, step.degree),
+    ).toString(36);
+    chords.push(
+      createStepChordEvent({
+        key: settings.key,
+        mode: settings.mode,
+        step,
+        startTick: barIndex * durationTick,
+        durationTick,
+        id: `chord-${barIndex}-${idHash}`,
+        previousNotes: chords[chords.length - 1]?.notes,
+        voiceLeadingStrength: settings.harmony?.voiceLeadingStrength ?? 1,
+      }),
+    );
+  }
+
+  const degrees = steps.map((step) => step.degree);
+  // Label the cadence from what the template actually ends on, rather than
+  // forcing one of the style's cadence weights onto a fixed progression.
+  const last = degrees[degrees.length - 1];
+  const penultimate = degrees[degrees.length - 2];
+  const cadence: CadenceType = last === 1
+    ? penultimate === 5
+      ? "authentic"
+      : penultimate === 4
+        ? "plagal"
+        : "loop"
+    : last === 5
+      ? "half"
+      : penultimate === 5 && last === 6
+        ? "deceptive"
+        : "loop";
+
+  return { chords, degrees, cadence, resolvedStyle: preset.id };
+}
+
 export function generateProgression(
   settings: ProgressionGeneratorSettings,
 ): ProgressionResult {
   const styleRandom = createSeededRandom(deriveSeed(settings.seed, "style"));
   const preset = resolveStylePreset(settings.style, styleRandom);
+
+  if (settings.progressionId) {
+    const template = getProgressionTemplate(settings.progressionId);
+    if (!template) {
+      throw new RangeError(`Unknown progression template: ${settings.progressionId}`);
+    }
+    if (!template.modes.includes(settings.mode)) {
+      throw new RangeError(
+        `Progression '${template.id}' does not support mode '${settings.mode}'.`,
+      );
+    }
+    return generateNamedProgression(settings, template, preset);
+  }
   const templateRandom = createSeededRandom(
     deriveSeed(settings.seed, "progression-template", preset.id, settings.mode),
   );
