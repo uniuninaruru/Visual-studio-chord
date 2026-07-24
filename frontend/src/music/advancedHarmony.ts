@@ -19,6 +19,7 @@ import {
 } from "./harmonyFunctions";
 import {
   getScalePitchClasses,
+  parallelModeFor,
   pitchClassToSemitone,
   semitoneToPitchClass,
 } from "./scales";
@@ -46,19 +47,9 @@ export interface CreateAdvancedChordOptions {
   suspension?: 2 | 4;
 }
 
-export function parallelModeFor(mode: Mode): Mode {
-  switch (mode) {
-    case "major":
-      return "naturalMinor";
-    case "naturalMinor":
-    case "harmonicMinor":
-      return "major";
-    case "dorian":
-      return "naturalMinor";
-    case "mixolydian":
-      return "major";
-  }
-}
+// Defined in scales.ts so chords.ts can use it without a circular import;
+// re-exported here to keep this module's public surface unchanged.
+export { parallelModeFor };
 
 function assertDegree(degree: number, label: string): void {
   if (!Number.isInteger(degree) || degree < 1 || degree > 7) {

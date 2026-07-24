@@ -11,6 +11,7 @@ import {
   diatonicQualityForDegree,
   getDiatonicChordDefinition,
   getDiatonicSeventhChordDefinition,
+  intervalForTension,
   intervalsForQuality,
   romanNumeralForChordQuality,
 } from "./chords";
@@ -320,14 +321,30 @@ function validateChord(
   }
   try {
     const root = pitchClassToSemitone(chord.root);
+    // Colour tones and a slash bass are legitimate members of the sounding
+    // chord, so they widen the set of pitch classes the voicing may contain.
     const expectedPitchClasses = new Set(
       intervalsForQuality(chord.quality).map((interval) => (root + interval) % 12),
     );
+    for (const tension of chord.tensions ?? []) {
+      expectedPitchClasses.add((root + intervalForTension(tension)) % 12);
+    }
+    if (chord.bass) {
+      expectedPitchClasses.add(pitchClassToSemitone(chord.bass));
+    }
     const actualPitchClasses = new Set(chord.notes.map((note) => note % 12));
-    if (
-      expectedPitchClasses.size !== actualPitchClasses.size ||
-      [...expectedPitchClasses].some((pitchClass) => !actualPitchClasses.has(pitchClass))
-    ) {
+    const extended = (chord.tensions?.length ?? 0) > 0 || chord.bass !== undefined;
+    const soundsForeignTone = [...actualPitchClasses].some(
+      (pitchClass) => !expectedPitchClasses.has(pitchClass),
+    );
+    // Plain chords must sound exactly their own tones. Extended chords may omit
+    // some — practice drops the fifth, and the root when a bass carries it — so
+    // there the rule is only that nothing foreign sounds.
+    const mismatched = extended
+      ? soundsForeignTone
+      : expectedPitchClasses.size !== actualPitchClasses.size ||
+        [...expectedPitchClasses].some((pitchClass) => !actualPitchClasses.has(pitchClass));
+    if (mismatched) {
       issues.push(error("chord.voicing", "Chord voicing does not match its root and quality.", context));
     }
   } catch {

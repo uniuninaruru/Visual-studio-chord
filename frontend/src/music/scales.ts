@@ -63,6 +63,26 @@ export function isSupportedMode(value: unknown): value is Mode {
   return typeof value === "string" && SUPPORTED_MODES.includes(value as Mode);
 }
 
+/**
+ * The parallel mode a borrowed chord is understood to come from.
+ *
+ * Lives here rather than in advancedHarmony so that chords.ts can label
+ * borrowed chords without importing a module that already imports it.
+ */
+export function parallelModeFor(mode: Mode): Mode {
+  switch (mode) {
+    case "major":
+      return "naturalMinor";
+    case "naturalMinor":
+    case "harmonicMinor":
+      return "major";
+    case "dorian":
+      return "naturalMinor";
+    case "mixolydian":
+      return "major";
+  }
+}
+
 export function normalizePitchClass(name: PitchClassName): CanonicalPitchClass {
   const normalized = PITCH_CLASS_ALIASES[name];
   if (!normalized) throw new RangeError(`Unsupported pitch class: ${String(name)}`);
