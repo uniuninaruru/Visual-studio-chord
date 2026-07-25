@@ -210,6 +210,15 @@ export interface HarmonicRhythmSettings {
 }
 
 /**
+ * Four-part voice leading. Off keeps the note-set voicer.
+ */
+export interface VoiceLeadingSettings {
+  enabled: boolean;
+  /** Overrides the profile the style would otherwise pick. */
+  profile?: "classical" | "jazz" | "pop" | "electronic";
+}
+
+/**
  * Functional-harmony planning. Off keeps the template-driven progressions.
  */
 export interface FunctionalHarmonySettings {
@@ -329,6 +338,11 @@ export interface GeneratorSettings {
    * expanding a degree template. Omitted keeps the template behaviour.
    */
   functionalHarmony?: FunctionalHarmonySettings;
+  /**
+   * Voices chords as four independent parts, applying part-writing rules
+   * weighted by style. Omitted keeps the original note-set voicer.
+   */
+  voiceLeading?: VoiceLeadingSettings;
 }
 
 export interface BarEvent {

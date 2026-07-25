@@ -16,6 +16,7 @@ import { generateMelody } from "./melodyGenerator";
 import { generateProgression } from "./progressionGenerator";
 import { planPhrases } from "./phrases";
 import { planSections } from "./sections";
+import { revoiceInFourParts } from "./voiceLeading";
 import type { ConcreteStylePresetId } from "./styles";
 import { deriveSeed, hashSeed, seedToString } from "./random";
 import { midiToNoteName } from "./scales";
@@ -72,6 +73,7 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
     functionalHarmony: settings.functionalHarmony
       ? { ...settings.functionalHarmony }
       : undefined,
+    voiceLeading: settings.voiceLeading ? { ...settings.voiceLeading } : undefined,
   };
 }
 
@@ -132,6 +134,9 @@ function compositionFingerprint(settings: GeneratorSettings): string {
         ]
       : []),
     ...(settings.phraseGrammar?.enabled ? ["phrase-grammar"] : []),
+    ...(settings.voiceLeading?.enabled
+      ? ["voice-leading", settings.voiceLeading.profile ?? "auto"]
+      : []),
     ...(settings.functionalHarmony?.enabled
       ? ["functional-harmony", settings.functionalHarmony.exploration ?? 0]
       : []),
@@ -207,6 +212,17 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
   const progression = sections
     ? generateSectionedChords(copiedSettings, sections, barTicks)
     : generateProgression({ ...copiedSettings, ppq: PPQ });
+  // Re-voiced before the melody is written, since the melody scores its
+  // candidates against the sounding chord tones.
+  if (copiedSettings.voiceLeading?.enabled) {
+    progression.chords = revoiceInFourParts(progression.chords, {
+      key: copiedSettings.key,
+      mode: copiedSettings.mode,
+      style: copiedSettings.style,
+      profileName: copiedSettings.voiceLeading.profile,
+    });
+  }
+
   const phrases = copiedSettings.phraseGrammar?.enabled
     ? planPhrases({ bars: copiedSettings.bars, seed: copiedSettings.seed, sections })
     : undefined;
