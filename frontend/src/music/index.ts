@@ -7,6 +7,7 @@ export * from "./harmonyFunctions";
 export * from "./melodicSkeleton";
 export * from "./melodyGenerator";
 export * from "./motifs";
+export * from "./nonChordTones";
 export * from "./phrases";
 export * from "./progressionGenerator";
 export * from "./progressions";
