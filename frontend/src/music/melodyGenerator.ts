@@ -9,6 +9,7 @@ import {
   type SectionEvent,
 } from "../types/music";
 import { developMelodyWithMotif } from "./motifs";
+import { phraseForBar, type PhrasePlanEntry } from "./phrases";
 import { sectionForBar } from "./sections";
 import { createSeededRandom, deriveSeed, hashSeed, type Seed } from "./random";
 import { generateRhythmBar, type RhythmSlot } from "./rhythmGenerator";
@@ -36,6 +37,11 @@ export interface MelodyGeneratorOptions {
    * the melody follows a modulation and can run in its own mode or pentatonic.
    */
   sections?: readonly SectionEvent[];
+  /**
+   * Phrase plan. When present it replaces the fixed-length phrasing, so a
+   * line is shaped by where it is in the phrase rather than by bar count.
+   */
+  phrases?: readonly PhrasePlanEntry[];
   seed?: Seed;
   ppq?: number;
   strength?: RegenerationStrength;
@@ -82,6 +88,8 @@ function pitchWeight(
   phraseEndKind: PhraseEndKind,
   resolvesToTonic: boolean,
   tonicSemitone: number,
+  /** 0..1, how firmly the phrase this note ends is meant to close. */
+  cadenceStrength: number,
 ): number {
   const chordPitchClasses = new Set(chord.notes.map((note) => note % 12));
   const isChordTone = chordPitchClasses.has(midi % 12);
@@ -108,12 +116,15 @@ function pitchWeight(
   if (phraseEndKind !== "none") {
     // A phrase resolves onto a chord tone; the piece's final phrase does so more
     // decisively than the interior ones, which keep their forward momentum.
-    if (isChordTone) weight *= phraseEndKind === "final" ? 4 : 2;
+    // Scaled by how much this particular phrase is meant to close, so a
+    // fragmentation phrase drives on while a cadential one settles.
+    const base = phraseEndKind === "final" ? 4 : 2;
+    if (isChordTone) weight *= 1 + (base - 1) * cadenceStrength;
     // Only pull toward the tonic when the cadence actually lands there. Half and
     // deceptive cadences resolve onto the dominant/submediant instead, so the
     // chord-tone bias above already points the line at the right target.
     if (phraseEndKind === "final" && resolvesToTonic && midi % 12 === tonicSemitone) {
-      weight *= 5;
+      weight *= 1 + 4 * cadenceStrength;
     }
   }
   return Math.max(weight, 0.0001);
@@ -203,8 +214,13 @@ export function generateMelodyBar(
   // A section boundary is a phrase boundary: the line should land before the
   // music moves to a new key or a new progression.
   const isSectionEnd = section !== undefined && barIndex === section.endBar - 1;
-  const isPhraseBoundaryBar =
-    (barIndex + 1) % phraseLengthBars === 0 || isFinalBar || isSectionEnd;
+  const phrase = phraseForBar(options.phrases, barIndex);
+  const isPhraseBoundaryBar = phrase
+    ? barIndex === phrase.endBar - 1 || isFinalBar
+    : (barIndex + 1) % phraseLengthBars === 0 || isFinalBar || isSectionEnd;
+  // How firmly this phrase closes. Without a plan every boundary closed equally,
+  // which is why an eight-bar line used to read as two interchangeable halves.
+  const cadenceStrength = phrase?.cadenceStrength ?? 1;
   const resolvesToTonic =
     options.cadence === undefined ||
     options.cadence === "authentic" ||
@@ -234,6 +250,7 @@ export function generateMelodyBar(
         phraseEndKind,
         resolvesToTonic,
         tonicSemitone,
+        cadenceStrength,
       ),
     );
     const midi = random.weightedPick(candidates, weights);

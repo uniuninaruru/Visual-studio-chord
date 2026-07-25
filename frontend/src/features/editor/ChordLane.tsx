@@ -56,9 +56,15 @@ export function ChordLane({
         data-testid="chord-lane"
       >
         {composition.bars.map((bar) => {
-          const chord = composition.chords.find(
-            (item) => item.startTick <= bar.startTick && item.startTick + item.durationTick > bar.startTick,
+          // A bar can hold several chords once harmonic rhythm subdivides it,
+          // and a held chord can span bars — so take every chord that sounds
+          // during this bar, and mark the ones that started earlier.
+          const barEnd = bar.startTick + bar.durationTick;
+          const barChords = composition.chords.filter(
+            (item) =>
+              item.startTick < barEnd && item.startTick + item.durationTick > bar.startTick,
           );
+          const chord = barChords[0];
           const selected = Boolean(
             selectedRange && bar.index >= selectedRange.startBar && bar.index < selectedRange.endBar,
           );
@@ -87,21 +93,48 @@ export function ChordLane({
                   <Icon name={locked ? "lock" : "unlock"} />
                 </button>
               </div>
-              <button
-                type="button"
-                className={`chord-content ${selectedChordId === chord?.id ? "inspected" : ""}`}
-                aria-pressed={selected}
-                onClick={(event) => {
-                  onBarSelect(bar.index, event.shiftKey);
-                  if (chord) onChordSelect(chord);
-                }}
-              >
-                <strong>{chord?.symbol ?? "—"}</strong>
-                <span className="roman-numeral">{chord?.romanNumeral ?? ""}</span>
-                <span className="function-name">
-                  {chord ? FUNCTION_LABELS[chord.function] : "Empty"}
-                </span>
-              </button>
+              <div className={`chord-content-group count-${Math.max(1, barChords.length)}`}>
+                {barChords.length === 0 ? (
+                  <button
+                    type="button"
+                    className="chord-content"
+                    aria-pressed={selected}
+                    onClick={(event) => onBarSelect(bar.index, event.shiftKey)}
+                  >
+                    <strong>—</strong>
+                    <span className="roman-numeral" />
+                    <span className="function-name">Empty</span>
+                  </button>
+                ) : (
+                  barChords.map((item) => {
+                    const heldOver = item.startTick < bar.startTick;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={[
+                          "chord-content",
+                          item.function,
+                          selectedChordId === item.id ? "inspected" : "",
+                          heldOver ? "held-over" : "",
+                        ].filter(Boolean).join(" ")}
+                        aria-pressed={selected}
+                        title={heldOver ? `${item.symbol}（前の小節から継続）` : item.symbol}
+                        onClick={(event) => {
+                          onBarSelect(bar.index, event.shiftKey);
+                          onChordSelect(item);
+                        }}
+                      >
+                        <strong>{heldOver ? `(${item.symbol})` : item.symbol}</strong>
+                        <span className="roman-numeral">{item.romanNumeral}</span>
+                        <span className="function-name">
+                          {FUNCTION_LABELS[item.function]}
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
             </article>
           );
         })}
