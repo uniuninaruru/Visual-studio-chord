@@ -14,5 +14,7 @@ export * from "./sections";
 export * from "./rhythmGenerator";
 export * from "./scales";
 export * from "./styles";
+export * from "./tensionCurve";
 export * from "./time";
 export * from "./validation";
+export * from "./voiceLeading";
