@@ -7,6 +7,7 @@ export * from "./motifs";
 export * from "./progressionGenerator";
 export * from "./progressions";
 export * from "./random";
+export * from "./sections";
 export * from "./rhythmGenerator";
 export * from "./scales";
 export * from "./styles";

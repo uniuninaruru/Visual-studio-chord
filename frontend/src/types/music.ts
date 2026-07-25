@@ -149,6 +149,67 @@ export interface ProgressionTemplate {
   modes: readonly Mode[];
 }
 
+/** Sections of the Japanese song template: A-melo, B-melo/pre-sabi, sabi… */
+export type SectionKind =
+  | "intro"
+  | "verse"
+  | "preChorus"
+  | "chorus"
+  | "bridge"
+  | "outro";
+
+export type SongFormId =
+  | "none"
+  | "verseChorus"
+  | "aaba"
+  | "throughComposed";
+
+/**
+ * Which scale a melody draws on, independent of the harmony underneath it.
+ *
+ * Mirrors MelodyScale in music/scales.ts; declared here so the settings and
+ * composition types do not have to import from the engine.
+ */
+export type MelodyScaleName = "diatonic" | "yonaNuki" | "niroNuki";
+
+/**
+ * One span of the song with its own key, mode and progression.
+ *
+ * Sections describe spans of the flat chord/note arrays rather than containing
+ * them, so playback, MIDI export and the piano roll keep seeing one continuous
+ * piece. A section whose `transpose` is non-zero is a modulation.
+ */
+export interface SectionEvent {
+  id: string;
+  kind: SectionKind;
+  startBar: number;
+  /** Exclusive. */
+  endBar: number;
+  key: CanonicalPitchClass;
+  mode: Mode;
+  /** Semitones above the composition key. Non-zero means this section modulates. */
+  transpose: number;
+  /** Set when the melody runs in a different mode than the harmony (polytonality). */
+  melodyMode?: Mode;
+  /** Set when the melody is restricted to a pentatonic. */
+  melodyScale?: MelodyScaleName;
+  /** Named progression this section was built from. */
+  progressionId?: string;
+}
+
+export interface SongFormSettings {
+  form: SongFormId;
+  /**
+   * Semitones the final section lifts by — the "truck driver" key change.
+   * 0 disables it.
+   */
+  finalLift?: number;
+  /** Runs the melody in the parallel mode of each section's harmony. */
+  polytonal?: boolean;
+  /** Restricts melodies to a pentatonic. */
+  melodyScale?: MelodyScaleName;
+}
+
 export type HarmonyComplexity = "triads" | "sevenths" | "advanced";
 
 export interface HarmonySettings {
@@ -222,6 +283,11 @@ export interface GeneratorSettings {
    * preset picks one deterministically from the seed.
    */
   progressionId?: string;
+  /**
+   * Song form. When omitted (or "none") the piece is generated as one
+   * continuous span, exactly as before sections existed.
+   */
+  songForm?: SongFormSettings;
 }
 
 export interface BarEvent {
@@ -287,6 +353,11 @@ export interface GeneratedComposition {
   notes: NoteEvent[];
   /** Sorted, unique zero-based bar indices. */
   lockedBars: number[];
+  /**
+   * Song sections, when a form was requested. Absent for one-span pieces.
+   * Sections tile [0, settings.bars) exactly, in order, without gaps.
+   */
+  sections?: SectionEvent[];
 }
 
 /** Zero-based, end-exclusive bar interval: [startBar, endBar). */

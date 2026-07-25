@@ -218,6 +218,47 @@ export function isGeneratedComposition(value: unknown): value is GeneratedCompos
     return false;
   }
 
+  // Sections are optional, so a file written before they existed still loads.
+  // When present they must tile the bar grid exactly, which is the invariant
+  // the rest of the engine relies on to resolve a chord's key.
+  if (value.sections !== undefined) {
+    const sectionKinds = ["intro", "verse", "preChorus", "chorus", "bridge", "outro"];
+    const sectionModes = ["major", "naturalMinor", "harmonicMinor", "dorian", "mixolydian"];
+    const melodyScales = ["diatonic", "yonaNuki", "niroNuki"];
+    const pitchClasses = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    if (!Array.isArray(value.sections) || value.sections.length === 0) return false;
+    const sectionIds = new Set<string>();
+    let cursor = 0;
+    for (const section of value.sections) {
+      if (
+        !isRecord(section) ||
+        typeof section.id !== "string" ||
+        section.id.length === 0 ||
+        !registerUnique(sectionIds, section.id) ||
+        typeof section.kind !== "string" ||
+        !sectionKinds.includes(section.kind) ||
+        !Number.isInteger(section.startBar) ||
+        section.startBar !== cursor ||
+        !Number.isInteger(section.endBar) ||
+        (section.endBar as number) <= (section.startBar as number) ||
+        typeof section.key !== "string" ||
+        !pitchClasses.includes(section.key) ||
+        typeof section.mode !== "string" ||
+        !sectionModes.includes(section.mode) ||
+        !Number.isInteger(section.transpose) ||
+        (section.melodyMode !== undefined &&
+          (typeof section.melodyMode !== "string" || !sectionModes.includes(section.melodyMode))) ||
+        (section.melodyScale !== undefined &&
+          (typeof section.melodyScale !== "string" || !melodyScales.includes(section.melodyScale))) ||
+        (section.progressionId !== undefined && typeof section.progressionId !== "string")
+      ) {
+        return false;
+      }
+      cursor = section.endBar as number;
+    }
+    if (cursor !== settings.bars) return false;
+  }
+
   const validBars = value.bars.every(
     (bar, index) =>
       isRecord(bar) &&
@@ -239,7 +280,9 @@ export function isGeneratedComposition(value: unknown): value is GeneratedCompos
   const sources = ["diatonic", "secondaryDominant", "borrowed", "substitute", "other"];
   const specialKinds = [
     "secondaryDominant", "borrowed", "tritoneSubstitution", "suspended", "addedTone",
+    "passingDiminished", "chromatic",
   ];
+  const tensions = ["6", "9", "b9", "#9", "11", "#11", "13", "b13"];
   const modes = ["major", "naturalMinor", "harmonicMinor", "dorian", "mixolydian"];
   const chordIds = new Set<string>();
   const validChord = value.chords.every((item) => {
@@ -278,6 +321,14 @@ export function isGeneratedComposition(value: unknown): value is GeneratedCompos
       sources.includes(item.source) &&
       (item.specialKind === undefined || (
         typeof item.specialKind === "string" && specialKinds.includes(item.specialKind)
+      )) &&
+      (item.tensions === undefined || (
+        Array.isArray(item.tensions) &&
+        item.tensions.every((tension) =>
+          typeof tension === "string" && tensions.includes(tension))
+      )) &&
+      (item.bass === undefined || (
+        typeof item.bass === "string" && roots.includes(item.bass)
       )) &&
       (item.targetDegree === undefined || (
         Number.isInteger(item.targetDegree) &&
