@@ -1,21 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  detectLocalBackend,
-  captureLocalAccessToken,
   isLocalAccessError,
   isLocalConnectivityError,
   LocalApiError,
   rankCandidates as rankCandidatesOnServer,
   updateServerPreference,
-  type BackendConnection,
 } from "./api/inferenceClient";
-import { CompositionTransport } from "./audio/transport";
 import { ChordLane } from "./features/editor/ChordLane";
-import {
-  DiagnosticsPanel,
-  type BackendDiagnostics,
-  type UserFacingDiagnosticError,
-} from "./features/diagnostics";
+import { DiagnosticsPanel } from "./features/diagnostics";
 import { InspectorPanel } from "./features/editor/InspectorPanel";
 import { importCompositionFile, midiBlob } from "./features/export";
 import { SettingsPanel } from "./features/generator/SettingsPanel";
@@ -28,10 +20,14 @@ import {
   ProjectStatusBar,
   type AiJobStatus,
 } from "./features/status/ProjectStatusBar";
+import { fallbackLabel } from "./features/status/fallbackLabel";
 import { formatEngineLabel } from "./features/status/engineLabel";
 import { RegenerationDock } from "./features/variations/RegenerationDock";
 import { VariationPanel } from "./features/variations/VariationPanel";
 import { sortVariationCandidates } from "./features/variations/variationRanking";
+import { useBackendConnection } from "./hooks/useBackendConnection";
+import { useDiagnostics } from "./hooks/useDiagnostics";
+import { usePlaybackController } from "./hooks/usePlaybackController";
 import { usePreferenceProfile } from "./hooks/usePreferenceProfile";
 import { useStorageCapacity } from "./hooks/useStorageCapacity";
 import { validateComposition } from "./music";
@@ -43,10 +39,6 @@ import {
   type PreferenceCategory,
   type PreferenceFeatureSet,
 } from "./preference";
-import {
-  detectBrowserCapabilities,
-  type BrowserCapabilities,
-} from "./platform";
 import { useComposerStore, type NoteMove, type TickRange } from "./state";
 import { getSafeStorage } from "./storage";
 import type {
@@ -104,25 +96,52 @@ const FEEDBACK_LABELS: Record<ExplicitFeedbackType, string> = {
 
 const ONBOARDING_STORAGE_KEY = "music-theory-composer:onboarding:v1";
 const appStorage = getSafeStorage();
-const BACKEND_STARTUP_RETRY_DELAYS_MS = [0, 500, 1_500, 3_000, 6_000] as const;
 
-function fallbackLabel(reason: string | null | undefined): string | null {
-  if (!reason) return null;
-  if (/oom/i.test(reason)) return "GPU memory limit · batch reduced or CPU fallback";
-  if (/unavailable/i.test(reason)) return "Requested runtime unavailable · CPU fallback";
-  if (/autoloadfailed/i.test(reason)) return "Accelerated model load failed · safe fallback";
-  if (/invalidpreference/i.test(reason)) return "Invalid runtime setting · CPU fallback";
-  return "Runtime fallback applied";
-}
 
 export default function App() {
   const store = useComposerStore();
   const preferenceProfile = usePreferenceProfile();
-  const transportRef = useRef<CompositionTransport | null>(null);
+  // Cross-cutting: several hooks report through the toast, so it is declared
+  // before them and passed down rather than owned by any single one.
+  const [toast, setToast] = useState<string | null>(null);
+  const [lastRankInfo, setLastRankInfo] = useState<{
+    runtime: string;
+    batchSize: number | null;
+    fallback: string | null;
+  } | null>(null);
+  const {
+    backend,
+    setBackend,
+    online,
+    backendCanInfer,
+    refreshBackend,
+    scheduleBackendRecovery,
+  } = useBackendConnection();
+  const {
+    browserCapabilities,
+    diagnosticsOpen,
+    setDiagnosticsOpen,
+    audioError,
+    setAudioError,
+    backendDiagnostics,
+    retryDiagnostics,
+  } = useDiagnostics(backend, lastRankInfo, refreshBackend);
+  const {
+    play: handlePlay,
+    pause: handlePause,
+    stop: handleStop,
+  } = usePlaybackController({
+    playbackComposition: store.committedComposition,
+    playbackLoopRange: store.playbackLoopRange,
+    onAudioError: setAudioError,
+    onToast: setToast,
+  });
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const preferenceImportInputRef = useRef<HTMLInputElement | null>(null);
   const aiControllerRef = useRef<AbortController | null>(null);
-  const backendRetryTimerRef = useRef<number | null>(null);
+  // An in-flight candidate request must not outlive the app; this used to
+  // ride along with the backend probe effect that has moved into a hook.
+  useEffect(() => () => aiControllerRef.current?.abort(), []);
   const saveWarningRef = useRef<string | null>(null);
   const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>([]);
   const [copiedNoteIds, setCopiedNoteIds] = useState<string[]>([]);
@@ -130,27 +149,14 @@ export default function App() {
   const [regenerationTarget, setRegenerationTarget] = useState<RegenerationTarget>("all");
   const [regenerationStrength, setRegenerationStrength] =
     useState<RegenerationStrength>("moderate");
-  const [backend, setBackend] = useState<BackendConnection>({ state: "checking" });
   const [preferenceCategory, setPreferenceCategory] =
     useState<PreferenceCategory>("combined");
   const [historyCompareIds, setHistoryCompareIds] = useState<readonly string[]>([]);
   const [serverScores, setServerScores] = useState<Record<string, number>>({});
   const [rankingRuntime, setRankingRuntime] = useState<string>("browser");
-  const [lastRankInfo, setLastRankInfo] = useState<{
-    runtime: string;
-    batchSize: number | null;
-    fallback: string | null;
-  } | null>(null);
-  const [online, setOnline] = useState(() =>
-    typeof navigator === "undefined" ? true : navigator.onLine
-  );
-  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(
     () => appStorage.getItem(ONBOARDING_STORAGE_KEY) !== "complete",
   );
-  const [browserCapabilities, setBrowserCapabilities] =
-    useState<BrowserCapabilities | null>(null);
-  const [audioError, setAudioError] = useState<UserFacingDiagnosticError | null>(null);
   const [aiJob, setAiJob] = useState<AiJobStatus>({
     state: "idle",
     label: "Ready",
@@ -160,9 +166,7 @@ export default function App() {
     device: "browser",
     backend: "browser-linear",
   });
-  const [toast, setToast] = useState<string | null>(null);
   const [mobilePanel, setMobilePanel] = useState<"settings" | "inspector" | null>(null);
-  const backendCanInfer = backend.state === "connected" && backend.inferenceAuthorized;
   // Re-measured whenever a save lands, which is when the figure moves and when
   // the user is most likely to be looking at it.
   const storageCapacity = useStorageCapacity(store.lastSavedAt);
@@ -212,101 +216,6 @@ export default function App() {
   );
 
   useEffect(() => {
-    const transport = new CompositionTransport();
-    transportRef.current = transport;
-    return () => {
-      transport.dispose();
-      transportRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    captureLocalAccessToken();
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    void detectBrowserCapabilities().then((capabilities) => {
-      if (!cancelled) setBrowserCapabilities(capabilities);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const refreshBackend = async () => {
-    setBackend({ state: "checking" });
-    setBackend(await detectLocalBackend());
-  };
-
-  const scheduleBackendRecovery = useCallback((delay = 1_500) => {
-    if (backendRetryTimerRef.current !== null) {
-      window.clearTimeout(backendRetryTimerRef.current);
-    }
-    backendRetryTimerRef.current = window.setTimeout(() => {
-      backendRetryTimerRef.current = null;
-      void detectLocalBackend().then(setBackend);
-    }, delay);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    let retryTimer: number | null = null;
-    const probe = async (attempt: number) => {
-      const connection = await detectLocalBackend();
-      if (cancelled) return;
-      setBackend(connection);
-      if (
-        connection.state === "browser"
-        && connection.reason === "unreachable"
-        && attempt + 1 < BACKEND_STARTUP_RETRY_DELAYS_MS.length
-      ) {
-        retryTimer = window.setTimeout(
-          () => void probe(attempt + 1),
-          BACKEND_STARTUP_RETRY_DELAYS_MS[attempt + 1],
-        );
-      }
-    };
-    void probe(0);
-    const handleOnline = () => {
-      setOnline(true);
-      scheduleBackendRecovery(0);
-    };
-    const handleOffline = () => setOnline(false);
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-    return () => {
-      cancelled = true;
-      if (retryTimer !== null) window.clearTimeout(retryTimer);
-      if (backendRetryTimerRef.current !== null) {
-        window.clearTimeout(backendRetryTimerRef.current);
-        backendRetryTimerRef.current = null;
-      }
-      aiControllerRef.current?.abort();
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, [scheduleBackendRecovery]);
-
-  useEffect(() => {
-    const transport = transportRef.current;
-    if (!transport) return;
-    const handleTick = (tick: number) => {
-      const before = useComposerStore.getState().committedComposition;
-      useComposerStore.getState().setCurrentTick(tick);
-      const after = useComposerStore.getState();
-      if (after.committedComposition !== before) {
-        transport.configure(
-          after.committedComposition,
-          after.playbackLoopRange,
-          handleTick,
-        );
-      }
-    };
-    transport.configure(playbackComposition, store.playbackLoopRange, handleTick);
-  }, [playbackComposition, store.playbackLoopRange]);
-
-  useEffect(() => {
     if (!toast) return;
     const timeout = window.setTimeout(() => setToast(null), 2_800);
     return () => window.clearTimeout(timeout);
@@ -333,33 +242,6 @@ export default function App() {
           : "ローカル保存に失敗しました。曲は画面内に保持されています。空き容量を確認し、JSONを書き出してください。",
     );
   }, [store.projectRecoveryReason, store.projectSaveStatus]);
-
-  const handlePlay = useCallback(async () => {
-    try {
-      await transportRef.current?.play();
-      useComposerStore.getState().setPlaybackStatus("playing");
-      setAudioError(null);
-    } catch {
-      setAudioError({
-        title: "音声再生を開始できませんでした",
-        message: "ブラウザまたはOSがAudioContextの開始を拒否しました。曲データとAI処理は安全です。",
-        remedy: "ページの音声許可と出力デバイスを確認し、Playをもう一度押してください。",
-        canRetry: true,
-        diagnosticCode: "AUDIO_CONTEXT_START_FAILED",
-      });
-      setToast("ブラウザの音声を開始できませんでした。ページの音声許可を確認してください。");
-    }
-  }, []);
-
-  const handlePause = useCallback(() => {
-    transportRef.current?.pause();
-    useComposerStore.getState().setPlaybackStatus("paused");
-  }, []);
-
-  const handleStop = () => {
-    transportRef.current?.stop();
-    store.setPlaybackStatus("stopped");
-  };
 
   const handleGenerate = () => {
     store.generateComposition();
@@ -440,8 +322,13 @@ export default function App() {
     const controller = new AbortController();
     aiControllerRef.current = controller;
     const startedAt = Date.now();
-    const engine = backendCanInfer
-      ? `Local ${backend.models.activeRuntime.toUpperCase()}`
+    // Read through the connected shape directly so the models field narrows;
+    // backendCanInfer is the same condition but opaque to the type checker.
+    const inferring = backend.state === "connected" && backend.inferenceAuthorized
+      ? backend
+      : null;
+    const engine = inferring
+      ? `Local ${inferring.models.activeRuntime.toUpperCase()}`
       : "Browser linear / theory";
     setAiJob({
       state: "running",
@@ -449,8 +336,8 @@ export default function App() {
       stage: "Generating 3 candidates",
       progress: 8,
       startedAt,
-      device: backendCanInfer ? backend.models.activeRuntime : "browser",
-      backend: backendCanInfer ? backend.models.activeModel : "browser-linear",
+      device: inferring ? inferring.models.activeRuntime : "browser",
+      backend: inferring ? inferring.models.activeModel : "browser-linear",
     });
 
     try {
@@ -649,13 +536,6 @@ export default function App() {
     }
   };
 
-  const retryDiagnostics = () => {
-    setBrowserCapabilities(null);
-    void Promise.all([
-      detectBrowserCapabilities().then(setBrowserCapabilities),
-      refreshBackend(),
-    ]).then(() => setToast("環境診断を更新しました。"));
-  };
 
   const closeTutorial = useCallback(() => {
     appStorage.setItem(ONBOARDING_STORAGE_KEY, "complete");
@@ -694,7 +574,14 @@ export default function App() {
     };
     window.addEventListener("keydown", handleKeyboard);
     return () => window.removeEventListener("keydown", handleKeyboard);
-  }, [diagnosticsOpen, handleDeleteNote, handlePause, handlePlay, selectedNoteIds]);
+  }, [
+    diagnosticsOpen,
+    setDiagnosticsOpen,
+    handleDeleteNote,
+    handlePause,
+    handlePlay,
+    selectedNoteIds,
+  ]);
 
   const handleExportJson = () => {
     const blob = new Blob([store.exportJson()], { type: "application/json;charset=utf-8" });
@@ -738,72 +625,6 @@ export default function App() {
     rankingRuntime,
     aiJob.state,
   );
-  const backendDiagnostics = useMemo<BackendDiagnostics>(() => {
-    if (backend.state === "checking") {
-      return {
-        connection: "checking",
-        device: null,
-        inferenceBackend: "確認中",
-        models: [],
-        apiCompatibility: "checking",
-        expectedApiVersion: "1",
-      };
-    }
-    if (backend.state === "browser") {
-      const apiMismatch = backend.reason === "api-mismatch";
-      return {
-        connection: "disconnected",
-        device: "Browser / CPU",
-        inferenceBackend: "Browser linear / Theory-only",
-        models: [],
-        apiCompatibility: apiMismatch ? "incompatible" : "unknown",
-        expectedApiVersion: "1",
-        error: {
-          title: apiMismatch
-            ? "ローカル推論サーバーのAPIに互換性がありません"
-            : "ローカル推論サーバーへ接続できません",
-          message: "生成・再生・編集・保存はブラウザ内で継続できます。曲データは安全です。",
-          remedy: apiMismatch
-            ? "フロントエンドとバックエンドを同じリリースへ更新してください。"
-            : "高速推論が必要ならデスクトップ側のサーバーを起動し、「診断を再実行」を押してください。",
-          canRetry: true,
-          diagnosticCode: apiMismatch ? "LOCAL_API_VERSION_MISMATCH" : "LOCAL_API_UNREACHABLE",
-        },
-      };
-    }
-    const serverApiVersion = backend.health.apiVersion;
-    return {
-      connection: "connected",
-      device: backend.device.deviceName,
-      inferenceBackend: `${backend.models.activeModel} / ${backend.models.activeRuntime}${lastRankInfo ? ` · last ${lastRankInfo.runtime}${lastRankInfo.batchSize ? ` batch ${lastRankInfo.batchSize}` : ""}${lastRankInfo.fallback ? ` · ${lastRankInfo.fallback}` : ""}` : ""}`,
-      models: backend.models.models
-        .filter((model) => model.id !== "browser-linear-v1")
-        .map((model) => ({
-          id: model.id,
-          name: model.name,
-          status: model.available ? "ready" as const : "missing" as const,
-          detail: `${model.runtime}${model.loaded ? " · loaded" : " · available on demand"}${model.id === backend.models.activeModel && fallbackLabel(backend.models.fallbackReason) ? ` · ${fallbackLabel(backend.models.fallbackReason)}` : ""}`,
-        })),
-      apiCompatibility: serverApiVersion === undefined
-        ? "unknown"
-        : serverApiVersion === "1"
-          ? "compatible"
-          : "incompatible",
-      serverApiVersion,
-      expectedApiVersion: "1",
-      serverVersion: backend.health.version,
-      pythonVersion: backend.health.pythonVersion,
-      platformSystem: backend.health.platformSystem,
-      platformMachine: backend.health.platformMachine,
-      error: backend.inferenceAuthorized ? undefined : {
-        title: "ローカル推論にはアクセスリンクが必要です",
-        message: "サーバー診断には接続できていますが、保護された推論操作はブラウザモードへフォールバックします。曲データは安全です。",
-        remedy: "デスクトップの起動ログに表示された #access=... 付きURLを、この端末で開いてください。",
-        canRetry: true,
-        diagnosticCode: "LOCAL_API_ACCESS_REQUIRED",
-      },
-    };
-  }, [backend, lastRankInfo]);
   const diagnosticProjectStorageMode = store.projectSaveStatus === "recovery"
     ? store.projectRecoveryReason === "unsupported"
       ? "unsupported" as const
