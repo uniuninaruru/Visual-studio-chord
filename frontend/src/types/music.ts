@@ -197,6 +197,18 @@ export interface SectionEvent {
   progressionId?: string;
 }
 
+/**
+ * How often the chord changes. Absent means one chord per bar.
+ */
+export interface HarmonicRhythmSettings {
+  /** Chords per bar. */
+  changesPerBar?: number;
+  /** Bars each chord is held for. */
+  barsPerChord?: number;
+  /** Doubles the rate over the final two bars, tightening into the cadence. */
+  cadentialAcceleration?: boolean;
+}
+
 export interface SongFormSettings {
   form: SongFormId;
   /**
@@ -288,6 +300,11 @@ export interface GeneratorSettings {
    * continuous span, exactly as before sections existed.
    */
   songForm?: SongFormSettings;
+  /**
+   * Chord change rate. Omitted means one chord per bar, which is how every
+   * composition behaved before harmonic rhythm existed.
+   */
+  harmonicRhythm?: HarmonicRhythmSettings;
 }
 
 export interface BarEvent {

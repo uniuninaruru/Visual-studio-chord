@@ -64,6 +64,9 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
     harmony: settings.harmony ? { ...settings.harmony } : undefined,
     motif: settings.motif ? { ...settings.motif } : undefined,
     songForm: settings.songForm ? { ...settings.songForm } : undefined,
+    harmonicRhythm: settings.harmonicRhythm
+      ? { ...settings.harmonicRhythm }
+      : undefined,
   };
 }
 
@@ -114,6 +117,15 @@ function compositionFingerprint(settings: GeneratorSettings): string {
         ]
       : []),
     ...(settings.progressionId ? ["progression", settings.progressionId] : []),
+    // Appended only when set, so ids of one-chord-per-bar pieces are unchanged.
+    ...(settings.harmonicRhythm
+      ? [
+          "harmonic-rhythm",
+          settings.harmonicRhythm.changesPerBar ?? 1,
+          settings.harmonicRhythm.barsPerChord ?? 1,
+          settings.harmonicRhythm.cadentialAcceleration ?? false,
+        ]
+      : []),
   ].join("|");
 }
 
