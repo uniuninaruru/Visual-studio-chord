@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
 import type { ProjectSaveStatus, UpdateTiming } from "../../state";
+import {
+  formatBytes,
+  storageCapacityLevel,
+  type StorageCapacityEstimate,
+} from "../../storage";
 
 export interface AiJobStatus {
   state: "idle" | "running" | "completed" | "cancelled" | "error";
@@ -24,6 +29,8 @@ interface ProjectStatusBarProps {
   engineLabel: string;
   saveStatus: ProjectSaveStatus;
   lastSavedAt: string | null;
+  /** Estimated localStorage headroom. Omitted when it cannot be measured. */
+  storageCapacity?: StorageCapacityEstimate | null;
   online: boolean;
   connectionLabel: string;
   onCancelAi: () => void;
@@ -43,14 +50,30 @@ const PLAYBACK_LABELS = {
   paused: "Paused",
 } as const;
 
+/**
+ * Save state is the one thing a user must be able to trust at a glance, so each
+ * state says what actually happened to their data rather than naming an internal
+ * mode. The rest of the interface is Japanese; these follow it.
+ */
 const SAVE_LABELS: Record<ProjectSaveStatus, string> = {
-  saved: "Saved locally",
-  saving: "Current saved · saving history",
-  unsaved: "Unsaved changes",
-  partial: "Current saved · history incomplete",
-  session: "Session only",
-  recovery: "Recovery required · write protected",
-  error: "Save failed",
+  saved: "保存済み",
+  saving: "保存中",
+  unsaved: "未保存の変更",
+  partial: "履歴の一部が未保存",
+  session: "このセッションのみ",
+  recovery: "復旧モード",
+  error: "保存に失敗",
+};
+
+/** What each state means for the user's data, shown on hover. */
+const SAVE_DESCRIPTIONS: Record<ProjectSaveStatus, string> = {
+  saved: "この端末に保存されています。ブラウザを閉じても残ります。",
+  saving: "現在の曲は保存済みです。履歴を書き込んでいます。",
+  unsaved: "まだ保存されていない変更があります。",
+  partial: "現在の曲は保存済みですが、履歴の一部が入りきりませんでした。",
+  session: "保存先が使えないため、メモリ上だけに保持しています。タブを閉じると失われます。JSON書き出しで退避できます。",
+  recovery: "保存されたデータを読み取れませんでした。上書きを防ぐため書き込みを止めています。",
+  error: "保存に失敗しました。JSON書き出しで退避してください。",
 };
 
 export function ProjectStatusBar({
@@ -65,6 +88,7 @@ export function ProjectStatusBar({
   engineLabel,
   saveStatus,
   lastSavedAt,
+  storageCapacity,
   online,
   connectionLabel,
   onCancelAi,
@@ -78,6 +102,17 @@ export function ProjectStatusBar({
   }, [aiJob.state]);
   const elapsed = aiJob.startedAt === null ? 0 : Math.max(0, (now - aiJob.startedAt) / 1_000);
   const currentBar = Math.floor(Math.max(0, currentTick) / Math.max(1, ticksPerBar)) + 1;
+
+  // Only shown once it can actually be measured; an unmeasurable store would
+  // otherwise read as "0 B left" and look like an emergency.
+  const measured = storageCapacity && storageCapacity.confidence === "measured"
+    ? storageCapacity
+    : null;
+  const capacityLevel = measured ? storageCapacityLevel(measured) : "ok";
+  const capacityLabel = measured ? formatBytes(measured.remainingBytes) : null;
+  const capacityTitle = measured
+    ? `保存領域 ${formatBytes(measured.usedBytes)} / 約${formatBytes(measured.quotaBytes)} 使用（推定）`
+    : null;
   const savedTime = lastSavedAt
     ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(lastSavedAt))
     : null;
@@ -115,9 +150,23 @@ export function ProjectStatusBar({
         <strong>Engine</strong>
         <span>{engineLabel}</span>
       </div>
-      <div className={`status-item save-status is-${saveStatus}`} title={savedTime ? `Last saved ${savedTime}` : undefined} aria-live="polite">
-        <strong>Project</strong>
-        <span>{SAVE_LABELS[saveStatus]}{savedTime && saveStatus === "saved" ? ` · ${savedTime}` : ""}</span>
+      <div
+        className={`status-item save-status is-${saveStatus}`}
+        title={[
+          SAVE_DESCRIPTIONS[saveStatus],
+          savedTime ? `最終保存 ${savedTime}` : null,
+          capacityTitle,
+        ].filter(Boolean).join("\n")}
+        aria-live="polite"
+      >
+        <strong>保存</strong>
+        <span>
+          {SAVE_LABELS[saveStatus]}
+          {savedTime && saveStatus === "saved" ? ` · ${savedTime}` : ""}
+          {capacityLabel && (
+            <span className={`storage-capacity is-${capacityLevel}`}> · 残り {capacityLabel}</span>
+          )}
+        </span>
       </div>
       <div className="status-item" title="ネットワークとローカル推論サーバーの状態" aria-live="polite">
         <strong>Connection</strong>
