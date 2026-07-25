@@ -209,6 +209,11 @@ export interface HarmonicRhythmSettings {
   cadentialAcceleration?: boolean;
 }
 
+/** Phrase grammar. Off keeps the original fixed-length phrasing. */
+export interface PhraseGrammarSettings {
+  enabled: boolean;
+}
+
 export interface SongFormSettings {
   form: SongFormId;
   /**
@@ -305,6 +310,11 @@ export interface GeneratorSettings {
    * composition behaved before harmonic rhythm existed.
    */
   harmonicRhythm?: HarmonicRhythmSettings;
+  /**
+   * Phrase grammar. Omitted means the fixed four-bar phrasing every
+   * composition used before it existed.
+   */
+  phraseGrammar?: PhraseGrammarSettings;
 }
 
 export interface BarEvent {

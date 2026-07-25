@@ -5,6 +5,7 @@ export * from "./harmonicRhythm";
 export * from "./harmonyFunctions";
 export * from "./melodyGenerator";
 export * from "./motifs";
+export * from "./phrases";
 export * from "./progressionGenerator";
 export * from "./progressions";
 export * from "./random";

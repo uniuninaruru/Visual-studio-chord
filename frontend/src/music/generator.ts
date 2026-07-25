@@ -14,6 +14,7 @@ import {
 import { voiceChord } from "./chords";
 import { generateMelody } from "./melodyGenerator";
 import { generateProgression } from "./progressionGenerator";
+import { planPhrases } from "./phrases";
 import { planSections } from "./sections";
 import type { ConcreteStylePresetId } from "./styles";
 import { deriveSeed, hashSeed, seedToString } from "./random";
@@ -67,6 +68,7 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
     harmonicRhythm: settings.harmonicRhythm
       ? { ...settings.harmonicRhythm }
       : undefined,
+    phraseGrammar: settings.phraseGrammar ? { ...settings.phraseGrammar } : undefined,
   };
 }
 
@@ -126,6 +128,7 @@ function compositionFingerprint(settings: GeneratorSettings): string {
           settings.harmonicRhythm.cadentialAcceleration ?? false,
         ]
       : []),
+    ...(settings.phraseGrammar?.enabled ? ["phrase-grammar"] : []),
   ].join("|");
 }
 
@@ -198,12 +201,16 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
   const progression = sections
     ? generateSectionedChords(copiedSettings, sections, barTicks)
     : generateProgression({ ...copiedSettings, ppq: PPQ });
+  const phrases = copiedSettings.phraseGrammar?.enabled
+    ? planPhrases({ bars: copiedSettings.bars, seed: copiedSettings.seed, sections })
+    : undefined;
   const notes = generateMelody({
     settings: copiedSettings,
     chords: progression.chords,
     resolvedStyle: progression.resolvedStyle,
     cadence: progression.cadence,
     sections,
+    phrases,
     ppq: PPQ,
   });
   const durationTick = ticksPerBar(copiedSettings.timeSignature, PPQ);
@@ -470,6 +477,13 @@ export function regenerateRange(
       resolvedStyle,
       cadence,
       sections: composition.sections,
+      phrases: settings.phraseGrammar?.enabled
+        ? planPhrases({
+            bars: composition.settings.bars,
+            seed: settings.seed,
+            sections: composition.sections,
+          })
+        : undefined,
       seed: variationSeed,
       ppq: composition.ppq,
       strength,
