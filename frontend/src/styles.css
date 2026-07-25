@@ -1462,6 +1462,15 @@ select:focus-visible {
 .save-status.is-error span { color: var(--color-danger); }
 .save-status.is-saved span { color: var(--color-success); }
 
+/*
+ * Remaining-storage readout. It sits inside the save-state colour, so it is
+ * muted by default and only takes its own colour once it needs attention —
+ * otherwise it would compete with the save state next to it.
+ */
+.storage-capacity { color: var(--color-text-tertiary); }
+.storage-capacity.is-warning { color: var(--color-warning); }
+.storage-capacity.is-critical { color: var(--color-danger); font-weight: 600; }
+
 .status-diagnostics-button {
   flex: 0 0 auto;
   min-width: 92px;

@@ -33,6 +33,7 @@ import { RegenerationDock } from "./features/variations/RegenerationDock";
 import { VariationPanel } from "./features/variations/VariationPanel";
 import { sortVariationCandidates } from "./features/variations/variationRanking";
 import { usePreferenceProfile } from "./hooks/usePreferenceProfile";
+import { useStorageCapacity } from "./hooks/useStorageCapacity";
 import { validateComposition } from "./music";
 import {
   explainPreference,
@@ -162,6 +163,9 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [mobilePanel, setMobilePanel] = useState<"settings" | "inspector" | null>(null);
   const backendCanInfer = backend.state === "connected" && backend.inferenceAuthorized;
+  // Re-measured whenever a save lands, which is when the figure moves and when
+  // the user is most likely to be looking at it.
+  const storageCapacity = useStorageCapacity(store.lastSavedAt);
 
   const composition = store.draftComposition;
   const playbackComposition = store.committedComposition;
@@ -864,6 +868,7 @@ export default function App() {
         engineLabel={engineLabel}
         saveStatus={store.projectSaveStatus}
         lastSavedAt={store.lastSavedAt}
+        storageCapacity={storageCapacity}
         online={online}
         connectionLabel={backend.state === "checking"
           ? "Checking local server"
