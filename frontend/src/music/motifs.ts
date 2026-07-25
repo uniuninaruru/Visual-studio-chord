@@ -6,9 +6,11 @@ import type {
   NoteEvent,
   NoteRole,
   RegenerationStrength,
+  SectionEvent,
 } from "../types/music";
 import { createSeededRandom, deriveSeed, hashSeed, type Seed } from "./random";
-import { getScaleMidiNotes, midiToNoteName } from "./scales";
+import { getMelodyScaleMidiNotes, midiToNoteName } from "./scales";
+import { sectionForBar } from "./sections";
 import type { ConcreteStylePresetId } from "./styles";
 
 export interface MotifNote {
@@ -206,6 +208,8 @@ export interface MotifDevelopmentOptions {
   seed: Seed;
   ticksPerBar: number;
   strength?: RegenerationStrength;
+  /** Sections, so a motif follows a modulation instead of the opening key. */
+  sections?: readonly SectionEvent[];
 }
 
 /** Develops the opening one/two-bar idea across later phrases. */
@@ -225,12 +229,36 @@ export function developMelodyWithMotif(
   const strengthRate = strength === "subtle" ? 0.6 : strength === "strong" ? 1.25 : 1;
   const rate = Math.min(1, Math.max(0, motifSettings.transformationRate * strengthRate));
   const allowed = transformationsForStrength(strength);
-  const scaleNotes = getScaleMidiNotes(
-    options.settings.key,
-    options.settings.mode,
-    options.settings.melody.minMidi,
-    options.settings.melody.maxMidi,
-  );
+  // Motif notes snap to the scale of the bar they land in, not the piece's
+  // opening key: a motif carried into a modulated section must follow it.
+  const scaleCache = new Map<string, number[]>();
+  const scaleNotesForBar = (barIndex: number): number[] => {
+    const section = sectionForBar(options.sections, barIndex);
+    const key = section?.key ?? options.settings.key;
+    const mode = section?.melodyMode ?? section?.mode ?? options.settings.mode;
+    const scale = section?.melodyScale ?? "diatonic";
+    const cacheKey = `${key}|${mode}|${scale}`;
+    const cached = scaleCache.get(cacheKey);
+    if (cached) return cached;
+    const notes = getMelodyScaleMidiNotes(
+      key,
+      mode,
+      options.settings.melody.minMidi,
+      options.settings.melody.maxMidi,
+      scale,
+    );
+    const usable = notes.length > 0
+      ? notes
+      : getMelodyScaleMidiNotes(
+          key,
+          mode,
+          options.settings.melody.minMidi,
+          options.settings.melody.maxMidi,
+          "diatonic",
+        );
+    scaleCache.set(cacheKey, usable);
+    return usable;
+  };
   const result = [...baseNotes];
 
   for (let targetBar = lengthBars; targetBar < options.settings.bars; targetBar += lengthBars) {
@@ -268,7 +296,7 @@ export function developMelodyWithMotif(
         targetEnd - startTick,
       );
       if (durationTick <= 0) continue;
-      const midi = nearestScaleMidi(motifNote.midi, scaleNotes);
+      const midi = nearestScaleMidi(motifNote.midi, scaleNotesForBar(barIndex));
       const chord = activeChord(options.chords, startTick);
       const idHash = hashSeed(
         deriveSeed(options.seed, "motif-note", targetBar, transformation, noteIndex, midi),

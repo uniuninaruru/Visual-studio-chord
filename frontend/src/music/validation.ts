@@ -17,6 +17,7 @@ import {
 } from "./chords";
 import { explainSpecialChord } from "./advancedHarmony";
 import { hasCadence } from "./harmonyFunctions";
+import { sectionForBar, sectionsTileBars } from "./sections";
 import {
   getScaleMidiNotes,
   isSupportedMode,
@@ -233,6 +234,12 @@ function validateChord(
   const issues: ValidationIssue[] = [];
   const barIndex = Math.floor(chord.startTick / composition.ticksPerBar);
   const context = { eventId: chord.id, barIndex };
+  // A chord is explained by the key of the section it sits in, not the key the
+  // piece opened in — otherwise every chord of a modulated section reads as an
+  // error.
+  const section = sectionForBar(composition.sections, barIndex);
+  const key = section?.key ?? composition.settings.key;
+  const mode = section?.mode ?? composition.settings.mode;
   if (!Number.isInteger(chord.startTick) || chord.startTick < 0) {
     issues.push(error("chord.startTick", "Chord startTick must be a non-negative integer.", context));
   }
@@ -251,13 +258,13 @@ function validateChord(
   if (chord.source === "diatonic") {
     try {
       const expectedTriad = getDiatonicChordDefinition(
-        composition.settings.key,
-        composition.settings.mode,
+        key,
+        mode,
         chord.degree,
       );
       const expectedSeventh = getDiatonicSeventhChordDefinition(
-        composition.settings.key,
-        composition.settings.mode,
+        key,
+        mode,
         chord.degree,
       );
       const matchesTriad =
@@ -266,7 +273,7 @@ function validateChord(
         expectedTriad.symbol === chord.symbol &&
         chord.quality === diatonicQualityForDegree(
           chord.degree,
-          composition.settings.mode,
+          mode,
         );
       const matchesSeventh =
         expectedSeventh.root === chord.root &&
@@ -274,7 +281,7 @@ function validateChord(
         expectedSeventh.symbol === chord.symbol;
       const expectedRoman = romanNumeralForChordQuality(
         chord.degree,
-        composition.settings.mode,
+        mode,
         chord.quality,
       );
       if ((!matchesTriad && !matchesSeventh) || chord.romanNumeral !== expectedRoman) {
@@ -290,8 +297,8 @@ function validateChord(
   ) {
     const explanation = explainSpecialChord(
       chord,
-      composition.settings.key,
-      composition.settings.mode,
+      key,
+      mode,
     );
     if (explanation.allowed) {
       issues.push(
@@ -442,12 +449,50 @@ export function validateComposition(composition: GeneratedComposition): Validati
     lockSet.add(barIndex);
   }
 
+  if (composition.sections) {
+    const sections = composition.sections;
+    if (!sectionsTileBars(sections, composition.settings.bars)) {
+      issues.push(
+        error(
+          "sections.grid",
+          "Sections must tile every bar exactly once, in order, without gaps or overlaps.",
+        ),
+      );
+    }
+    for (const section of sections) {
+      if (!isSupportedMode(section.mode)) {
+        issues.push(error("sections.mode", "Section mode is unsupported.", { eventId: section.id }));
+      }
+      if (section.melodyMode !== undefined && !isSupportedMode(section.melodyMode)) {
+        issues.push(
+          error("sections.melodyMode", "Section melody mode is unsupported.", { eventId: section.id }),
+        );
+      }
+      if (!Number.isInteger(section.transpose)) {
+        issues.push(
+          error("sections.transpose", "Section transpose must be an integer.", { eventId: section.id }),
+        );
+      }
+      try {
+        normalizePitchClass(section.key);
+      } catch {
+        issues.push(error("sections.key", "Section key must be a supported pitch class.", { eventId: section.id }));
+      }
+    }
+  }
+
+  // The cadence label describes the piece's ending, so it is read in the key of
+  // whichever section that ending falls in.
+  const finalSection = sectionForBar(
+    composition.sections,
+    Math.max(0, composition.settings.bars - 1),
+  );
   if (
     sortedChords.length >= 2 &&
     !hasCadence(
       sortedChords.slice(-2).map((chord) => chord.degree),
       composition.cadence,
-      composition.settings.mode,
+      finalSection?.mode ?? composition.settings.mode,
       sortedChords.slice(-2).map((chord) => ({ degree: chord.degree, quality: chord.quality })),
     )
   ) {

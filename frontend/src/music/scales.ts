@@ -59,6 +59,67 @@ export const SUPPORTED_MODES: readonly Mode[] = [
   "mixolydian",
 ] as const;
 
+/**
+ * Which scale a melody draws its pitches from, independent of the harmony.
+ *
+ * The pentatonics are the Japanese "nuki" scales: yona-nuki drops the 4th and
+ * 7th of a major scale, niro-nuki drops the 2nd and 6th of a minor one. Both
+ * turned up as signature devices in the research, and neither can be expressed
+ * by Mode alone because Mode drives the harmony too.
+ */
+export type MelodyScale = "diatonic" | "yonaNuki" | "niroNuki";
+
+export const MELODY_SCALES: readonly MelodyScale[] = [
+  "diatonic",
+  "yonaNuki",
+  "niroNuki",
+] as const;
+
+export function isMelodyScale(value: unknown): value is MelodyScale {
+  return typeof value === "string" && MELODY_SCALES.includes(value as MelodyScale);
+}
+
+/** Scale degrees (1-based) removed by each pentatonic. */
+const OMITTED_DEGREES: Readonly<Record<MelodyScale, readonly number[]>> = {
+  diatonic: [],
+  yonaNuki: [4, 7],
+  niroNuki: [2, 6],
+};
+
+/**
+ * Semitone offsets of a melody scale within its parent mode.
+ *
+ * Dropping degrees rather than hard-coding pitch sets keeps the pentatonic
+ * anchored to whatever mode the harmony is using, so a yona-nuki melody over
+ * dorian still agrees with the chords underneath it.
+ */
+export function getMelodyScaleSemitones(
+  key: PitchClassName,
+  mode: Mode,
+  scale: MelodyScale = "diatonic",
+): number[] {
+  const omitted = new Set(OMITTED_DEGREES[scale]);
+  return getScaleSemitones(key, mode).filter(
+    (_, index) => !omitted.has(index + 1),
+  );
+}
+
+export function getMelodyScaleMidiNotes(
+  key: PitchClassName,
+  mode: Mode,
+  minMidi: number,
+  maxMidi: number,
+  scale: MelodyScale = "diatonic",
+): number[] {
+  if (scale === "diatonic") return getScaleMidiNotes(key, mode, minMidi, maxMidi);
+  const allowed = new Set(getMelodyScaleSemitones(key, mode, scale));
+  const notes: number[] = [];
+  for (let midi = Math.ceil(minMidi); midi <= Math.floor(maxMidi); midi += 1) {
+    if (midi >= 0 && midi <= 127 && allowed.has(midi % 12)) notes.push(midi);
+  }
+  return notes;
+}
+
 export function isSupportedMode(value: unknown): value is Mode {
   return typeof value === "string" && SUPPORTED_MODES.includes(value as Mode);
 }
