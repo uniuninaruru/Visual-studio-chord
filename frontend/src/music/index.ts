@@ -1,6 +1,7 @@
 export * from "./advancedHarmony";
 export * from "./chords";
 export * from "./generator";
+export * from "./harmonicRhythm";
 export * from "./harmonyFunctions";
 export * from "./melodyGenerator";
 export * from "./motifs";

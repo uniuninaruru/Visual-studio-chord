@@ -799,6 +799,32 @@ select:focus-visible {
   height: 13px;
 }
 
+/*
+ * A bar holds one chord at the default harmonic rhythm and several once it is
+ * subdivided, so the cell splits into equal columns rather than assuming one.
+ */
+.chord-content-group {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  width: 100%;
+}
+
+.chord-content-group:not(.count-1) .chord-content + .chord-content {
+  border-left: 1px dashed var(--color-border);
+}
+
+/* Subdivided cells have less room, so the symbol steps down with the count. */
+.chord-content-group.count-2 .chord-content strong { font-size: 17px; }
+.chord-content-group.count-3 .chord-content strong,
+.chord-content-group.count-4 .chord-content strong { font-size: 14px; }
+.chord-content-group:not(.count-1) .chord-content { padding-inline: 7px; }
+.chord-content-group:not(.count-1) .function-name { display: none; }
+
+/* A chord held over from the previous bar is shown parenthesised and dimmed:
+   it is context for reading the bar, not a change happening in it. */
+.chord-content.held-over { opacity: 0.5; }
+
 .chord-content {
   display: grid;
   align-content: center;
