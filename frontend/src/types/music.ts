@@ -232,6 +232,16 @@ export interface PhraseGrammarSettings {
   enabled: boolean;
 }
 
+/**
+ * Melodic skeleton. Off keeps the purely note-by-note melody.
+ *
+ * Has no effect without a phrase plan: the structural points are defined
+ * relative to a phrase's shape, so there is nothing to plan them against.
+ */
+export interface MelodicSkeletonSettings {
+  enabled: boolean;
+}
+
 export interface SongFormSettings {
   form: SongFormId;
   /**
@@ -343,6 +353,12 @@ export interface GeneratorSettings {
    * weighted by style. Omitted keeps the original note-set voicer.
    */
   voiceLeading?: VoiceLeadingSettings;
+  /**
+   * Plans each phrase's structural notes — start, climax, cadence — before the
+   * line is written. Requires a phrase plan; omitted keeps the purely
+   * note-by-note melody every composition had before it existed.
+   */
+  melodicSkeleton?: MelodicSkeletonSettings;
 }
 
 export interface BarEvent {
