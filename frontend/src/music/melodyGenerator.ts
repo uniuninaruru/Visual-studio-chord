@@ -14,6 +14,7 @@ import {
   skeletonRegisterAt,
   type MelodicSkeletonNote,
 } from "./melodicSkeleton";
+import { applyNonChordTones } from "./nonChordTones";
 import { phraseForBar, type PhrasePlanEntry } from "./phrases";
 import { sectionForBar } from "./sections";
 import { createSeededRandom, deriveSeed, hashSeed, type Seed } from "./random";
@@ -341,6 +342,21 @@ export function generateMelodyBar(
   return { notes, rhythm, finalState: state };
 }
 
+/** The scale a bar runs in, honouring a section's own key, mode and scale. */
+function scaleForBarOf(options: MelodyGeneratorOptions): (barIndex: number) => number[] {
+  return (barIndex: number) => {
+    const section = sectionForBar(options.sections, barIndex);
+    const key = section?.key ?? options.settings.key;
+    const mode = section?.melodyMode ?? section?.mode ?? options.settings.mode;
+    const scale = section?.melodyScale ?? "diatonic";
+    const { minMidi, maxMidi } = options.settings.melody;
+    const pitches = getMelodyScaleMidiNotes(key, mode, minMidi, maxMidi, scale);
+    return pitches.length > 0
+      ? pitches
+      : getMelodyScaleMidiNotes(key, mode, minMidi, maxMidi, "diatonic");
+  };
+}
+
 export function generateMelody(options: MelodyGeneratorOptions): NoteEvent[] {
   const notes: NoteEvent[] = [];
   let state: MelodyState = { previousMidi: null, previousDelta: 0 };
@@ -349,13 +365,24 @@ export function generateMelody(options: MelodyGeneratorOptions): NoteEvent[] {
     notes.push(...result.notes);
     state = result.finalState;
   }
-  return developMelodyWithMotif(notes, {
+  const seed = options.seed ?? options.settings.seed;
+  const developed = developMelodyWithMotif(notes, {
     settings: options.settings,
     chords: options.chords,
     resolvedStyle: options.resolvedStyle,
-    seed: options.seed ?? options.settings.seed,
+    seed,
     ticksPerBar: ticksPerBar(options.settings.timeSignature, options.ppq ?? PPQ),
     strength: options.strength,
     sections: options.sections,
   });
+  // Ornaments are surface detail, so they go on last — after the motif work has
+  // decided what the line actually is. Decorating first would leave the motif
+  // transposing and inverting figures whose whole meaning is where they resolve.
+  return applyNonChordTones(developed, {
+    chords: options.chords,
+    scaleForBar: scaleForBarOf(options),
+    range: [options.settings.melody.minMidi, options.settings.melody.maxMidi],
+    settings: options.settings.nonChordTones,
+    seed,
+  }).notes;
 }

@@ -81,6 +81,14 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
     melodicSkeleton: settings.melodicSkeleton
       ? { ...settings.melodicSkeleton }
       : undefined,
+    nonChordTones: settings.nonChordTones
+      ? {
+          ...settings.nonChordTones,
+          types: settings.nonChordTones.types
+            ? [...settings.nonChordTones.types]
+            : undefined,
+        }
+      : undefined,
   };
 }
 
@@ -148,6 +156,13 @@ function compositionFingerprint(settings: GeneratorSettings): string {
       ? ["functional-harmony", settings.functionalHarmony.exploration ?? 0]
       : []),
     ...(settings.melodicSkeleton?.enabled ? ["melodic-skeleton"] : []),
+    ...(settings.nonChordTones?.enabled
+      ? [
+          "non-chord-tones",
+          settings.nonChordTones.rate ?? 0.5,
+          [...(settings.nonChordTones.types ?? [])].sort().join(",") || "all",
+        ]
+      : []),
   ].join("|");
 }
 
