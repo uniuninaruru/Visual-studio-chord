@@ -16,3 +16,4 @@ export * from "./scales";
 export * from "./styles";
 export * from "./time";
 export * from "./validation";
+export * from "./voiceLeading";
