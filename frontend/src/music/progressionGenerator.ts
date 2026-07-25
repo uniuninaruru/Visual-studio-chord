@@ -2,6 +2,7 @@ import type {
   BarCount,
   CadenceType,
   ChordEvent,
+  FunctionalHarmonySettings,
   HarmonicRhythmSettings,
   HarmonySettings,
   Mode,
@@ -20,6 +21,11 @@ import {
   createCadentialDominantChordEvent,
   createStepChordEvent,
 } from "./chords";
+import {
+  assignChordsToPath,
+  planFunctionalPath,
+  type FunctionalChordCandidate,
+} from "./functionalHarmony";
 import { chordSlotsFor } from "./harmonicRhythm";
 import { getProgressionTemplate } from "./progressions";
 import { cadenceDegrees, cadenceDominantPosition } from "./harmonyFunctions";
@@ -41,6 +47,8 @@ export interface ProgressionGeneratorSettings {
   seed: Seed;
   ppq?: number;
   harmony?: HarmonySettings;
+  /** Plans the progression through harmonic functions rather than a template. */
+  functionalHarmony?: FunctionalHarmonySettings;
   /** Chord change rate. Omitted means one chord per bar. */
   harmonicRhythm?: HarmonicRhythmSettings;
   /** Named progression to use instead of the seeded style pick. */
@@ -238,6 +246,64 @@ function generateNamedProgression(
   return { chords, degrees, cadence, resolvedStyle: preset.id };
 }
 
+/**
+ * Builds a progression by searching a path through harmonic functions.
+ *
+ * Unlike the template paths, the chords here are a consequence of where the span
+ * is heading: the cadence is fixed first and the route to it is solved, so the
+ * progression has a direction rather than a sequence.
+ */
+function generateFunctionalProgression(
+  settings: ProgressionGeneratorSettings,
+  preset: StylePreset,
+  cadence: CadenceType,
+): ProgressionResult {
+  const slots = chordSlotsFor(
+    settings.barCount ?? settings.bars,
+    settings.timeSignature,
+    settings.harmonicRhythm,
+    settings.ppq,
+  );
+  const path = planFunctionalPath({
+    length: slots.length,
+    cadence,
+    exploration: settings.functionalHarmony?.exploration,
+    seed: deriveSeed(settings.seed, "functional-path", preset.id, settings.mode),
+  });
+  const candidates = assignChordsToPath(
+    path,
+    settings.mode,
+    deriveSeed(settings.seed, "functional-degrees", preset.id),
+  );
+
+  const chords: ChordEvent[] = [];
+  for (const [slotIndex, slot] of slots.entries()) {
+    const candidate = candidates[slotIndex] as FunctionalChordCandidate;
+    const idHash = hashSeed(
+      deriveSeed(settings.seed, "chord", "functional", slotIndex, candidate.step.degree),
+    ).toString(36);
+    chords.push(
+      createStepChordEvent({
+        key: settings.key,
+        mode: settings.mode,
+        step: candidate.step,
+        startTick: slot.startTick,
+        durationTick: slot.durationTick,
+        id: `chord-${slotIndex}-${idHash}`,
+        previousNotes: chords[chords.length - 1]?.notes,
+        voiceLeadingStrength: settings.harmony?.voiceLeadingStrength ?? 1,
+      }),
+    );
+  }
+
+  return {
+    chords,
+    degrees: candidates.map((candidate) => candidate.step.degree),
+    cadence,
+    resolvedStyle: preset.id,
+  };
+}
+
 export function generateProgression(
   settings: ProgressionGeneratorSettings,
 ): ProgressionResult {
@@ -255,6 +321,14 @@ export function generateProgression(
       );
     }
     return generateNamedProgression(settings, template, preset);
+  }
+
+  if (settings.functionalHarmony?.enabled) {
+    return generateFunctionalProgression(
+      settings,
+      preset,
+      chooseCadence(preset, settings.seed),
+    );
   }
   const templateRandom = createSeededRandom(
     deriveSeed(settings.seed, "progression-template", preset.id, settings.mode),
