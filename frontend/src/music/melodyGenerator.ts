@@ -6,12 +6,14 @@ import {
   type NoteEvent,
   type NoteRole,
   type RegenerationStrength,
+  type SectionEvent,
 } from "../types/music";
 import { developMelodyWithMotif } from "./motifs";
+import { sectionForBar } from "./sections";
 import { createSeededRandom, deriveSeed, hashSeed, type Seed } from "./random";
 import { generateRhythmBar, type RhythmSlot } from "./rhythmGenerator";
 import {
-  getScaleMidiNotes,
+  getMelodyScaleMidiNotes,
   midiToNoteName,
   pitchClassToSemitone,
 } from "./scales";
@@ -29,6 +31,11 @@ export interface MelodyGeneratorOptions {
    * treated as a phrase end. Defaults to 4 (clamped to the piece length).
    */
   phraseLengthBars?: number;
+  /**
+   * Song sections. Each supplies the key, mode and scale for its own bars, so
+   * the melody follows a modulation and can run in its own mode or pentatonic.
+   */
+  sections?: readonly SectionEvent[];
   seed?: Seed;
   ppq?: number;
   strength?: RegenerationStrength;
@@ -152,12 +159,33 @@ export function generateMelodyBar(
     barIndex,
     ppq,
   });
-  const candidates = getScaleMidiNotes(
-    options.settings.key,
-    options.settings.mode,
+  // A section overrides the piece's key/mode for its own bars. `melodyMode`
+  // lets the melody run in a different mode than the harmony (polytonality),
+  // and `melodyScale` narrows it to a pentatonic.
+  const section = sectionForBar(options.sections, barIndex);
+  const barKey = section?.key ?? options.settings.key;
+  const barMode = section?.melodyMode ?? section?.mode ?? options.settings.mode;
+  const barScale = section?.melodyScale ?? "diatonic";
+
+  let candidates = getMelodyScaleMidiNotes(
+    barKey,
+    barMode,
     options.settings.melody.minMidi,
     options.settings.melody.maxMidi,
+    barScale,
   );
+  if (candidates.length === 0 && barScale !== "diatonic") {
+    // A narrow range can contain no pentatonic pitch even though it holds
+    // several diatonic ones; widening to the parent scale keeps the bar
+    // playable rather than aborting the whole piece.
+    candidates = getMelodyScaleMidiNotes(
+      barKey,
+      barMode,
+      options.settings.melody.minMidi,
+      options.settings.melody.maxMidi,
+      "diatonic",
+    );
+  }
   if (candidates.length === 0) {
     throw new RangeError("Melody range does not contain a note from the selected scale.");
   }
@@ -172,12 +200,16 @@ export function generateMelodyBar(
   const totalBars = options.settings.bars;
   const phraseLengthBars = normalizePhraseLength(options.phraseLengthBars, totalBars);
   const isFinalBar = barIndex === totalBars - 1;
-  const isPhraseBoundaryBar = (barIndex + 1) % phraseLengthBars === 0 || isFinalBar;
+  // A section boundary is a phrase boundary: the line should land before the
+  // music moves to a new key or a new progression.
+  const isSectionEnd = section !== undefined && barIndex === section.endBar - 1;
+  const isPhraseBoundaryBar =
+    (barIndex + 1) % phraseLengthBars === 0 || isFinalBar || isSectionEnd;
   const resolvesToTonic =
     options.cadence === undefined ||
     options.cadence === "authentic" ||
     options.cadence === "plagal";
-  const tonicSemitone = pitchClassToSemitone(options.settings.key);
+  const tonicSemitone = pitchClassToSemitone(barKey);
 
   for (const [soundedIndex, slot] of soundedSlots.entries()) {
     const chord = activeChord(options.chords, slot.startTick);
@@ -241,5 +273,6 @@ export function generateMelody(options: MelodyGeneratorOptions): NoteEvent[] {
     seed: options.seed ?? options.settings.seed,
     ticksPerBar: ticksPerBar(options.settings.timeSignature, options.ppq ?? PPQ),
     strength: options.strength,
+    sections: options.sections,
   });
 }

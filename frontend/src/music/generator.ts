@@ -8,10 +8,14 @@ import {
   type MotifSettings,
   type NoteEvent,
   type RegenerationOptions,
+  type CadenceType,
+  type SectionEvent,
 } from "../types/music";
 import { voiceChord } from "./chords";
 import { generateMelody } from "./melodyGenerator";
 import { generateProgression } from "./progressionGenerator";
+import { planSections } from "./sections";
+import type { ConcreteStylePresetId } from "./styles";
 import { deriveSeed, hashSeed, seedToString } from "./random";
 import { midiToNoteName } from "./scales";
 import { createBars, tickToBarIndex, ticksPerBar } from "./time";
@@ -59,6 +63,7 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
     melody: { ...settings.melody },
     harmony: settings.harmony ? { ...settings.harmony } : undefined,
     motif: settings.motif ? { ...settings.motif } : undefined,
+    songForm: settings.songForm ? { ...settings.songForm } : undefined,
   };
 }
 
@@ -97,18 +102,96 @@ function compositionFingerprint(settings: GeneratorSettings): string {
     settings.motif?.enabled ?? DEFAULT_MOTIF_SETTINGS.enabled,
     settings.motif?.lengthBars ?? DEFAULT_MOTIF_SETTINGS.lengthBars,
     settings.motif?.transformationRate ?? DEFAULT_MOTIF_SETTINGS.transformationRate,
+    // Appended only when a form is requested, so ids of form-less pieces are
+    // unchanged while two pieces that differ only by form stay distinct.
+    ...(settings.songForm && settings.songForm.form !== "none"
+      ? [
+          "song-form",
+          settings.songForm.form,
+          settings.songForm.finalLift ?? 0,
+          settings.songForm.polytonal ?? false,
+          settings.songForm.melodyScale ?? "diatonic",
+        ]
+      : []),
+    ...(settings.progressionId ? ["progression", settings.progressionId] : []),
   ].join("|");
+}
+
+/**
+ * Generates each section's chords in its own key and concatenates them into the
+ * flat, tick-contiguous chord array the rest of the app expects.
+ */
+function generateSectionedChords(
+  settings: GeneratorSettings,
+  sections: readonly SectionEvent[],
+  durationTick: number,
+): { chords: ChordEvent[]; degrees: number[]; cadence: CadenceType; resolvedStyle: ConcreteStylePresetId } {
+  const chords: ChordEvent[] = [];
+  const degrees: number[] = [];
+  let cadence: CadenceType = "loop";
+  let resolvedStyle: ConcreteStylePresetId | null = null;
+
+  for (const [index, section] of sections.entries()) {
+    const barCount = section.endBar - section.startBar;
+    const result = generateProgression({
+      ...settings,
+      key: section.key,
+      mode: section.mode,
+      barCount,
+      progressionId: section.progressionId,
+      // Each section draws from its own seed stream so one section's content
+      // cannot shift when a neighbour changes length.
+      seed: deriveSeed(settings.seed, "section", index, section.kind),
+      ppq: PPQ,
+    });
+    resolvedStyle ??= result.resolvedStyle;
+    // The piece's cadence is the one it actually ends on.
+    cadence = result.cadence;
+    degrees.push(...result.degrees);
+
+    const tickOffset = section.startBar * durationTick;
+    for (const [barIndex, chord] of result.chords.entries()) {
+      chords.push({
+        ...chord,
+        id: `${section.id}-chord-${barIndex}-${chord.id.split("-").pop() ?? barIndex}`,
+        startTick: chord.startTick + tickOffset,
+      });
+    }
+  }
+  return {
+    chords,
+    degrees,
+    cadence,
+    resolvedStyle: resolvedStyle ?? "pop",
+  };
 }
 
 export function generateComposition(settings: GeneratorSettings): GeneratedComposition {
   assertValidGeneratorSettings(settings);
   const copiedSettings = copySettings(settings);
-  const progression = generateProgression({ ...copiedSettings, ppq: PPQ });
+  const barTicks = ticksPerBar(copiedSettings.timeSignature, PPQ);
+  const sections = planSections({
+    key: copiedSettings.key,
+    mode: copiedSettings.mode,
+    bars: copiedSettings.bars,
+    seed: copiedSettings.seed,
+    form: copiedSettings.songForm?.form ?? "none",
+    finalLift: copiedSettings.songForm?.finalLift,
+    polytonal: copiedSettings.songForm?.polytonal,
+    melodyScale: copiedSettings.songForm?.melodyScale,
+  });
+
+  // Without a song form this is the original single-span path, so existing
+  // seeds keep producing byte-identical output.
+  const progression = sections
+    ? generateSectionedChords(copiedSettings, sections, barTicks)
+    : generateProgression({ ...copiedSettings, ppq: PPQ });
   const notes = generateMelody({
     settings: copiedSettings,
     chords: progression.chords,
     resolvedStyle: progression.resolvedStyle,
     cadence: progression.cadence,
+    sections,
     ppq: PPQ,
   });
   const durationTick = ticksPerBar(copiedSettings.timeSignature, PPQ);
@@ -128,6 +211,7 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
     chords: progression.chords,
     notes,
     lockedBars: [],
+    ...(sections ? { sections } : {}),
   };
 }
 
@@ -329,7 +413,16 @@ export function regenerateRange(
   let resolvedStyle = composition.resolvedStyle;
 
   if (target === "all" || target === "chords") {
-    const progression = generateProgression({ ...variationSettings, ppq: composition.ppq });
+    // A sectioned piece must be regenerated section by section, or the new
+    // chords arrive in the composition's opening key and land inside a section
+    // that has modulated away from it.
+    const progression = composition.sections
+      ? generateSectionedChords(
+          variationSettings,
+          composition.sections,
+          composition.ticksPerBar,
+        )
+      : generateProgression({ ...variationSettings, ppq: composition.ppq });
     chords = replaceChordBars(
       composition.chords,
       progression.chords,
@@ -364,6 +457,7 @@ export function regenerateRange(
       chords,
       resolvedStyle,
       cadence,
+      sections: composition.sections,
       seed: variationSeed,
       ppq: composition.ppq,
       strength,

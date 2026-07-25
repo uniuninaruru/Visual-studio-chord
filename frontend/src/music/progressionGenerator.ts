@@ -42,6 +42,11 @@ export interface ProgressionGeneratorSettings {
   harmony?: HarmonySettings;
   /** Named progression to use instead of the seeded style pick. */
   progressionId?: string;
+  /**
+   * Number of bars to fill, when it differs from `bars`. Used to generate one
+   * section of a longer piece; sections are rarely 4, 8 or 16 bars.
+   */
+  barCount?: number;
 }
 
 export interface ProgressionResult {
@@ -181,7 +186,7 @@ function generateNamedProgression(
 ): ProgressionResult {
   const durationTick = ticksPerBar(settings.timeSignature, settings.ppq);
   const steps = Array.from(
-    { length: settings.bars },
+    { length: settings.barCount ?? settings.bars },
     (_, index) => template.steps[index % template.steps.length] as ProgressionStep,
   );
 
@@ -248,7 +253,7 @@ export function generateProgression(
   );
   const templates = progressionsForMode(preset, settings.mode);
   const template = templateRandom.pick(templates);
-  const degrees = expandTemplate(template, settings.bars);
+  const degrees = expandTemplate(template, settings.barCount ?? settings.bars);
   const cadence = chooseCadence(preset, settings.seed);
   const ending = cadenceDegrees(cadence, settings.mode);
   degrees[degrees.length - 2] = ending[0];
