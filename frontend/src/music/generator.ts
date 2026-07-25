@@ -69,6 +69,9 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
       ? { ...settings.harmonicRhythm }
       : undefined,
     phraseGrammar: settings.phraseGrammar ? { ...settings.phraseGrammar } : undefined,
+    functionalHarmony: settings.functionalHarmony
+      ? { ...settings.functionalHarmony }
+      : undefined,
   };
 }
 
@@ -129,6 +132,9 @@ function compositionFingerprint(settings: GeneratorSettings): string {
         ]
       : []),
     ...(settings.phraseGrammar?.enabled ? ["phrase-grammar"] : []),
+    ...(settings.functionalHarmony?.enabled
+      ? ["functional-harmony", settings.functionalHarmony.exploration ?? 0]
+      : []),
   ].join("|");
 }
 

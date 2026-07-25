@@ -209,6 +209,15 @@ export interface HarmonicRhythmSettings {
   cadentialAcceleration?: boolean;
 }
 
+/**
+ * Functional-harmony planning. Off keeps the template-driven progressions.
+ */
+export interface FunctionalHarmonySettings {
+  enabled: boolean;
+  /** 0..1. Higher wanders through more colourful functions. */
+  exploration?: number;
+}
+
 /** Phrase grammar. Off keeps the original fixed-length phrasing. */
 export interface PhraseGrammarSettings {
   enabled: boolean;
@@ -315,6 +324,11 @@ export interface GeneratorSettings {
    * composition used before it existed.
    */
   phraseGrammar?: PhraseGrammarSettings;
+  /**
+   * Plans the progression as a path through harmonic functions instead of
+   * expanding a degree template. Omitted keeps the template behaviour.
+   */
+  functionalHarmony?: FunctionalHarmonySettings;
 }
 
 export interface BarEvent {
