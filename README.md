@@ -28,6 +28,11 @@ CUDA / MPS / Core ML / DirectML は「利用可能な場合だけ」高速化に
 
 - Major / Natural Minor / Harmonic Minor / Dorian / Mixolydian
 - 7th、セカンダリードミナント、借用和音、トライトーン代理、sus / add9
+- 王道進行・小室進行・丸サ進行・カノン進行・循環コードなど、実務者の合意がある**名前付きコード進行**をID指定で選択可能（33種）
+- 9th / 11th / 13th 等のテンション、分数コード（スラッシュベース）に対応
+- Verse-Chorus / AABA / 通作形式の**曲構造（セクション）**生成 — セクションごとに固有のコード進行
+- 最終セクションの**転調**（半音・全音・短3度上などのキー変化）
+- メロディが和声と異なるモードを取る**複調**、ヨナ抜き/ニロ抜き**ペンタトニック旋律**
 - 固定シードによる再現可能なコード・メロディ生成
 - A/B/C候補をプレビューし、採用時だけ正式データへ反映
 
@@ -306,7 +311,7 @@ pnpm test:e2e:lan
 
 単体、API統合、任意GPU、ブラウザE2Eを分離し、GPUがない環境ではGPUテストを明示的にSkipします。E2E は Chromium と WebKit で、初回導線、サーバー停止、オフライン、API不一致、狭い画面、モーダルのキーボード操作、重大な自動WCAG違反を検査します。LAN E2E は実FastAPIとVite proxyを起動し、390px幅で認証、生成、再生、保護APIを検査します。NVIDIA GPU実機は GitHub Actions の `CUDA integration (self-hosted)` を Windows または Linux の CUDA ランナーで手動実行できます。
 
-対応状況は [互換性マトリクス](docs/compatibility.md)、完成判定に必要な証跡は [リリース検証チェックリスト](docs/release-checklist.md) を参照してください。
+対応状況は [互換性マトリクス](docs/compatibility.md)、完成判定に必要な証跡は [リリース検証チェックリスト](docs/release-checklist.md)、名前付きコード進行・拡張和音・ジャンル別和声の調査根拠は [docs/research/](docs/research/) を参照してください。
 
 ## 再現性と設定ファイル
 
@@ -340,7 +345,7 @@ FastAPI の OpenAPI は `/openapi.json` で確認できます。API はバージ
 ## ディレクトリ
 
 ```text
-frontend/src/music/       音楽理論・生成・検証
+frontend/src/music/       音楽理論・生成・検証（progressions.ts: 名前付き進行 / sections.ts: 曲構造・転調）
 frontend/src/audio/       再生スケジューラー
 frontend/src/state/       Draft / Committed / History
 frontend/src/storage/     project localStorage / preference IndexedDB / memory fallback
@@ -354,13 +359,15 @@ docs/                     互換性マトリクスとリリース検証チェッ
 
 ## ロードマップ
 
-- ケイデンスとフレーズ構造の音楽理論的な精度向上
+- 名前付き進行・曲構造（セクション/転調）をBasic/Advanced設定UIから選択可能にする（現状はAPI/設定オブジェクト経由）
 - A/B選択データを使ったpairwise ranking学習
 - GPUを活かしたさらに高度な学習やコード生成
 - 楽器の数を増やす
 - UI/UX面での快適性向上
 - DAW連携（Standard MIDI File Type 1、コード/メロディのトラック分離）
 - VSTプラグイン化も視野に
+
+更新履歴は [CHANGELOG.md](CHANGELOG.md) を参照してください。
 
 ## ライセンス
 
