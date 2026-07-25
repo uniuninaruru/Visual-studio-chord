@@ -14,6 +14,7 @@ import {
 import { voiceChord } from "./chords";
 import { generateMelody } from "./melodyGenerator";
 import { generateProgression } from "./progressionGenerator";
+import { planPhrases } from "./phrases";
 import { planSections } from "./sections";
 import type { ConcreteStylePresetId } from "./styles";
 import { deriveSeed, hashSeed, seedToString } from "./random";
@@ -64,6 +65,13 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
     harmony: settings.harmony ? { ...settings.harmony } : undefined,
     motif: settings.motif ? { ...settings.motif } : undefined,
     songForm: settings.songForm ? { ...settings.songForm } : undefined,
+    harmonicRhythm: settings.harmonicRhythm
+      ? { ...settings.harmonicRhythm }
+      : undefined,
+    phraseGrammar: settings.phraseGrammar ? { ...settings.phraseGrammar } : undefined,
+    functionalHarmony: settings.functionalHarmony
+      ? { ...settings.functionalHarmony }
+      : undefined,
   };
 }
 
@@ -114,6 +122,19 @@ function compositionFingerprint(settings: GeneratorSettings): string {
         ]
       : []),
     ...(settings.progressionId ? ["progression", settings.progressionId] : []),
+    // Appended only when set, so ids of one-chord-per-bar pieces are unchanged.
+    ...(settings.harmonicRhythm
+      ? [
+          "harmonic-rhythm",
+          settings.harmonicRhythm.changesPerBar ?? 1,
+          settings.harmonicRhythm.barsPerChord ?? 1,
+          settings.harmonicRhythm.cadentialAcceleration ?? false,
+        ]
+      : []),
+    ...(settings.phraseGrammar?.enabled ? ["phrase-grammar"] : []),
+    ...(settings.functionalHarmony?.enabled
+      ? ["functional-harmony", settings.functionalHarmony.exploration ?? 0]
+      : []),
   ].join("|");
 }
 
@@ -186,12 +207,16 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
   const progression = sections
     ? generateSectionedChords(copiedSettings, sections, barTicks)
     : generateProgression({ ...copiedSettings, ppq: PPQ });
+  const phrases = copiedSettings.phraseGrammar?.enabled
+    ? planPhrases({ bars: copiedSettings.bars, seed: copiedSettings.seed, sections })
+    : undefined;
   const notes = generateMelody({
     settings: copiedSettings,
     chords: progression.chords,
     resolvedStyle: progression.resolvedStyle,
     cadence: progression.cadence,
     sections,
+    phrases,
     ppq: PPQ,
   });
   const durationTick = ticksPerBar(copiedSettings.timeSignature, PPQ);
@@ -458,6 +483,13 @@ export function regenerateRange(
       resolvedStyle,
       cadence,
       sections: composition.sections,
+      phrases: settings.phraseGrammar?.enabled
+        ? planPhrases({
+            bars: composition.settings.bars,
+            seed: settings.seed,
+            sections: composition.sections,
+          })
+        : undefined,
       seed: variationSeed,
       ppq: composition.ppq,
       strength,

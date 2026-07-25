@@ -2,6 +2,8 @@ import type {
   BarCount,
   CadenceType,
   ChordEvent,
+  FunctionalHarmonySettings,
+  HarmonicRhythmSettings,
   HarmonySettings,
   Mode,
   PitchClassName,
@@ -19,6 +21,12 @@ import {
   createCadentialDominantChordEvent,
   createStepChordEvent,
 } from "./chords";
+import {
+  assignChordsToPath,
+  planFunctionalPath,
+  type FunctionalChordCandidate,
+} from "./functionalHarmony";
+import { chordSlotsFor } from "./harmonicRhythm";
 import { getProgressionTemplate } from "./progressions";
 import { cadenceDegrees, cadenceDominantPosition } from "./harmonyFunctions";
 import { createSeededRandom, deriveSeed, hashSeed, type Seed } from "./random";
@@ -29,7 +37,6 @@ import {
   type HarmonyCandidateKind,
   type StylePreset,
 } from "./styles";
-import { ticksPerBar } from "./time";
 
 export interface ProgressionGeneratorSettings {
   key: PitchClassName;
@@ -40,6 +47,10 @@ export interface ProgressionGeneratorSettings {
   seed: Seed;
   ppq?: number;
   harmony?: HarmonySettings;
+  /** Plans the progression through harmonic functions rather than a template. */
+  functionalHarmony?: FunctionalHarmonySettings;
+  /** Chord change rate. Omitted means one chord per bar. */
+  harmonicRhythm?: HarmonicRhythmSettings;
   /** Named progression to use instead of the seeded style pick. */
   progressionId?: string;
   /**
@@ -184,26 +195,31 @@ function generateNamedProgression(
   template: ProgressionTemplate,
   preset: StylePreset,
 ): ProgressionResult {
-  const durationTick = ticksPerBar(settings.timeSignature, settings.ppq);
-  const steps = Array.from(
-    { length: settings.barCount ?? settings.bars },
+  // Slots, not bars: harmonic rhythm decides how many chords each bar holds.
+  const slots = chordSlotsFor(
+    settings.barCount ?? settings.bars,
+    settings.timeSignature,
+    settings.harmonicRhythm,
+    settings.ppq,
+  );
+  const steps = slots.map(
     (_, index) => template.steps[index % template.steps.length] as ProgressionStep,
   );
 
   const chords: ChordEvent[] = [];
-  for (let barIndex = 0; barIndex < steps.length; barIndex += 1) {
-    const step = steps[barIndex] as ProgressionStep;
+  for (const [slotIndex, slot] of slots.entries()) {
+    const step = steps[slotIndex] as ProgressionStep;
     const idHash = hashSeed(
-      deriveSeed(settings.seed, "chord", template.id, barIndex, step.degree),
+      deriveSeed(settings.seed, "chord", template.id, slotIndex, step.degree),
     ).toString(36);
     chords.push(
       createStepChordEvent({
         key: settings.key,
         mode: settings.mode,
         step,
-        startTick: barIndex * durationTick,
-        durationTick,
-        id: `chord-${barIndex}-${idHash}`,
+        startTick: slot.startTick,
+        durationTick: slot.durationTick,
+        id: `chord-${slotIndex}-${idHash}`,
         previousNotes: chords[chords.length - 1]?.notes,
         voiceLeadingStrength: settings.harmony?.voiceLeadingStrength ?? 1,
       }),
@@ -230,6 +246,64 @@ function generateNamedProgression(
   return { chords, degrees, cadence, resolvedStyle: preset.id };
 }
 
+/**
+ * Builds a progression by searching a path through harmonic functions.
+ *
+ * Unlike the template paths, the chords here are a consequence of where the span
+ * is heading: the cadence is fixed first and the route to it is solved, so the
+ * progression has a direction rather than a sequence.
+ */
+function generateFunctionalProgression(
+  settings: ProgressionGeneratorSettings,
+  preset: StylePreset,
+  cadence: CadenceType,
+): ProgressionResult {
+  const slots = chordSlotsFor(
+    settings.barCount ?? settings.bars,
+    settings.timeSignature,
+    settings.harmonicRhythm,
+    settings.ppq,
+  );
+  const path = planFunctionalPath({
+    length: slots.length,
+    cadence,
+    exploration: settings.functionalHarmony?.exploration,
+    seed: deriveSeed(settings.seed, "functional-path", preset.id, settings.mode),
+  });
+  const candidates = assignChordsToPath(
+    path,
+    settings.mode,
+    deriveSeed(settings.seed, "functional-degrees", preset.id),
+  );
+
+  const chords: ChordEvent[] = [];
+  for (const [slotIndex, slot] of slots.entries()) {
+    const candidate = candidates[slotIndex] as FunctionalChordCandidate;
+    const idHash = hashSeed(
+      deriveSeed(settings.seed, "chord", "functional", slotIndex, candidate.step.degree),
+    ).toString(36);
+    chords.push(
+      createStepChordEvent({
+        key: settings.key,
+        mode: settings.mode,
+        step: candidate.step,
+        startTick: slot.startTick,
+        durationTick: slot.durationTick,
+        id: `chord-${slotIndex}-${idHash}`,
+        previousNotes: chords[chords.length - 1]?.notes,
+        voiceLeadingStrength: settings.harmony?.voiceLeadingStrength ?? 1,
+      }),
+    );
+  }
+
+  return {
+    chords,
+    degrees: candidates.map((candidate) => candidate.step.degree),
+    cadence,
+    resolvedStyle: preset.id,
+  };
+}
+
 export function generateProgression(
   settings: ProgressionGeneratorSettings,
 ): ProgressionResult {
@@ -248,12 +322,28 @@ export function generateProgression(
     }
     return generateNamedProgression(settings, template, preset);
   }
+
+  if (settings.functionalHarmony?.enabled) {
+    return generateFunctionalProgression(
+      settings,
+      preset,
+      chooseCadence(preset, settings.seed),
+    );
+  }
   const templateRandom = createSeededRandom(
     deriveSeed(settings.seed, "progression-template", preset.id, settings.mode),
   );
   const templates = progressionsForMode(preset, settings.mode);
   const template = templateRandom.pick(templates);
-  const degrees = expandTemplate(template, settings.barCount ?? settings.bars);
+  // Chords are placed into harmonic-rhythm slots, so the progression is
+  // expanded to the slot count rather than the bar count.
+  const slots = chordSlotsFor(
+    settings.barCount ?? settings.bars,
+    settings.timeSignature,
+    settings.harmonicRhythm,
+    settings.ppq,
+  );
+  const degrees = expandTemplate(template, slots.length);
   const cadence = chooseCadence(preset, settings.seed);
   const ending = cadenceDegrees(cadence, settings.mode);
   degrees[degrees.length - 2] = ending[0];
@@ -268,30 +358,29 @@ export function generateProgression(
   // tone — a major V — so a labelled authentic/half/deceptive cadence is real.
   const dominantPosition = cadenceDominantPosition(cadence);
   const raiseCadentialDominant = cadentialDominantRaisesLeadingTone(settings.mode);
-  const dominantBarIndex =
+  const dominantSlotIndex =
     !raiseCadentialDominant || dominantPosition === null
       ? null
       : dominantPosition === "penultimate"
         ? degrees.length - 2
         : degrees.length - 1;
 
-  const durationTick = ticksPerBar(settings.timeSignature, settings.ppq);
   const chords: ChordEvent[] = [];
-  for (let barIndex = 0; barIndex < degrees.length; barIndex += 1) {
-    const degree = degrees[barIndex] as number;
-    const kind = kinds[barIndex] as HarmonyCandidateKind;
+  for (const [slotIndex, slot] of slots.entries()) {
+    const degree = degrees[slotIndex] as number;
+    const kind = kinds[slotIndex] as HarmonyCandidateKind;
     const idHash = hashSeed(
-      deriveSeed(settings.seed, "chord", preset.id, barIndex, degree, kind),
+      deriveSeed(settings.seed, "chord", preset.id, slotIndex, degree, kind),
     ).toString(36);
-    const id = `chord-${barIndex}-${idHash}`;
+    const id = `chord-${slotIndex}-${idHash}`;
     const previousNotes = chords[chords.length - 1]?.notes;
     chords.push(
-      barIndex === dominantBarIndex
+      slotIndex === dominantSlotIndex
         ? createCadentialDominantChordEvent({
             key: settings.key,
             mode: settings.mode,
-            startTick: barIndex * durationTick,
-            durationTick,
+            startTick: slot.startTick,
+            durationTick: slot.durationTick,
             id,
             previousNotes,
             voiceLeadingStrength: settings.harmony?.voiceLeadingStrength ?? 1,
@@ -301,13 +390,13 @@ export function generateProgression(
             key: settings.key,
             mode: settings.mode,
             degree,
-            targetDegree: degrees[barIndex + 1],
-            startTick: barIndex * durationTick,
-            durationTick,
+            targetDegree: degrees[slotIndex + 1],
+            startTick: slot.startTick,
+            durationTick: slot.durationTick,
             id,
             previousNotes,
             voiceLeadingStrength: settings.harmony?.voiceLeadingStrength ?? 1,
-            suspension: hashSeed(deriveSeed(settings.seed, "suspension", barIndex)) % 2 === 0
+            suspension: hashSeed(deriveSeed(settings.seed, "suspension", slotIndex)) % 2 === 0
               ? 2
               : 4,
           }),
