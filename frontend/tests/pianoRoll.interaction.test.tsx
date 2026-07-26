@@ -50,6 +50,7 @@ describe("PianoRoll interactions", () => {
           onDeleteNotes={vi.fn()}
           canPaste={false}
           clipboardNoteCount={0}
+          onToggleVoiceMute={vi.fn()}
         />,
       );
     });

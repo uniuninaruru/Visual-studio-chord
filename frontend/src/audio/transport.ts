@@ -1,5 +1,9 @@
 import * as Tone from "tone";
-import type { GeneratedComposition } from "../types/music";
+import type {
+  CompositionVoice,
+  CompositionVoiceInstrument,
+  GeneratedComposition,
+} from "../types/music";
 
 export interface PlaybackLoop {
   startTick: number;
@@ -38,6 +42,7 @@ export class CompositionTransport {
   private loop: PlaybackLoop = { startTick: 0, endTick: 1 };
   private chordSynth: Tone.PolySynth | null = null;
   private melodySynth: Tone.PolySynth | null = null;
+  private readonly voiceSynths = new Map<string, Tone.PolySynth>();
   private schedulerEventId: number | null = null;
   private schedulerStepTicks = 1;
   private lastScheduledTick: number | null = null;
@@ -47,20 +52,17 @@ export class CompositionTransport {
 
   async initialize(): Promise<void> {
     await Tone.start();
-    if (this.chordSynth && this.melodySynth) {
-      return;
-    }
-
-    this.chordSynth = new Tone.PolySynth(Tone.Synth, {
+    this.chordSynth ??= new Tone.PolySynth(Tone.Synth, {
       volume: -14,
       oscillator: { type: "triangle8" },
       envelope: { attack: 0.02, decay: 0.25, sustain: 0.35, release: 0.8 },
     }).toDestination();
-    this.melodySynth = new Tone.PolySynth(Tone.Synth, {
+    this.melodySynth ??= new Tone.PolySynth(Tone.Synth, {
       volume: -9,
       oscillator: { type: "sine" },
       envelope: { attack: 0.01, decay: 0.1, sustain: 0.22, release: 0.24 },
     }).toDestination();
+    this.ensureVoiceSynths(this.composition?.voices ?? []);
   }
 
   configure(
@@ -81,6 +83,9 @@ export class CompositionTransport {
     );
 
     this.composition = composition;
+    if (this.chordSynth && this.melodySynth) {
+      this.ensureVoiceSynths(composition.voices ?? []);
+    }
     this.loop = {
       startTick: Math.max(0, loop.startTick),
       endTick: Math.min(composition.totalTicks, Math.max(loop.startTick + 1, loop.endTick)),
@@ -145,6 +150,8 @@ export class CompositionTransport {
     this.clearEvents();
     this.chordSynth?.dispose();
     this.melodySynth?.dispose();
+    for (const synth of this.voiceSynths.values()) synth.dispose();
+    this.voiceSynths.clear();
     this.chordSynth = null;
     this.melodySynth = null;
   }
@@ -245,6 +252,33 @@ export class CompositionTransport {
             Math.max(0.08, Math.min(1, note.velocity / 127)),
           );
         }
+
+        for (const voice of composition.voices ?? []) {
+          if (voice.muted) continue;
+          const synth = this.voiceSynths.get(voice.id);
+          if (!synth) continue;
+          for (const note of voice.notes) {
+            if (note.startTick < windowStart || note.startTick >= windowEnd) {
+              continue;
+            }
+            const offset = secondsForTicks(
+              note.startTick - windowStart,
+              composition.settings.bpm,
+              composition.ppq,
+            );
+            const duration = secondsForTicks(
+              Math.min(note.durationTick * 0.86, this.loop.endTick - note.startTick),
+              composition.settings.bpm,
+              composition.ppq,
+            );
+            synth.triggerAttackRelease(
+              midiToFrequency(note.midi),
+              duration,
+              time + (note.startTick === windowStart ? 0 : offset),
+              Math.max(0.06, Math.min(0.82, note.velocity / 127)),
+            );
+          }
+        }
       }
 
       if (boundary.repositionTick !== null) {
@@ -290,5 +324,43 @@ export class CompositionTransport {
   private releaseAll(time?: number): void {
     this.chordSynth?.releaseAll(time);
     this.melodySynth?.releaseAll(time);
+    for (const synth of this.voiceSynths.values()) synth.releaseAll(time);
+  }
+
+  private ensureVoiceSynths(voices: readonly CompositionVoice[]): void {
+    const activeIds = new Set(voices.map((voice) => voice.id));
+    for (const [voiceId, synth] of this.voiceSynths) {
+      if (activeIds.has(voiceId)) continue;
+      synth.releaseAll();
+      synth.dispose();
+      this.voiceSynths.delete(voiceId);
+    }
+    for (const voice of voices) {
+      if (this.voiceSynths.has(voice.id)) continue;
+      this.voiceSynths.set(voice.id, this.createVoiceSynth(voice.instrument));
+    }
+  }
+
+  private createVoiceSynth(instrument: CompositionVoiceInstrument): Tone.PolySynth {
+    switch (instrument) {
+      case "bass":
+        return new Tone.PolySynth(Tone.Synth, {
+          volume: -13,
+          oscillator: { type: "triangle" },
+          envelope: { attack: 0.01, decay: 0.16, sustain: 0.18, release: 0.18 },
+        }).toDestination();
+      case "pluck":
+        return new Tone.PolySynth(Tone.Synth, {
+          volume: -15,
+          oscillator: { type: "square8" },
+          envelope: { attack: 0.006, decay: 0.14, sustain: 0.05, release: 0.12 },
+        }).toDestination();
+      case "softLead":
+        return new Tone.PolySynth(Tone.Synth, {
+          volume: -13,
+          oscillator: { type: "sine4" },
+          envelope: { attack: 0.025, decay: 0.15, sustain: 0.2, release: 0.3 },
+        }).toDestination();
+    }
   }
 }

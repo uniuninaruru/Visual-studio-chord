@@ -521,6 +521,14 @@ export default function App() {
               onDeleteNotes={handleDeleteNote}
               canPaste={copiedNoteIds.length > 0}
               clipboardNoteCount={copiedNoteIds.length}
+              onToggleVoiceMute={(voiceId) => {
+                if (store.toggleVoiceMute(voiceId)) {
+                  const voice = store.draftComposition.voices?.find(
+                    (candidate) => candidate.id === voiceId,
+                  );
+                  setToast(`${voice?.name ?? "追加声部"}を${voice?.muted ? "ミュート" : "再生"}します。`);
+                }
+              }}
             />
             <VariationPanel
               candidates={variationCandidates}

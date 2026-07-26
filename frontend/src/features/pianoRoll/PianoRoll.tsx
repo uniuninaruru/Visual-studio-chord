@@ -24,6 +24,7 @@ interface PianoRollProps {
   onDeleteNotes: () => void;
   canPaste: boolean;
   clipboardNoteCount: number;
+  onToggleVoiceMute: (voiceId: string) => void;
 }
 
 interface NoteDrag {
@@ -54,11 +55,19 @@ export function PianoRoll({
   onDeleteNotes,
   canPaste,
   clipboardNoteCount,
+  onToggleVoiceMute,
 }: PianoRollProps) {
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const [noteDrag, setNoteDrag] = useState<NoteDrag | null>(null);
-  const minMidi = composition.settings.melody.minMidi;
-  const maxMidi = composition.settings.melody.maxMidi;
+  const additionalNotes = (composition.voices ?? []).flatMap((voice) => voice.notes);
+  const minMidi = Math.min(
+    composition.settings.melody.minMidi,
+    ...additionalNotes.map((note) => note.midi),
+  );
+  const maxMidi = Math.max(
+    composition.settings.melody.maxMidi,
+    ...additionalNotes.map((note) => note.midi),
+  );
   const pitchCount = maxMidi - minMidi + 1;
   const pitches = Array.from({ length: pitchCount }, (_, index) => maxMidi - index);
   const clampedTick = clamp(currentTick, 0, composition.totalTicks);
@@ -150,9 +159,33 @@ export function PianoRoll({
         </div>
         <div className="piano-summary">
           <Icon name="piano" />
-          <span>{composition.notes.length} notes</span>
+          <span>{composition.notes.length + additionalNotes.length} notes</span>
+          <span>{1 + (composition.voices?.length ?? 0)} voices</span>
           <span>{midiNoteName(minMidi)}–{midiNoteName(maxMidi)}</span>
         </div>
+      </div>
+
+      <div className="voice-strip" role="toolbar" aria-label="声部の表示と再生">
+        <span className="voice-chip lead-voice" aria-label="主旋律は編集できます">
+          <i />
+          主旋律
+          <small>編集可</small>
+        </span>
+        {(composition.voices ?? []).map((voice) => (
+          <button
+            key={voice.id}
+            type="button"
+            className={`voice-chip ${voice.muted ? "muted" : ""}`}
+            onClick={() => onToggleVoiceMute(voice.id)}
+            aria-pressed={!voice.muted}
+            aria-label={`${voice.name}を${voice.muted ? "再生する" : "ミュートする"}`}
+            title="クリックで再生／ミュート"
+          >
+            <i style={{ backgroundColor: voice.color }} />
+            {voice.name}
+            <small>{voice.muted ? "ミュート" : "再生中"}</small>
+          </button>
+        ))}
       </div>
 
       <div role="toolbar" aria-label="選択したノートの編集">
@@ -293,6 +326,30 @@ export function PianoRoll({
               </button>
             );
           })}
+          {(composition.voices ?? []).flatMap((voice) =>
+            voice.notes.map((note) => {
+              const top = ((maxMidi - note.midi) / pitchCount) * 100;
+              const height = Math.max(2.1, (1 / pitchCount) * 100 - 0.35);
+              return (
+                <span
+                  key={`${voice.id}:${note.id}`}
+                  className={`piano-note secondary-voice-note ${voice.muted ? "muted" : ""}`}
+                  style={{
+                    left: `${(note.startTick / composition.totalTicks) * 100}%`,
+                    width: `${Math.max(0.8, (note.durationTick / composition.totalTicks) * 100)}%`,
+                    top: `${top}%`,
+                    height: `${height}%`,
+                    borderColor: voice.color,
+                    backgroundColor: `${voice.color}99`,
+                  }}
+                  aria-label={`${voice.name}、${note.noteName}、${note.barIndex + 1}小節目`}
+                  title={`${voice.name} · ${note.noteName}`}
+                >
+                  <span>{note.noteName}</span>
+                </span>
+              );
+            }),
+          )}
           <div
             className="playhead"
             style={{ left: `${(clampedTick / composition.totalTicks) * 100}%` }}
@@ -303,7 +360,7 @@ export function PianoRoll({
         </div>
       </div>
       <p className="lane-tip" id="piano-roll-tip">
-        Shift／Commandを押しながら複数選択。空白をダブルクリックで追加、ノートをドラッグで移動できます。
+        青い主旋律を編集できます。色付きの追加声部は上のチップで再生／ミュートを切り替えられます。
       </p>
     </section>
   );
