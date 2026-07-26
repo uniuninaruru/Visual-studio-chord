@@ -17,6 +17,7 @@ export * from "./modulation";
 export * from "./motifs";
 export * from "./nonChordTones";
 export * from "./phrases";
+export * from "./polyrhythm";
 export * from "./progressionGenerator";
 export * from "./progressions";
 export * from "./reharmonization";
