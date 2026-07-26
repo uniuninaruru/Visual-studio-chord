@@ -42,6 +42,7 @@ export class CompositionTransport {
   private loop: PlaybackLoop = { startTick: 0, endTick: 1 };
   private chordSynth: Tone.PolySynth | null = null;
   private melodySynth: Tone.PolySynth | null = null;
+  private bassSynth: Tone.PolySynth | null = null;
   private readonly voiceSynths = new Map<string, Tone.PolySynth>();
   private schedulerEventId: number | null = null;
   private schedulerStepTicks = 1;
@@ -49,6 +50,19 @@ export class CompositionTransport {
   private schedulingBoundary: SchedulingBoundary | null = null;
   private status: PlaybackStatus = "stopped";
   private tickListener: TickListener | null = null;
+  private mutedTrackIds = new Set<string>();
+  private soloTrackId: string | null = null;
+
+  setTrackMix(mutedTrackIds: readonly string[], soloTrackId: string | null): void {
+    this.mutedTrackIds = new Set(mutedTrackIds);
+    this.soloTrackId = soloTrackId;
+    this.releaseAll();
+  }
+
+  private trackIsAudible(trackId: string): boolean {
+    if (this.mutedTrackIds.has(trackId)) return false;
+    return this.soloTrackId === null || this.soloTrackId === trackId;
+  }
 
   async initialize(): Promise<void> {
     await Tone.start();
@@ -63,6 +77,11 @@ export class CompositionTransport {
       envelope: { attack: 0.01, decay: 0.1, sustain: 0.22, release: 0.24 },
     }).toDestination();
     this.ensureVoiceSynths(this.composition?.voices ?? []);
+    this.bassSynth ??= new Tone.PolySynth(Tone.Synth, {
+      volume: -12,
+      oscillator: { type: "triangle" },
+      envelope: { attack: 0.012, decay: 0.2, sustain: 0.3, release: 0.55 },
+    }).toDestination();
   }
 
   configure(
@@ -150,10 +169,12 @@ export class CompositionTransport {
     this.clearEvents();
     this.chordSynth?.dispose();
     this.melodySynth?.dispose();
+    this.bassSynth?.dispose();
     for (const synth of this.voiceSynths.values()) synth.dispose();
     this.voiceSynths.clear();
     this.chordSynth = null;
     this.melodySynth = null;
+    this.bassSynth = null;
   }
 
   private scheduleLoop(): void {
@@ -199,7 +220,7 @@ export class CompositionTransport {
       }
 
       const composition = this.composition;
-      if (composition && this.chordSynth && this.melodySynth) {
+      if (composition && this.chordSynth && this.melodySynth && this.bassSynth) {
         if (this.lastScheduledTick !== null && windowStart < this.lastScheduledTick) {
           this.releaseAll(time);
         }
@@ -223,15 +244,36 @@ export class CompositionTransport {
             composition.settings.bpm,
             composition.ppq,
           );
-          this.chordSynth.triggerAttackRelease(
-            chord.notes.map(midiToFrequency),
-            duration,
-            time + (chord.startTick === windowStart ? 0 : offset),
-            0.48,
-          );
+          const pitches = [...chord.notes].sort((left, right) => left - right);
+          const eventTime = time + (chord.startTick === windowStart ? 0 : offset);
+          if (pitches.length <= 1 && this.trackIsAudible("track-chords")) {
+            this.chordSynth.triggerAttackRelease(
+              pitches.map(midiToFrequency),
+              duration,
+              eventTime,
+              0.48,
+            );
+          } else {
+            if (this.trackIsAudible("track-bass")) {
+              this.bassSynth.triggerAttackRelease(
+                midiToFrequency(pitches[0] as number),
+                duration,
+                eventTime,
+                0.5,
+              );
+            }
+            if (this.trackIsAudible("track-chords")) {
+              this.chordSynth.triggerAttackRelease(
+                pitches.slice(1).map(midiToFrequency),
+                duration,
+                eventTime,
+                0.43,
+              );
+            }
+          }
         }
 
-        for (const note of composition.notes) {
+        if (this.trackIsAudible("track-melody")) for (const note of composition.notes) {
           if (note.startTick < windowStart || note.startTick >= windowEnd) {
             continue;
           }
@@ -254,7 +296,7 @@ export class CompositionTransport {
         }
 
         for (const voice of composition.voices ?? []) {
-          if (voice.muted) continue;
+          if (voice.muted || !this.trackIsAudible(`track-${voice.id}`)) continue;
           const synth = this.voiceSynths.get(voice.id);
           if (!synth) continue;
           for (const note of voice.notes) {
@@ -324,6 +366,7 @@ export class CompositionTransport {
   private releaseAll(time?: number): void {
     this.chordSynth?.releaseAll(time);
     this.melodySynth?.releaseAll(time);
+    this.bassSynth?.releaseAll(time);
     for (const synth of this.voiceSynths.values()) synth.releaseAll(time);
   }
 

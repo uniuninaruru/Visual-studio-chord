@@ -157,6 +157,30 @@ describe("CompositionTransport", () => {
     ]);
   });
 
+  it("splits piano hands and applies built-in track solo/mute", async () => {
+    const snapshot = composition();
+    const chord = snapshot.chords[0]!;
+    snapshot.chords = [
+      { ...chord, startTick: 0, durationTick: 480, notes: [48, 52, 55, 60] },
+    ];
+    snapshot.notes = [{ ...snapshot.notes[0]!, startTick: 0 }];
+
+    const transport = new CompositionTransport();
+    transport.configure(snapshot, { startTick: 0, endTick: snapshot.totalTicks });
+    transport.setTrackMix([], "track-bass");
+    await transport.play();
+    audioMocks.transport.getTicksAtTime.mockReturnValue(0);
+    audioMocks.scheduler?.(1);
+
+    const chordSynth = audioMocks.synths[0];
+    const melodySynth = audioMocks.synths[1];
+    const bassSynth = audioMocks.synths[2];
+    expect(bassSynth?.triggerAttackRelease).toHaveBeenCalledTimes(1);
+    expect(bassSynth?.triggerAttackRelease.mock.calls[0]?.[0]).toBeCloseTo(130.813, 3);
+    expect(chordSynth?.triggerAttackRelease).not.toHaveBeenCalled();
+    expect(melodySynth?.triggerAttackRelease).not.toHaveBeenCalled();
+  });
+
   it("remaps a boundary commit at its scheduled time without jumping during look-ahead", async () => {
     const oldComposition = composition("4/4");
     const newComposition = composition("3/4");

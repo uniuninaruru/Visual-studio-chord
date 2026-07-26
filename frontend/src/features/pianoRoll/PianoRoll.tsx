@@ -1,10 +1,11 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type {
   CSSProperties,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
 import { Icon } from "../../components/Icon";
+import { buildCompositionTracks } from "../../music";
 import type { NoteMove } from "../../state";
 import type { BarRange, GeneratedComposition, NoteEvent } from "../../types/music";
 import { midiNoteName } from "../../utils/musicFormat";
@@ -24,6 +25,10 @@ interface PianoRollProps {
   onDeleteNotes: () => void;
   canPaste: boolean;
   clipboardNoteCount: number;
+  mutedTrackIds?: readonly string[];
+  soloTrackId?: string | null;
+  onToggleTrackMute?: (trackId: string) => void;
+  onSoloTrack?: (trackId: string | null) => void;
   onToggleVoiceMute: (voiceId: string) => void;
 }
 
@@ -55,11 +60,27 @@ export function PianoRoll({
   onDeleteNotes,
   canPaste,
   clipboardNoteCount,
+  mutedTrackIds = [],
+  soloTrackId = null,
+  onToggleTrackMute = () => undefined,
+  onSoloTrack = () => undefined,
   onToggleVoiceMute,
 }: PianoRollProps) {
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const [noteDrag, setNoteDrag] = useState<NoteDrag | null>(null);
-  const additionalNotes = (composition.voices ?? []).flatMap((voice) => voice.notes);
+  const [selectedTrackId, setSelectedTrackId] = useState("all");
+  const [hiddenTrackIds, setHiddenTrackIds] = useState<Set<string>>(() => new Set());
+  const tracks = useMemo(() => buildCompositionTracks(composition), [composition]);
+  const visibleTracks = tracks.filter(
+    (track) =>
+      !hiddenTrackIds.has(track.id)
+      && (selectedTrackId === "all" || selectedTrackId === track.id),
+  );
+  const melodyVisible = visibleTracks.some((track) => track.id === "track-melody");
+  const secondaryTracks = visibleTracks.filter((track) => track.id !== "track-melody");
+  const additionalNotes = tracks
+    .filter((track) => track.id !== "track-melody")
+    .flatMap((track) => track.notes);
   const minMidi = Math.min(
     composition.settings.melody.minMidi,
     ...additionalNotes.map((note) => note.midi),
@@ -73,8 +94,23 @@ export function PianoRoll({
   const clampedTick = clamp(currentTick, 0, composition.totalTicks);
   const selectedIds = new Set(selectedNoteIds);
   const selectedCount = selectedNoteIds.length;
-  const editSelectionDisabled = selectedCount === 0;
+  const melodyEditingAvailable =
+    selectedTrackId === "all" || selectedTrackId === "track-melody";
+  const melodyMuted =
+    mutedTrackIds.includes("track-melody")
+    || (soloTrackId !== null && soloTrackId !== "track-melody");
+  const editSelectionDisabled = selectedCount === 0 || !melodyEditingAvailable;
   const gridTick = Math.max(1, Math.round(composition.ppq / 4));
+  const pianoContentHeight = pitchCount > 48 ? pitchCount * 10 : 366;
+
+  const toggleTrackVisibility = (trackId: string) => {
+    setHiddenTrackIds((current) => {
+      const next = new Set(current);
+      if (next.has(trackId)) next.delete(trackId);
+      else next.add(trackId);
+      return next;
+    });
+  };
 
   const dragMove = (drag: NoteDrag, clientX: number, clientY: number): NoteMove => {
     const canvas = canvasRef.current;
@@ -92,6 +128,7 @@ export function PianoRoll({
   };
 
   const handleCanvasDoubleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!melodyEditingAvailable) return;
     if (event.target instanceof Element && event.target.closest("[data-note-id]")) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     if (bounds.width <= 0 || bounds.height <= 0) return;
@@ -159,33 +196,84 @@ export function PianoRoll({
         </div>
         <div className="piano-summary">
           <Icon name="piano" />
-          <span>{composition.notes.length + additionalNotes.length} notes</span>
-          <span>{1 + (composition.voices?.length ?? 0)} voices</span>
+          <span>{tracks.reduce((sum, track) => sum + track.notes.length, 0)} notes</span>
+          <span>{tracks.length} tracks</span>
           <span>{midiNoteName(minMidi)}–{midiNoteName(maxMidi)}</span>
         </div>
       </div>
 
-      <div className="voice-strip" role="toolbar" aria-label="声部の表示と再生">
-        <span className="voice-chip lead-voice" aria-label="主旋律は編集できます">
-          <i />
-          主旋律
-          <small>編集可</small>
-        </span>
-        {(composition.voices ?? []).map((voice) => (
-          <button
-            key={voice.id}
-            type="button"
-            className={`voice-chip ${voice.muted ? "muted" : ""}`}
-            onClick={() => onToggleVoiceMute(voice.id)}
-            aria-pressed={!voice.muted}
-            aria-label={`${voice.name}を${voice.muted ? "再生する" : "ミュートする"}`}
-            title="クリックで再生／ミュート"
-          >
-            <i style={{ backgroundColor: voice.color }} />
-            {voice.name}
-            <small>{voice.muted ? "ミュート" : "再生中"}</small>
-          </button>
-        ))}
+      <div className="track-console" aria-label="トラック管理">
+        <button
+          type="button"
+          className={`track-all-button ${selectedTrackId === "all" ? "active" : ""}`}
+          onClick={() => setSelectedTrackId("all")}
+          aria-pressed={selectedTrackId === "all"}
+        >
+          ALL
+          <small>全トラックを重ねて確認</small>
+        </button>
+        <div className="track-list">
+          {tracks.map((track) => {
+            const hidden = hiddenTrackIds.has(track.id);
+            const muted = track.muted || mutedTrackIds.includes(track.id);
+            const soloed = soloTrackId === track.id;
+            return (
+              <div
+                key={track.id}
+                className={`track-row ${selectedTrackId === track.id ? "selected" : ""} ${hidden ? "hidden" : ""} ${muted ? "muted" : ""}`}
+              >
+                <button
+                  type="button"
+                  className="track-select"
+                  onClick={() => setSelectedTrackId(track.id)}
+                  aria-pressed={selectedTrackId === track.id}
+                >
+                  <i style={{ backgroundColor: track.color }} />
+                  <span>
+                    <strong>{track.name}</strong>
+                    <small>
+                      {track.hand === "left" ? "左手" : track.hand === "right" ? "右手" : "独立声部"}
+                      {" · "}{track.notes.length} notes
+                    </small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="track-control"
+                  onClick={() => toggleTrackVisibility(track.id)}
+                  aria-pressed={!hidden}
+                  aria-label={`${track.name}を${hidden ? "表示" : "非表示"}にする`}
+                  title="ピアノロール表示"
+                >
+                  {hidden ? "−" : "V"}
+                </button>
+                <button
+                  type="button"
+                  className={`track-control ${muted ? "active" : ""}`}
+                  onClick={() => {
+                    if (track.sourceVoiceId) onToggleVoiceMute(track.sourceVoiceId);
+                    else onToggleTrackMute(track.id);
+                  }}
+                  aria-pressed={muted}
+                  aria-label={`${track.name}を${muted ? "再生" : "ミュート"}する`}
+                  title="再生ミュート"
+                >
+                  M
+                </button>
+                <button
+                  type="button"
+                  className={`track-control solo ${soloed ? "active" : ""}`}
+                  onClick={() => onSoloTrack(soloed ? null : track.id)}
+                  aria-pressed={soloed}
+                  aria-label={`${track.name}のソロを${soloed ? "解除" : "有効化"}する`}
+                  title="ソロ再生"
+                >
+                  S
+                </button>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       <div role="toolbar" aria-label="選択したノートの編集">
@@ -202,7 +290,7 @@ export function PianoRoll({
           type="button"
           className="text-button"
           onClick={onPasteNotes}
-          disabled={!canPaste}
+          disabled={!canPaste || !melodyEditingAvailable}
           aria-label={`${clipboardNoteCount}個のノートを貼り付け`}
         >
           貼り付け{clipboardNoteCount > 0 ? ` (${clipboardNoteCount})` : ""}
@@ -233,7 +321,11 @@ export function PianoRoll({
         </button>
       </div>
 
-      <div className="piano-shell" data-testid="piano-roll">
+      <div
+        className="piano-shell"
+        data-testid="piano-roll"
+        style={{ "--piano-content-height": `${pianoContentHeight}px` } as CSSProperties}
+      >
         <div className="piano-labels" aria-hidden="true">
           {pitches.map((pitch) => (
             <div
@@ -281,7 +373,7 @@ export function PianoRoll({
               aria-hidden="true"
             />
           )}
-          {composition.notes.map((note) => {
+          {melodyVisible && composition.notes.map((note) => {
             const draggingThisNote = noteDrag?.note.id === note.id;
             const displayMidi = clamp(
               note.midi + (draggingThisNote ? noteDrag.semitones : 0),
@@ -301,7 +393,7 @@ export function PianoRoll({
                 key={note.id}
                 type="button"
                 data-note-id={note.id}
-                className={`piano-note ${note.role} ${selected ? "selected" : ""}`}
+                className={`piano-note ${note.role} ${selected ? "selected" : ""} ${melodyMuted ? "muted" : ""}`}
                 style={{
                   left: `${(displayStartTick / composition.totalTicks) * 100}%`,
                   width: `${Math.max(0.8, (note.durationTick / composition.totalTicks) * 100)}%`,
@@ -326,24 +418,28 @@ export function PianoRoll({
               </button>
             );
           })}
-          {(composition.voices ?? []).flatMap((voice) =>
-            voice.notes.map((note) => {
+          {secondaryTracks.flatMap((track) =>
+            track.notes.map((note) => {
               const top = ((maxMidi - note.midi) / pitchCount) * 100;
               const height = Math.max(2.1, (1 / pitchCount) * 100 - 0.35);
+              const trackMuted =
+                track.muted
+                || mutedTrackIds.includes(track.id)
+                || (soloTrackId !== null && soloTrackId !== track.id);
               return (
                 <span
-                  key={`${voice.id}:${note.id}`}
-                  className={`piano-note secondary-voice-note ${voice.muted ? "muted" : ""}`}
+                  key={`${track.id}:${note.id}`}
+                  className={`piano-note secondary-voice-note ${trackMuted ? "muted" : ""}`}
                   style={{
                     left: `${(note.startTick / composition.totalTicks) * 100}%`,
                     width: `${Math.max(0.8, (note.durationTick / composition.totalTicks) * 100)}%`,
                     top: `${top}%`,
                     height: `${height}%`,
-                    borderColor: voice.color,
-                    backgroundColor: `${voice.color}99`,
+                    borderColor: track.color,
+                    backgroundColor: `${track.color}99`,
                   }}
-                  aria-label={`${voice.name}、${note.noteName}、${note.barIndex + 1}小節目`}
-                  title={`${voice.name} · ${note.noteName}`}
+                  aria-label={`${track.name}、${note.noteName}、${note.barIndex + 1}小節目`}
+                  title={`${track.name} · ${note.noteName}`}
                 >
                   <span>{note.noteName}</span>
                 </span>
@@ -360,7 +456,7 @@ export function PianoRoll({
         </div>
       </div>
       <p className="lane-tip" id="piano-roll-tip">
-        青い主旋律を編集できます。色付きの追加声部は上のチップで再生／ミュートを切り替えられます。
+        トラック名を押すと単独表示、ALLで全体の重なりを確認できます。Melodyだけ直接編集できます。
       </p>
     </section>
   );
