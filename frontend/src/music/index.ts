@@ -1,4 +1,5 @@
 export * from "./advancedHarmony";
+export * from "./chordScales";
 export * from "./chords";
 export * from "./generator";
 export * from "./functionalHarmony";
