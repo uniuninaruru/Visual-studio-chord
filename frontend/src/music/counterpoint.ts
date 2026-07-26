@@ -22,8 +22,15 @@ import { ticksPerBar } from "./time";
  * a change of a different kind from writing the notes.
  */
 
-/** Intervals that count as consonant, in semitones from the bass of the pair. */
-const CONSONANT = new Set([0, 3, 4, 7, 8, 9, 12]);
+/**
+ * Harmonic consonances in two parts, reduced to an interval class.
+ *
+ * A fourth is intentionally absent: above an independent bass it is treated as
+ * a dissonance. Because this generator is first species (one counter-note
+ * against one melody note), there is no weak-beat slot in which a dissonance
+ * could be prepared and resolved. It must therefore be consonant throughout.
+ */
+const CONSONANT = new Set([0, 3, 4, 7, 8, 9]);
 /** The perfect intervals, which two voices may not move into in parallel. */
 const PERFECT = new Set([0, 7]);
 
@@ -107,20 +114,48 @@ export function generateCountermelody(
     // line the ear is following, which is the one thing a second voice must not
     // do to the first.
     const onSide = inRange.filter((midi) => (below ? midi < note.midi : midi > note.midi));
-    // Where the range does not reach past the melody there is no such pitch, and
-    // the nearest one is used instead. Dropping the note would be worse: the two
-    // lines are paired by position, so a gap in one silently misaligns every
-    // comparison after it, and the crossing is reported honestly either way.
-    const candidates = onSide.length > 0
-      ? onSide
-      : [below ? (inRange[0] as number) : (inRange[inRange.length - 1] as number)];
+    // Where the range does not reach past the melody there is no valid pitch.
+    // Silence is safer than inventing a crossing or an unprepared dissonance;
+    // diagnostics pair voices by onset, so a rest cannot misalign later notes.
+    const consonant = onSide.filter((midi) => {
+      const lower = below ? midi : note.midi;
+      const upper = below ? note.midi : midi;
+      return CONSONANT.has((upper - lower) % 12);
+    });
+    if (consonant.length === 0) continue;
+
+    // Interior unisons make the voices merge perceptually. Keep them only as a
+    // last consonant fallback; thirds and sixths remain the normal material.
+    const withoutUnison =
+      index > 0 && index < options.melody.length - 1
+        ? consonant.filter((midi) => Math.abs(midi - note.midi) % 12 !== 0)
+        : consonant;
+    let candidates = withoutUnison.length > 0 ? withoutUnison : consonant;
+
+    if (previousOwn !== null && previousMelody !== null) {
+      const priorOwn = previousOwn;
+      const priorMelody = previousMelody;
+      const withoutParallelPerfect = candidates.filter((midi) => {
+        const lower = below ? midi : note.midi;
+        const upper = below ? note.midi : midi;
+        const interval = (upper - lower) % 12;
+        const motion = motionBetween(
+          below ? priorOwn : priorMelody,
+          below ? priorMelody : priorOwn,
+          lower,
+          upper,
+        );
+        return !(motion === "parallel" && PERFECT.has(interval));
+      });
+      if (withoutParallelPerfect.length > 0) candidates = withoutParallelPerfect;
+    }
 
     const random = createSeededRandom(deriveSeed(options.seed, "counter", index));
     const weights = candidates.map((midi) => {
       const lower = below ? midi : note.midi;
       const upper = below ? note.midi : midi;
       const interval = (upper - lower) % 12;
-      let weight = CONSONANT.has(interval) ? 4 : 0.35;
+      let weight = 4;
       // Thirds and sixths are the intervals a second voice lives on: consonant
       // without being so stable that the two lines stop sounding separate.
       if (interval === 3 || interval === 4 || interval === 8 || interval === 9) weight *= 2;
@@ -140,7 +175,6 @@ export function generateCountermelody(
         if (motion === "similar") weight *= 1 - 0.3 * independence;
         // Moving in parallel into a perfect interval fuses the voices; that is
         // the prohibition counterpoint has always had, and the reason for it.
-        if (motion === "parallel" && PERFECT.has(interval)) weight *= 0.02;
         if (motion === "parallel") weight *= 0.3;
 
         const step = Math.abs(midi - previousOwn);
@@ -185,19 +219,23 @@ export interface CounterpointIssue {
 /**
  * Faults in a pair of lines.
  *
- * Reported rather than thrown: a countermelody with one similar-motion fifth in
- * it is not invalid, it is worse than one without, and the caller is better
- * placed to decide which matters.
+ * Lines are paired by onset rather than array index. This matters when an
+ * impossible range forces the generator to leave a rest: the next sounding
+ * pair must not be compared with notes from different moments.
  */
 export function findCounterpointIssues(
   lower: readonly NoteEvent[],
   upper: readonly NoteEvent[],
 ): CounterpointIssue[] {
   const issues: CounterpointIssue[] = [];
-  const length = Math.min(lower.length, upper.length);
-  for (let index = 0; index < length; index += 1) {
-    const bass = lower[index] as NoteEvent;
-    const top = upper[index] as NoteEvent;
+  const upperAtTick = new Map<number, NoteEvent>();
+  for (const note of upper) upperAtTick.set(note.startTick, note);
+  const pairs = lower.flatMap((bass) => {
+    const top = upperAtTick.get(bass.startTick);
+    return top ? [{ bass, top }] : [];
+  });
+  for (let index = 0; index < pairs.length; index += 1) {
+    const { bass, top } = pairs[index] as { bass: NoteEvent; top: NoteEvent };
     const interval = top.midi - bass.midi;
     if (interval < 0) {
       issues.push({ type: "voiceCrossing", index, interval });
@@ -207,8 +245,8 @@ export function findCounterpointIssues(
       issues.push({ type: "dissonance", index, interval });
     }
     if (index === 0) continue;
-    const previousBass = lower[index - 1] as NoteEvent;
-    const previousTop = upper[index - 1] as NoteEvent;
+    const previousBass = pairs[index - 1]!.bass;
+    const previousTop = pairs[index - 1]!.top;
     const motion = motionBetween(previousBass.midi, previousTop.midi, bass.midi, top.midi);
     if (motion !== "parallel") continue;
     if (interval % 12 === 7) issues.push({ type: "parallelFifth", index, interval });
@@ -262,18 +300,31 @@ export function generateCanon(options: CanonOptions): NoteEvent[] {
   const [low, high] = options.range;
 
   const first = options.melody[0] as NoteEvent;
+  const rawPitches = options.melody.map((note) => {
+    const base = settings.inverted ? 2 * first.midi - note.midi : note.midi;
+    return base + interval;
+  });
+  const rawLow = Math.min(...rawPitches);
+  const rawHigh = Math.max(...rawPitches);
+  const octaveShifts = Array.from({ length: 21 }, (_, index) => (index - 10) * 12);
+  const fittingShifts = octaveShifts.filter(
+    (shift) => rawLow + shift >= low && rawHigh + shift <= high,
+  );
+  // Move the complete imitation by one common octave amount. Folding each note
+  // independently keeps it in range but changes the contour at every boundary,
+  // so an inversion stops being an inversion. If the configured range is
+  // narrower than the line, centre it and leave only the genuinely out-of-range
+  // notes silent.
+  const octaveShift =
+    fittingShifts.sort((left, right) => Math.abs(left) - Math.abs(right))[0]
+    ?? Math.round(((low + high - rawLow - rawHigh) / 2) / 12) * 12;
   const result: NoteEvent[] = [];
-  for (const note of options.melody) {
+  for (const [index, note] of options.melody.entries()) {
     const startTick = note.startTick + delay;
     if (startTick >= totalTicks) continue;
     // An inversion mirrors each note around the line's first pitch, so the
     // imitation moves down wherever the melody moved up.
-    const base = settings.inverted ? 2 * first.midi - note.midi : note.midi;
-    let midi = base + interval;
-    // Octave-shift into range rather than clamping: clamping would flatten the
-    // contour, and the contour is the only thing a canon has.
-    while (midi < low) midi += 12;
-    while (midi > high) midi -= 12;
+    const midi = (rawPitches[index] as number) + octaveShift;
     if (midi < low || midi > high) continue;
 
     const durationTick = Math.min(note.durationTick, totalTicks - startTick);

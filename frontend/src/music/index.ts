@@ -14,6 +14,7 @@ export * from "./harmonicRhythm";
 export * from "./harmonyFunctions";
 export * from "./melodicSkeleton";
 export * from "./melodyGenerator";
+export * from "./melodicQuality";
 export * from "./modalInterchange";
 export * from "./modulation";
 export * from "./motifs";

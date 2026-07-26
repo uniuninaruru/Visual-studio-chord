@@ -129,9 +129,12 @@ describe("PianoRoll interactions", () => {
     const expectedDeltaTick = Math.round(
       ((60 / 960) * composition.totalTicks) / (composition.ppq / 4),
     ) * (composition.ppq / 4);
+    const pitchCount =
+      composition.settings.melody.maxMidi - composition.settings.melody.minMidi + 1;
+    const expectedSemitones = Math.round((20 * pitchCount) / 360);
     expect(onNoteMove).toHaveBeenCalledWith(
       composition.notes[0],
-      expect.objectContaining({ deltaTick: expectedDeltaTick, semitones: 1 }),
+      expect.objectContaining({ deltaTick: expectedDeltaTick, semitones: expectedSemitones }),
     );
   });
 });

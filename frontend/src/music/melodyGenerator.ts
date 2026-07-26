@@ -17,6 +17,7 @@ import {
 import { euclideanRhythmBar } from "./euclideanRhythm";
 import { applyGroove } from "./groove";
 import { applyNonChordTones } from "./nonChordTones";
+import { repairUnpreparedMelodyDissonance } from "./melodicQuality";
 import { phraseForBar, type PhrasePlanEntry } from "./phrases";
 import { sectionForBar } from "./sections";
 import { createSeededRandom, deriveSeed, hashSeed, type Seed } from "./random";
@@ -72,6 +73,30 @@ function normalizePhraseLength(value: number | undefined, totalBars: number): nu
   const fallback = Math.min(4, totalBars);
   if (value === undefined || !Number.isInteger(value) || value < 1) return fallback;
   return Math.min(value, totalBars);
+}
+
+/**
+ * A gentle arch even when the advanced skeleton is off.
+ *
+ * The old local random walk could have a two- or three-octave configured range
+ * and still spend the whole song around middle C. This target moves gradually
+ * through almost half the available register, so the range becomes expressive
+ * without forcing octave jumps. The explicit skeleton remains the stronger,
+ * phrase-aware version of the same idea.
+ */
+function defaultRegisterAt(
+  barIndex: number,
+  tickWithinBar: number,
+  barDuration: number,
+  phraseLengthBars: number,
+  range: readonly [number, number],
+): number {
+  const [low, high] = range;
+  const phraseBars = Math.max(1, phraseLengthBars);
+  const progress =
+    ((barIndex % phraseBars) + tickWithinBar / Math.max(1, barDuration)) / phraseBars;
+  const arch = Math.sin(Math.PI * Math.min(1, Math.max(0, progress)));
+  return low + (high - low) * (0.32 + arch * 0.5);
 }
 
 interface MelodyState {
@@ -314,7 +339,45 @@ export function generateMelodyBar(
           ? "final"
           : "intermediate"
         : "none";
-    const weights = candidates.map((midi) =>
+    const chordPitchClasses = new Set(chord.notes.map((note) => ((note % 12) + 12) % 12));
+    const mustBeChordTone =
+      metric >= 0.68
+      || phraseEndKind !== "none"
+      || skeletonForSlot.has(soundedIndex);
+    const harmonicCandidates = mustBeChordTone
+      ? candidates.filter((midi) => chordPitchClasses.has(((midi % 12) + 12) % 12))
+      : candidates;
+    const playableCandidates = harmonicCandidates.length > 0 ? harmonicCandidates : candidates;
+
+    let motionCandidates = playableCandidates;
+    if (state.previousMidi !== null) {
+      const withinOctave = motionCandidates.filter(
+        (midi) => Math.abs(midi - state.previousMidi!) <= 12,
+      );
+      if (withinOctave.length > 0) motionCandidates = withinOctave;
+      if (Math.abs(state.previousDelta) >= 7) {
+        const recovered = motionCandidates.filter((midi) => {
+          const delta = midi - state.previousMidi!;
+          return (
+            delta !== 0
+            && Math.sign(delta) !== Math.sign(state.previousDelta)
+            && Math.abs(delta) <= 4
+          );
+        });
+        if (recovered.length > 0) motionCandidates = recovered;
+      }
+    }
+
+    const registerTarget =
+      skeletonRegisterAt(options.skeleton, slot.startTick)
+      ?? defaultRegisterAt(
+        barIndex,
+        localTick,
+        barDuration,
+        phraseLengthBars,
+        [options.settings.melody.minMidi, options.settings.melody.maxMidi],
+      );
+    const weights = motionCandidates.map((midi) =>
       pitchWeight(
         midi,
         state,
@@ -330,10 +393,10 @@ export function generateMelodyBar(
         // matches nothing here, which scales every candidate equally and leaves
         // the ordinary weighting untouched rather than distorting it.
         skeletonForSlot.get(soundedIndex) ?? null,
-        skeletonRegisterAt(options.skeleton, slot.startTick),
+        registerTarget,
       ),
     );
-    const midi = random.weightedPick(candidates, weights);
+    const midi = random.weightedPick(motionCandidates, weights);
     const idHash = hashSeed(
       deriveSeed(seed, "note", barIndex, slot.startTick, slot.durationTick, midi),
     ).toString(36);
@@ -391,7 +454,15 @@ export function generateMelody(options: MelodyGeneratorOptions): NoteEvent[] {
   // Ornaments are surface detail, so they go on last — after the motif work has
   // decided what the line actually is. Decorating first would leave the motif
   // transposing and inverting figures whose whole meaning is where they resolve.
-  const ornamented = applyNonChordTones(developed, {
+  const harmonicallySafe = repairUnpreparedMelodyDissonance(
+    developed,
+    options.chords,
+    [options.settings.melody.minMidi, options.settings.melody.maxMidi],
+    options.settings.timeSignature,
+    options.ppq ?? PPQ,
+    scaleForBarOf(options),
+  );
+  const ornamented = applyNonChordTones(harmonicallySafe, {
     chords: options.chords,
     scaleForBar: scaleForBarOf(options),
     range: [options.settings.melody.minMidi, options.settings.melody.maxMidi],

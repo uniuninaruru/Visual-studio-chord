@@ -52,8 +52,8 @@ export const DEFAULT_GENERATOR_SETTINGS: Readonly<GeneratorSettings> = Object.fr
   style: "pop",
   seed: "phase-1",
   melody: Object.freeze({
-    minMidi: 60,
-    maxMidi: 84,
+    minMidi: 55,
+    maxMidi: 88,
     density: 0.52,
     velocity: 92,
     chordToneRate: 0.68,
