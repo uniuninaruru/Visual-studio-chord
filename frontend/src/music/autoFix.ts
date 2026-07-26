@@ -1,5 +1,6 @@
 import type { GeneratedComposition, GeneratorSettings } from "../types/music";
 import { analyzeTensionCurve } from "./tensionCurve";
+import { analyzeArrangementQuality } from "./arrangementQuality";
 import { findCounterpointIssues } from "./counterpoint";
 import { generateComposition } from "./generator";
 import { validateComposition } from "./validation";
@@ -59,6 +60,30 @@ export function createAutoFixPreview(
   const settings = structuredClone(composition.settings);
   const changes: AutoFixChange[] = [];
 
+  if ((settings.harmony?.complexity ?? "triads") === "triads") {
+    settings.harmony = {
+      ...(settings.harmony ?? {
+        borrowedChordRate: 1,
+        secondaryDominantRate: 1,
+        explorationRate: 1,
+        voiceLeadingStrength: 1,
+      }),
+      complexity: "sevenths",
+    };
+    changes.push({
+      id: "chord-color",
+      label: "コードへ7thの響きを追加",
+      reason: "三和音だけの単調さを減らし、機能は変えずに響きを豊かにします。",
+    });
+  }
+  if (!settings.functionalHarmony?.enabled) {
+    settings.functionalHarmony = { enabled: true, exploration: 0.4 };
+    changes.push({
+      id: "functional-flow",
+      label: "コード進行に出発・緊張・解決を追加",
+      reason: "コードを単独抽選せず、着地点から逆算して流れを作ります。",
+    });
+  }
   if (!settings.phraseGrammar?.enabled) {
     settings.phraseGrammar = { enabled: true };
     changes.push({
@@ -163,6 +188,10 @@ export function createAutoFixPreview(
     checks.push(`対旋律チェック: 重大な問題${serious.length}件`);
   }
   checks.push(`再現シード: ${String(settings.seed)}`);
+  const arrangementQuality = analyzeArrangementQuality(preview);
+  checks.push(
+    `全トラック整合性: ${arrangementQuality.errors}エラー / ${arrangementQuality.warnings}警告`,
+  );
 
   return {
     sourceCompositionId: composition.id,

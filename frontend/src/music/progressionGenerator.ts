@@ -180,6 +180,23 @@ function chooseChordKinds(
     );
     kinds[forcedIndex] = availableSpecial[0] ?? "seventh";
   }
+
+  // Modal mixture is colour, not an accidental key change. Two chromatic
+  // chords may form one gesture, but the third returns to the native harmony.
+  // Secondary dominants are already tied to the following degree; this bound
+  // additionally stops several unrelated alterations from accumulating.
+  let chromaticRun = 0;
+  for (let index = 0; index < kinds.length; index += 1) {
+    const kind = kinds[index] as HarmonyCandidateKind;
+    const chromatic =
+      kind === "borrowed"
+      || kind === "secondaryDominant"
+      || kind === "tritoneSubstitution";
+    chromaticRun = chromatic ? chromaticRun + 1 : 0;
+    if (chromaticRun <= 2) continue;
+    kinds[index] = "seventh";
+    chromaticRun = 0;
+  }
   return kinds;
 }
 

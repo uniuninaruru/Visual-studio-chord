@@ -79,6 +79,14 @@ export function PhaseControls({ settings, onPatch }: PhaseControlsProps) {
     : (settings.harmonicRhythm?.changesPerBar ?? 1) > 1
       ? "busy"
       : "normal";
+  const harmonyColor =
+    settings.harmony?.complexity === "advanced"
+      ? (settings.harmony.explorationRate ?? 0) >= 0.65
+        ? "adventurous"
+        : "colorful"
+      : settings.harmony?.complexity === "sevenths"
+        ? "rich"
+        : "simple";
 
   return (
     <section className="phase-controls" aria-labelledby="phase-controls-title">
@@ -133,6 +141,72 @@ export function PhaseControls({ settings, onPatch }: PhaseControlsProps) {
             </select>
           </label>
           <label className="field">
+            <span>コードの彩り</span>
+            <select
+              aria-label="コードの彩り"
+              value={harmonyColor}
+              onChange={(event) => {
+                const value = event.target.value;
+                const current = settings.harmony ?? {
+                  complexity: "triads" as const,
+                  borrowedChordRate: 1,
+                  secondaryDominantRate: 1,
+                  explorationRate: 1,
+                  voiceLeadingStrength: 1,
+                };
+                onPatch({
+                  harmony: value === "simple"
+                    ? {
+                        ...current,
+                        complexity: "triads",
+                        borrowedChordRate: 0,
+                        secondaryDominantRate: 0,
+                        explorationRate: 0,
+                      }
+                    : value === "rich"
+                      ? {
+                          ...current,
+                          complexity: "sevenths",
+                          borrowedChordRate: 0,
+                          secondaryDominantRate: 0,
+                          explorationRate: 0.25,
+                        }
+                      : value === "colorful"
+                        ? {
+                            ...current,
+                            complexity: "advanced",
+                            borrowedChordRate: 0.55,
+                            secondaryDominantRate: 0.6,
+                            explorationRate: 0.5,
+                          }
+                        : {
+                            ...current,
+                            complexity: "advanced",
+                            borrowedChordRate: 0.85,
+                            secondaryDominantRate: 0.85,
+                            explorationRate: 0.8,
+                          },
+                  ...(value === "colorful" || value === "adventurous"
+                    ? {
+                        functionalHarmony: {
+                          enabled: true,
+                          exploration: value === "adventurous" ? 0.7 : 0.4,
+                        },
+                      }
+                    : {}),
+                });
+              }}
+            >
+              <option value="simple">シンプル（三和音中心）</option>
+              <option value="rich">豊か（7thを追加）</option>
+              <option value="colorful">カラフル（借用・二次ドミナント）</option>
+              <option value="adventurous">冒険的（代理・テンション多め）</option>
+            </select>
+            <span className="field-hint">
+              借用和音は1〜2個で戻し、二次ドミナントは次のコードへ解決させます。
+            </span>
+          </label>
+          <label className="field">
             <span>定番コード進行</span>
             <select
               aria-label="定番コード進行"
@@ -167,8 +241,8 @@ export function PhaseControls({ settings, onPatch }: PhaseControlsProps) {
             })}
           />
           <Toggle
-            label="コード同士をなめらかにつなぐ"
-            description="各音の移動を減らし、不自然な並行を避けます"
+            label="左手・右手のピアノボイシング"
+            description="左手はベース、右手は3声。共通音を残して滑らかにつなぎます"
             checked={settings.voiceLeading?.enabled ?? false}
             onChange={(enabled) => onPatch({
               voiceLeading: {
