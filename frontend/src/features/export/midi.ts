@@ -5,6 +5,7 @@ export interface MidiExportOptions {
   name?: string;
   includeChords?: boolean;
   includeMelody?: boolean;
+  includeAdditionalVoices?: boolean;
   chordVelocity?: number;
 }
 
@@ -30,6 +31,7 @@ export function exportCompositionMidi(
   const name = options.name?.trim() || "Visual studio chord";
   const includeChords = options.includeChords ?? true;
   const includeMelody = options.includeMelody ?? true;
+  const includeAdditionalVoices = options.includeAdditionalVoices ?? true;
   const chordVelocity = clampVelocity(options.chordVelocity ?? 0.62);
   const tickRatio = midi.header.ppq / composition.ppq;
 
@@ -68,6 +70,22 @@ export function exportCompositionMidi(
         durationTicks: Math.max(1, Math.round(note.durationTick * tickRatio)),
         velocity: midiVelocity(note.velocity),
       });
+    }
+  }
+
+  if (includeAdditionalVoices) {
+    for (const voice of composition.voices ?? []) {
+      const track = midi.addTrack();
+      track.name = voice.name;
+      track.channel = voice.midiChannel;
+      for (const note of voice.notes) {
+        track.addNote({
+          midi: note.midi,
+          ticks: Math.round(note.startTick * tickRatio),
+          durationTicks: Math.max(1, Math.round(note.durationTick * tickRatio)),
+          velocity: midiVelocity(note.velocity),
+        });
+      }
     }
   }
 
