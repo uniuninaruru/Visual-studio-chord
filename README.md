@@ -110,7 +110,7 @@ Docker という仕組みを使うと、面倒な準備なしで動かせます�
 
 | 領域 | 使用技術 |
 | --- | --- |
-| フロントエンド | React 19 / TypeScript / Vite |
+| フロントエンド | React 19 / TypeScript / Vite / Python3|
 | 状態管理 | Zustand（Draft / Committed / History） |
 | 音声 | Tone.js、`@tonejs/midi`、`@tonaljs/tonal` |
 | バックエンド | FastAPI / Uvicorn（Python 3.12.10） |
