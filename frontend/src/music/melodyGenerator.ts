@@ -14,6 +14,8 @@ import {
   skeletonRegisterAt,
   type MelodicSkeletonNote,
 } from "./melodicSkeleton";
+import { euclideanRhythmBar } from "./euclideanRhythm";
+import { applyGroove } from "./groove";
 import { applyNonChordTones } from "./nonChordTones";
 import { phraseForBar, type PhrasePlanEntry } from "./phrases";
 import { sectionForBar } from "./sections";
@@ -201,13 +203,24 @@ export function generateMelodyBar(
   const seed = options.seed ?? options.settings.seed;
   const barDuration = ticksPerBar(options.settings.timeSignature, ppq);
   const rhythmSettings = adjustedRhythmSettings(options.settings, options.resolvedStyle);
-  const rhythm = generateRhythmBar({
-    timeSignature: options.settings.timeSignature,
-    ...rhythmSettings,
-    seed,
-    barIndex,
-    ppq,
-  });
+  // A Euclidean pattern replaces the partition wholesale rather than filtering
+  // it: the point is the spacing between hits, and a rest rate applied on top
+  // would take out exactly the hits that make the pattern recognisable.
+  const euclidean = options.settings.euclideanRhythm;
+  const rhythm = euclidean?.enabled
+    ? euclideanRhythmBar({
+        timeSignature: options.settings.timeSignature,
+        settings: euclidean,
+        barIndex,
+        ppq,
+      })
+    : generateRhythmBar({
+        timeSignature: options.settings.timeSignature,
+        ...rhythmSettings,
+        seed,
+        barIndex,
+        ppq,
+      });
   // A section overrides the piece's key/mode for its own bars. `melodyMode`
   // lets the melody run in a different mode than the harmony (polytonality),
   // and `melodyScale` narrows it to a pentatonic.
@@ -378,11 +391,22 @@ export function generateMelody(options: MelodyGeneratorOptions): NoteEvent[] {
   // Ornaments are surface detail, so they go on last — after the motif work has
   // decided what the line actually is. Decorating first would leave the motif
   // transposing and inverting figures whose whole meaning is where they resolve.
-  return applyNonChordTones(developed, {
+  const ornamented = applyNonChordTones(developed, {
     chords: options.chords,
     scaleForBar: scaleForBarOf(options),
     range: [options.settings.melody.minMidi, options.settings.melody.maxMidi],
     settings: options.settings.nonChordTones,
     seed,
   }).notes;
+  // The groove goes on last of all. It is a performance of the notes rather than
+  // a choice of them, and everything upstream reasons about where notes sit on
+  // the grid — running it earlier would have the ornament pass reading positions
+  // that are deliberately no longer true.
+  return options.settings.groove
+    ? applyGroove(ornamented, {
+        timeSignature: options.settings.timeSignature,
+        settings: options.settings.groove,
+        ppq: options.ppq ?? PPQ,
+      })
+    : ornamented;
 }
