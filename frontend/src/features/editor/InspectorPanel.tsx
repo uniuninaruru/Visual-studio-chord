@@ -202,7 +202,13 @@ export function InspectorPanel({
       <section className="inspector-section export-section" id="export-panel">
         <div className="inspector-section-heading"><span>書き出し</span></div>
         <div className="export-grid">
-          <button type="button" onClick={onExportMidi}><Icon name="download" /><span><strong>MIDI</strong><small>2 tracks</small></span></button>
+          <button type="button" onClick={onExportMidi}>
+            <Icon name="download" />
+            <span>
+              <strong>MIDI</strong>
+              <small>{2 + (composition.voices?.length ?? 0)} tracks</small>
+            </span>
+          </button>
           <button type="button" onClick={onExportJson}><Icon name="download" /><span><strong>JSON</strong><small>編集データ</small></span></button>
           <button type="button" onClick={onImportJson}><Icon name="upload" /><span><strong>読込</strong><small>JSON</small></span></button>
         </div>
