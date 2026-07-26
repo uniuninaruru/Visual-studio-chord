@@ -3,6 +3,7 @@ export * from "./chordScales";
 export * from "./chromaticHarmony";
 export * from "./chords";
 export * from "./generator";
+export * from "./euclideanRhythm";
 export * from "./functionalHarmony";
 export * from "./guideToneLines";
 export * from "./harmonicRhythm";

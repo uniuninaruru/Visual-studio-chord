@@ -14,6 +14,7 @@ import {
   skeletonRegisterAt,
   type MelodicSkeletonNote,
 } from "./melodicSkeleton";
+import { euclideanRhythmBar } from "./euclideanRhythm";
 import { applyNonChordTones } from "./nonChordTones";
 import { phraseForBar, type PhrasePlanEntry } from "./phrases";
 import { sectionForBar } from "./sections";
@@ -201,13 +202,24 @@ export function generateMelodyBar(
   const seed = options.seed ?? options.settings.seed;
   const barDuration = ticksPerBar(options.settings.timeSignature, ppq);
   const rhythmSettings = adjustedRhythmSettings(options.settings, options.resolvedStyle);
-  const rhythm = generateRhythmBar({
-    timeSignature: options.settings.timeSignature,
-    ...rhythmSettings,
-    seed,
-    barIndex,
-    ppq,
-  });
+  // A Euclidean pattern replaces the partition wholesale rather than filtering
+  // it: the point is the spacing between hits, and a rest rate applied on top
+  // would take out exactly the hits that make the pattern recognisable.
+  const euclidean = options.settings.euclideanRhythm;
+  const rhythm = euclidean?.enabled
+    ? euclideanRhythmBar({
+        timeSignature: options.settings.timeSignature,
+        settings: euclidean,
+        barIndex,
+        ppq,
+      })
+    : generateRhythmBar({
+        timeSignature: options.settings.timeSignature,
+        ...rhythmSettings,
+        seed,
+        barIndex,
+        ppq,
+      });
   // A section overrides the piece's key/mode for its own bars. `melodyMode`
   // lets the melody run in a different mode than the harmony (polytonality),
   // and `melodyScale` narrows it to a pentatonic.
