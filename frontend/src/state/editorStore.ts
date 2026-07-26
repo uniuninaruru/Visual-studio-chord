@@ -137,6 +137,7 @@ export interface ComposerStoreActions {
   duplicateNotes(noteIds: string[], deltaTick?: number): string[];
   quantizeNotes(noteIds: string[], gridTick?: number): number;
   toggleBarLock(barIndex: number): void;
+  toggleVoiceMute(voiceId: string): boolean;
   setSelectedRange(range: BarRange | null): void;
   setLoopRange(range: TickRange | BarRange | null): void;
   undo(): boolean;
@@ -856,6 +857,20 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
       startBar: barIndex,
       endBar: barIndex + 1,
     }));
+  },
+
+  toggleVoiceMute: (voiceId) => {
+    const state = get();
+    const voice = state.draftComposition.voices?.find((candidate) => candidate.id === voiceId);
+    if (!voice) return false;
+    const composition = clone(state.draftComposition);
+    composition.voices = composition.voices?.map((candidate) =>
+      candidate.id === voiceId
+        ? { ...candidate, muted: !candidate.muted }
+        : candidate
+    );
+    set(stateAfterComposition(state, composition, voice.muted ? "unmute-voice" : "mute-voice", null));
+    return true;
   },
 
   setSelectedRange: (range) => {

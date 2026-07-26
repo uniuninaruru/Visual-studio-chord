@@ -881,6 +881,58 @@ select:focus-visible {
   border-left: 1px solid var(--color-border);
 }
 
+.voice-strip {
+  display: flex;
+  gap: 7px;
+  margin-bottom: 10px;
+  overflow-x: auto;
+}
+
+.voice-chip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text);
+  background: white;
+  font-size: 9px;
+  font-weight: 750;
+}
+
+button.voice-chip {
+  cursor: pointer;
+}
+
+.voice-chip i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+.voice-chip small {
+  color: var(--color-text-tertiary);
+  font-size: 8px;
+  font-weight: 650;
+}
+
+.voice-chip.muted {
+  border-style: dashed;
+  opacity: 0.58;
+}
+
+.secondary-voice-note {
+  pointer-events: none;
+}
+
+.secondary-voice-note.muted {
+  opacity: 0.22;
+}
+
 .piano-shell {
   display: grid;
   grid-template-columns: 52px minmax(740px, 1fr);
