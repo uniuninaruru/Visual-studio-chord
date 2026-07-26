@@ -114,6 +114,8 @@ export default function App() {
     backendDiagnostics,
     retryDiagnostics,
   } = useDiagnostics(backend, lastRankInfo, refreshBackend);
+  const [mutedTrackIds, setMutedTrackIds] = useState<string[]>([]);
+  const [soloTrackId, setSoloTrackId] = useState<string | null>(null);
   const {
     play: handlePlay,
     pause: handlePause,
@@ -121,6 +123,8 @@ export default function App() {
   } = usePlaybackController({
     playbackComposition: store.committedComposition,
     playbackLoopRange: store.playbackLoopRange,
+    mutedTrackIds,
+    soloTrackId,
     onAudioError: setAudioError,
     onToast: setToast,
   });
@@ -551,6 +555,22 @@ export default function App() {
               onDeleteNotes={handleDeleteNote}
               canPaste={copiedNoteIds.length > 0}
               clipboardNoteCount={copiedNoteIds.length}
+              mutedTrackIds={mutedTrackIds}
+              soloTrackId={soloTrackId}
+              onToggleTrackMute={(trackId) => {
+                setMutedTrackIds((current) =>
+                  current.includes(trackId)
+                    ? current.filter((candidate) => candidate !== trackId)
+                    : [...current, trackId],
+                );
+                setToast(
+                  `${trackId === "track-bass" ? "Bass" : trackId === "track-chords" ? "Chords" : "Melody"}のミュートを切り替えました。`,
+                );
+              }}
+              onSoloTrack={(trackId) => {
+                setSoloTrackId(trackId);
+                setToast(trackId ? "選択したトラックだけを再生します。" : "全トラック再生へ戻しました。");
+              }}
               onToggleVoiceMute={(voiceId) => {
                 if (store.toggleVoiceMute(voiceId)) {
                   const voice = store.draftComposition.voices?.find(

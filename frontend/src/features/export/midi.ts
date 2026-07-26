@@ -1,4 +1,5 @@
 import { Midi } from "@tonejs/midi";
+import { buildCompositionTracks } from "../../music/compositionTracks";
 import type { GeneratedComposition } from "../../types/music";
 
 export interface MidiExportOptions {
@@ -34,6 +35,7 @@ export function exportCompositionMidi(
   const includeAdditionalVoices = options.includeAdditionalVoices ?? true;
   const chordVelocity = clampVelocity(options.chordVelocity ?? 0.62);
   const tickRatio = midi.header.ppq / composition.ppq;
+  const tracks = buildCompositionTracks(composition);
 
   midi.header.name = name;
   midi.header.setTempo(composition.settings.bpm);
@@ -44,15 +46,15 @@ export function exportCompositionMidi(
   });
 
   if (includeChords) {
-    const chordTrack = midi.addTrack();
-    chordTrack.name = "Chords";
-    chordTrack.channel = 0;
-    for (const chord of composition.chords) {
-      for (const note of chord.notes) {
+    for (const source of tracks.slice(0, 2)) {
+      const chordTrack = midi.addTrack();
+      chordTrack.name = source.name;
+      chordTrack.channel = source.midiChannel;
+      for (const note of source.notes) {
         chordTrack.addNote({
-          midi: note,
-          ticks: Math.round(chord.startTick * tickRatio),
-          durationTicks: Math.max(1, Math.round(chord.durationTick * tickRatio)),
+          midi: note.midi,
+          ticks: Math.round(note.startTick * tickRatio),
+          durationTicks: Math.max(1, Math.round(note.durationTick * tickRatio)),
           velocity: chordVelocity,
         });
       }
@@ -62,7 +64,7 @@ export function exportCompositionMidi(
   if (includeMelody) {
     const melodyTrack = midi.addTrack();
     melodyTrack.name = "Melody";
-    melodyTrack.channel = 1;
+    melodyTrack.channel = 2;
     for (const note of composition.notes) {
       melodyTrack.addNote({
         midi: note.midi,
@@ -74,7 +76,7 @@ export function exportCompositionMidi(
   }
 
   if (includeAdditionalVoices) {
-    for (const voice of composition.voices ?? []) {
+    for (const voice of tracks.slice(3)) {
       const track = midi.addTrack();
       track.name = voice.name;
       track.channel = voice.midiChannel;

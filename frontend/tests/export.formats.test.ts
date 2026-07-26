@@ -125,18 +125,26 @@ describe("composition export", () => {
     expect(() => importCompositionJson(JSON.stringify(document))).toThrow(/incomplete or out of range/);
   });
 
-  it("exports separate, parseable chord and melody MIDI tracks", () => {
+  it("exports separate, parseable left hand, right hand and melody MIDI tracks", () => {
     const bytes = exportCompositionMidi(composition);
     const midi = new Midi(bytes);
 
     expect(midi.header.tempos[0]?.bpm).toBeCloseTo(composition.settings.bpm);
-    expect(midi.tracks.map((track) => track.name)).toEqual(["Chords", "Melody"]);
-    expect(midi.tracks[0]?.notes).toHaveLength(
-      composition.chords.reduce((total, chord) => total + chord.notes.length, 0),
+    expect(midi.tracks.map((track) => track.name)).toEqual([
+      "Bass / Left Hand",
+      "Chords / Right Hand",
+      "Melody",
+    ]);
+    expect(midi.tracks[0]?.notes).toHaveLength(composition.chords.length);
+    expect(midi.tracks[1]?.notes).toHaveLength(
+      composition.chords.reduce(
+        (total, chord) => total + Math.max(0, chord.notes.length - 1),
+        0,
+      ),
     );
-    expect(midi.tracks[1]?.notes).toHaveLength(composition.notes.length);
-    expect(midi.tracks[1]?.notes[0]?.ticks).toBe(composition.notes[0]?.startTick);
-    expect(midi.tracks[1]?.notes[0]?.velocity).toBeCloseTo(
+    expect(midi.tracks[2]?.notes).toHaveLength(composition.notes.length);
+    expect(midi.tracks[2]?.notes[0]?.ticks).toBe(composition.notes[0]?.startTick);
+    expect(midi.tracks[2]?.notes[0]?.velocity).toBeCloseTo(
       (composition.notes[0]?.velocity ?? 0) / 127,
       1,
     );
@@ -163,14 +171,15 @@ describe("composition export", () => {
 
     const midi = new Midi(exportCompositionMidi(arranged));
     expect(midi.tracks.map((track) => track.name)).toEqual([
-      "Chords",
+      "Bass / Left Hand",
+      "Chords / Right Hand",
       "Melody",
       "Countermelody",
       "Canon",
       "Pulse layer",
     ]);
     for (const [index, voice] of (arranged.voices ?? []).entries()) {
-      expect(midi.tracks[index + 2]?.notes).toHaveLength(voice.notes.length);
+      expect(midi.tracks[index + 3]?.notes).toHaveLength(voice.notes.length);
     }
   });
 });

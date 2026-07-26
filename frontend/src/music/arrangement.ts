@@ -10,6 +10,8 @@ import { polyrhythmSlots } from "./polyrhythm";
 import { deriveSeed, hashSeed } from "./random";
 import { getMelodyScaleMidiNotes, midiToNoteName } from "./scales";
 
+const TWO_PART_CONSONANCES = new Set([0, 3, 4, 7, 8, 9]);
+
 interface ArrangementOptions {
   settings: GeneratorSettings;
   melody: readonly NoteEvent[];
@@ -34,6 +36,42 @@ function pulsePitch(chord: ChordEvent | undefined): number {
   while (midi > 55) midi -= 12;
   while (midi < 36) midi += 12;
   return midi;
+}
+
+function activeNoteAt(notes: readonly NoteEvent[], tick: number): NoteEvent | undefined {
+  return notes.find(
+    (note) => tick >= note.startTick && tick < note.startTick + note.durationTick,
+  );
+}
+
+/**
+ * Strict imitation can be harmonically wrong after its delay moves it over a
+ * different chord. Keep only entries that belong to the current harmony and
+ * form a consonance with the sounding lead. A rest preserves the project;
+ * forcing the copied pitch would make the combined arrangement knowingly clash.
+ */
+function harmonicallySafeCanon(
+  notes: readonly NoteEvent[],
+  melody: readonly NoteEvent[],
+  chords: readonly ChordEvent[],
+): NoteEvent[] {
+  return notes.filter((note) => {
+    const chord = chords.find(
+      (candidate) =>
+        note.startTick >= candidate.startTick
+        && note.startTick < candidate.startTick + candidate.durationTick,
+    );
+    if (!chord) return false;
+    const pitchClass = ((note.midi % 12) + 12) % 12;
+    const chordTone = chord.notes.some(
+      (midi) => ((midi % 12) + 12) % 12 === pitchClass,
+    );
+    if (!chordTone) return false;
+    const lead = activeNoteAt(melody, note.startTick);
+    if (!lead) return true;
+    const interval = Math.abs(note.midi - lead.midi) % 12;
+    return TWO_PART_CONSONANCES.has(interval);
+  });
 }
 
 function buildPulseNotes(options: ArrangementOptions): NoteEvent[] {
@@ -139,7 +177,7 @@ export function buildArrangementVoices(
   }
 
   if (arrangement.canon?.enabled) {
-    const notes = generateCanon({
+    const generated = generateCanon({
       melody: options.melody,
       settings: arrangement.canon,
       timeSignature: options.settings.timeSignature,
@@ -147,6 +185,11 @@ export function buildArrangementVoices(
       range: [36, 96],
       ppq: options.ppq,
     });
+    const notes = harmonicallySafeCanon(
+      generated,
+      options.melody,
+      options.chords,
+    );
     if (notes.length > 0) {
       voices.push({
         id: "voice-canon",

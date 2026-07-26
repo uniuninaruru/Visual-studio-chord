@@ -206,7 +206,7 @@ export function InspectorPanel({
             <Icon name="download" />
             <span>
               <strong>MIDI</strong>
-              <small>{2 + (composition.voices?.length ?? 0)} tracks</small>
+              <small>{3 + (composition.voices?.length ?? 0)} tracks</small>
             </span>
           </button>
           <button type="button" onClick={onExportJson}><Icon name="download" /><span><strong>JSON</strong><small>編集データ</small></span></button>
