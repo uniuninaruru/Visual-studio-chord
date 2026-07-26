@@ -120,6 +120,7 @@ export interface ComposerStoreState {
 
 export interface ComposerStoreActions {
   generateComposition(settings?: GeneratorSettingsPatch): void;
+  adoptAutoFixPreview(composition: GeneratedComposition): boolean;
   regenerateSelected(options?: RegenerationOptions): boolean;
   generatePreviewVariations(
     options?: RegenerationOptions,
@@ -516,6 +517,23 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
       playbackLoopRange: update.pendingCommit ? state.playbackLoopRange : loopRange,
       regenerationIteration: 0,
     });
+  },
+
+  adoptAutoFixPreview: (composition) => {
+    const validation = validateComposition(composition);
+    if (!validation.valid) return false;
+    const state = get();
+    const next = clone(composition);
+    const update = stateAfterComposition(state, next, "auto-fix", null, true);
+    const loopRange = { startTick: 0, endTick: next.totalTicks };
+    set({
+      ...update,
+      selectedBarRange: null,
+      loopRange,
+      playbackLoopRange: update.pendingCommit ? state.playbackLoopRange : loopRange,
+      regenerationIteration: 0,
+    });
+    return true;
   },
 
   regenerateSelected: (options = {}) => {
