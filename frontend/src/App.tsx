@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChordLane } from "./features/editor/ChordLane";
+import { AutoFixPanel } from "./features/autoFix/AutoFixPanel";
 import { DiagnosticsPanel } from "./features/diagnostics";
 import { InspectorPanel } from "./features/editor/InspectorPanel";
 import { SettingsPanel } from "./features/generator/SettingsPanel";
@@ -22,7 +23,7 @@ import { usePreferenceLearning } from "./hooks/usePreferenceLearning";
 import { useProjectImportExport } from "./hooks/useProjectImportExport";
 import { usePreferenceProfile } from "./hooks/usePreferenceProfile";
 import { useStorageCapacity } from "./hooks/useStorageCapacity";
-import { validateComposition } from "./music";
+import { createAutoFixPreview, validateComposition, type AutoFixResult } from "./music";
 import {
   explainPreference,
   extractPreferenceFeatures,
@@ -128,6 +129,10 @@ export default function App() {
   const [copiedNoteIds, setCopiedNoteIds] = useState<string[]>([]);
   const [selectedChordId, setSelectedChordId] = useState<string | null>(null);
   const [historyCompareIds, setHistoryCompareIds] = useState<readonly string[]>([]);
+  const [autoFix, setAutoFix] = useState<{
+    result: AutoFixResult;
+    historyIndex: number;
+  } | null>(null);
   const [tutorialOpen, setTutorialOpen] = useState(
     () => appStorage.getItem(ONBOARDING_STORAGE_KEY) !== "complete",
   );
@@ -478,6 +483,31 @@ export default function App() {
           </div>
 
           <div className="workspace-scroll">
+            <AutoFixPanel
+              result={autoFix?.result ?? null}
+              stale={autoFix !== null && autoFix.historyIndex !== store.historyIndex}
+              onAnalyze={() => {
+                try {
+                  const result = createAutoFixPreview(composition);
+                  setAutoFix({ result, historyIndex: store.historyIndex });
+                  setToast("修正案を作りました。確認するまで曲は変更されません。");
+                } catch {
+                  setToast("Auto Fixの診断に失敗しました。現在の曲は変更されていません。");
+                }
+              }}
+              onApply={() => {
+                if (!autoFix || autoFix.historyIndex !== store.historyIndex) return;
+                if (store.adoptAutoFixPreview(autoFix.result.preview)) {
+                  setSelectedNoteIds([]);
+                  setSelectedChordId(null);
+                  setAutoFix(null);
+                  setToast("Auto Fixを適用しました。Undoで元に戻せます。");
+                } else {
+                  setToast("修正版を適用できませんでした。現在の曲は変更されていません。");
+                }
+              }}
+              onDismiss={() => setAutoFix(null)}
+            />
             <ChordLane
               composition={composition}
               selectedRange={store.selectedBarRange}

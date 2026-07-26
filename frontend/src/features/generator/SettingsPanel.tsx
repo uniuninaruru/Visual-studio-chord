@@ -11,6 +11,7 @@ import type {
   StylePresetId,
   TimeSignature,
 } from "../../types/music";
+import { PhaseControls } from "./PhaseControls";
 
 const KEY_OPTIONS: PitchClassName[] = [
   "C",
@@ -418,6 +419,10 @@ export function SettingsPanel({
           </>
         )}
       </section>
+
+      <div hidden={activeTab !== "advanced"}>
+        <PhaseControls settings={settings} onPatch={onPatch} />
+      </div>
 
       <section className="settings-section seed-section" hidden={activeTab !== "basic"}>
         <label className="field">
