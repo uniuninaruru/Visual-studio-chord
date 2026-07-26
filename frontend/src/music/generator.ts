@@ -17,6 +17,7 @@ import {
   type MelodicSkeletonNote,
 } from "./melodicSkeleton";
 import { generateMelody } from "./melodyGenerator";
+import { applyPivotModulations } from "./modulation";
 import { generateProgression } from "./progressionGenerator";
 import { planPhrases, type PhrasePlanEntry } from "./phrases";
 import { planSections } from "./sections";
@@ -80,6 +81,9 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
     voiceLeading: settings.voiceLeading ? { ...settings.voiceLeading } : undefined,
     melodicSkeleton: settings.melodicSkeleton
       ? { ...settings.melodicSkeleton }
+      : undefined,
+    pivotModulation: settings.pivotModulation
+      ? { ...settings.pivotModulation }
       : undefined,
     nonChordTones: settings.nonChordTones
       ? {
@@ -156,6 +160,7 @@ function compositionFingerprint(settings: GeneratorSettings): string {
       ? ["functional-harmony", settings.functionalHarmony.exploration ?? 0]
       : []),
     ...(settings.melodicSkeleton?.enabled ? ["melodic-skeleton"] : []),
+    ...(settings.pivotModulation?.enabled ? ["pivot-modulation"] : []),
     ...(settings.nonChordTones?.enabled
       ? [
           "non-chord-tones",
@@ -274,6 +279,19 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
   const progression = sections
     ? generateSectionedChords(copiedSettings, sections, barTicks)
     : generateProgression({ ...copiedSettings, ppq: PPQ });
+  // Before voicing, so the pivot is voiced with the rest rather than being an
+  // island the four-part writer never saw.
+  if (copiedSettings.pivotModulation?.enabled && sections) {
+    progression.chords = applyPivotModulations({
+      chords: progression.chords,
+      sections,
+      ticksPerBar: barTicks,
+      seed: copiedSettings.seed,
+      voiceLeadingStrength:
+        copiedSettings.harmony?.voiceLeadingStrength ??
+        DEFAULT_HARMONY_SETTINGS.voiceLeadingStrength,
+    }).chords;
+  }
   // Re-voiced before the melody is written, since the melody scores its
   // candidates against the sounding chord tones.
   if (copiedSettings.voiceLeading?.enabled) {

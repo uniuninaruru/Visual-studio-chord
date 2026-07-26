@@ -272,6 +272,16 @@ export interface NonChordToneSettings {
   types?: readonly NonChordToneName[];
 }
 
+/**
+ * Pivot-chord modulation. Off leaves every key change direct, as it was.
+ *
+ * Only does anything when the piece actually changes key — a song form with a
+ * final lift, or sections in different keys.
+ */
+export interface PivotModulationSettings {
+  enabled: boolean;
+}
+
 export interface SongFormSettings {
   form: SongFormId;
   /**
@@ -394,6 +404,11 @@ export interface GeneratorSettings {
    * melody exactly as every composition had it before they existed.
    */
   nonChordTones?: NonChordToneSettings;
+  /**
+   * Prepares each key change with a chord diatonic to both keys. Omitted keeps
+   * the direct key changes every composition had before it existed.
+   */
+  pivotModulation?: PivotModulationSettings;
 }
 
 export interface BarEvent {
