@@ -12,15 +12,19 @@ import {
   type SectionEvent,
 } from "../types/music";
 import { voiceChord } from "./chords";
+import {
+  planMelodicSkeleton,
+  type MelodicSkeletonNote,
+} from "./melodicSkeleton";
 import { generateMelody } from "./melodyGenerator";
 import { generateProgression } from "./progressionGenerator";
-import { planPhrases } from "./phrases";
+import { planPhrases, type PhrasePlanEntry } from "./phrases";
 import { planSections } from "./sections";
 import { revoiceInFourParts } from "./voiceLeading";
 import type { ConcreteStylePresetId } from "./styles";
 import { deriveSeed, hashSeed, seedToString } from "./random";
 import { midiToNoteName } from "./scales";
-import { createBars, tickToBarIndex, ticksPerBar } from "./time";
+import { createBars, tickToBarIndex, ticksPerBar, ticksPerBeat } from "./time";
 import { assertValidGeneratorSettings } from "./validation";
 
 export const DEFAULT_HARMONY_SETTINGS: Readonly<Required<HarmonySettings>> = Object.freeze({
@@ -74,6 +78,17 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
       ? { ...settings.functionalHarmony }
       : undefined,
     voiceLeading: settings.voiceLeading ? { ...settings.voiceLeading } : undefined,
+    melodicSkeleton: settings.melodicSkeleton
+      ? { ...settings.melodicSkeleton }
+      : undefined,
+    nonChordTones: settings.nonChordTones
+      ? {
+          ...settings.nonChordTones,
+          types: settings.nonChordTones.types
+            ? [...settings.nonChordTones.types]
+            : undefined,
+        }
+      : undefined,
   };
 }
 
@@ -140,7 +155,54 @@ function compositionFingerprint(settings: GeneratorSettings): string {
     ...(settings.functionalHarmony?.enabled
       ? ["functional-harmony", settings.functionalHarmony.exploration ?? 0]
       : []),
+    ...(settings.melodicSkeleton?.enabled ? ["melodic-skeleton"] : []),
+    ...(settings.nonChordTones?.enabled
+      ? [
+          "non-chord-tones",
+          settings.nonChordTones.rate ?? 0.5,
+          [...(settings.nonChordTones.types ?? [])].sort().join(",") || "all",
+        ]
+      : []),
   ].join("|");
+}
+
+/**
+ * The plans that give a melody its shape: where the phrases are, and which
+ * notes they are built around.
+ *
+ * Shared by generation and regeneration so a regenerated melody is shaped by
+ * the same plan as the one it replaces, rather than reverting to a plain
+ * note-by-note line.
+ */
+function planMelodyShape(
+  settings: GeneratorSettings,
+  chords: readonly ChordEvent[],
+  sections: readonly SectionEvent[] | undefined,
+  cadence: CadenceType,
+  ppq: number,
+): {
+  phrases: PhrasePlanEntry[] | undefined;
+  skeleton: MelodicSkeletonNote[] | undefined;
+} {
+  const phrases = settings.phraseGrammar?.enabled
+    ? planPhrases({ bars: settings.bars, seed: settings.seed, sections })
+    : undefined;
+  // The skeleton's points are defined relative to a phrase's shape, so without
+  // a phrase plan there is nothing to plan them against.
+  const skeleton =
+    settings.melodicSkeleton?.enabled && phrases
+      ? planMelodicSkeleton({
+          phrases,
+          chords,
+          ticksPerBar: ticksPerBar(settings.timeSignature, ppq),
+          ticksPerBeat: ticksPerBeat(settings.timeSignature, ppq),
+          range: [settings.melody.minMidi, settings.melody.maxMidi],
+          key: settings.key,
+          cadence,
+          seed: settings.seed,
+        })
+      : undefined;
+  return { phrases, skeleton };
 }
 
 /**
@@ -223,9 +285,13 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
     });
   }
 
-  const phrases = copiedSettings.phraseGrammar?.enabled
-    ? planPhrases({ bars: copiedSettings.bars, seed: copiedSettings.seed, sections })
-    : undefined;
+  const { phrases, skeleton } = planMelodyShape(
+    copiedSettings,
+    progression.chords,
+    sections,
+    progression.cadence,
+    PPQ,
+  );
   const notes = generateMelody({
     settings: copiedSettings,
     chords: progression.chords,
@@ -233,6 +299,7 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
     cadence: progression.cadence,
     sections,
     phrases,
+    skeleton,
     ppq: PPQ,
   });
   const durationTick = ticksPerBar(copiedSettings.timeSignature, PPQ);
@@ -499,13 +566,13 @@ export function regenerateRange(
       resolvedStyle,
       cadence,
       sections: composition.sections,
-      phrases: settings.phraseGrammar?.enabled
-        ? planPhrases({
-            bars: composition.settings.bars,
-            seed: settings.seed,
-            sections: composition.sections,
-          })
-        : undefined,
+      ...planMelodyShape(
+        variationSettings,
+        chords,
+        composition.sections,
+        cadence,
+        composition.ppq,
+      ),
       seed: variationSeed,
       ppq: composition.ppq,
       strength,

@@ -232,6 +232,46 @@ export interface PhraseGrammarSettings {
   enabled: boolean;
 }
 
+/**
+ * Melodic skeleton. Off keeps the purely note-by-note melody.
+ *
+ * Has no effect without a phrase plan: the structural points are defined
+ * relative to a phrase's shape, so there is nothing to plan them against.
+ */
+export interface MelodicSkeletonSettings {
+  enabled: boolean;
+}
+
+/**
+ * Which non-chord-tone figures a melody may be decorated with.
+ *
+ * Mirrors NonChordToneType in music/nonChordTones.ts, declared here for the
+ * same reason as MelodyScaleName: the settings types do not import the engine.
+ */
+export type NonChordToneName =
+  | "passingTone"
+  | "neighborTone"
+  | "appoggiatura"
+  | "anticipation"
+  | "suspension"
+  | "retardation"
+  | "escapeTone"
+  | "enclosure";
+
+/**
+ * Non-chord-tone figures. Off leaves the melody exactly as generated.
+ *
+ * `rate` is how often an eligible site is ornamented, and `types` restricts
+ * which figures are used — a pop line usually wants passing and neighbour tones
+ * without the suspensions a chorale would take for granted.
+ */
+export interface NonChordToneSettings {
+  enabled: boolean;
+  /** 0..1. Defaults to 0.5. */
+  rate?: number;
+  types?: readonly NonChordToneName[];
+}
+
 export interface SongFormSettings {
   form: SongFormId;
   /**
@@ -343,6 +383,17 @@ export interface GeneratorSettings {
    * weighted by style. Omitted keeps the original note-set voicer.
    */
   voiceLeading?: VoiceLeadingSettings;
+  /**
+   * Plans each phrase's structural notes — start, climax, cadence — before the
+   * line is written. Requires a phrase plan; omitted keeps the purely
+   * note-by-note melody every composition had before it existed.
+   */
+  melodicSkeleton?: MelodicSkeletonSettings;
+  /**
+   * Non-chord-tone figures written over the finished line. Omitted leaves the
+   * melody exactly as every composition had it before they existed.
+   */
+  nonChordTones?: NonChordToneSettings;
 }
 
 export interface BarEvent {
