@@ -88,6 +88,7 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
     euclideanRhythm: settings.euclideanRhythm
       ? { ...settings.euclideanRhythm }
       : undefined,
+    groove: settings.groove ? { ...settings.groove } : undefined,
     nonChordTones: settings.nonChordTones
       ? {
           ...settings.nonChordTones,
@@ -164,6 +165,9 @@ function compositionFingerprint(settings: GeneratorSettings): string {
       : []),
     ...(settings.melodicSkeleton?.enabled ? ["melodic-skeleton"] : []),
     ...(settings.pivotModulation?.enabled ? ["pivot-modulation"] : []),
+    ...(settings.groove?.enabled
+      ? ["groove", settings.groove.template, settings.groove.amount ?? 1]
+      : []),
     ...(settings.euclideanRhythm?.enabled
       ? [
           "euclidean",

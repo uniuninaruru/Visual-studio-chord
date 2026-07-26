@@ -5,6 +5,7 @@ export * from "./chords";
 export * from "./generator";
 export * from "./euclideanRhythm";
 export * from "./functionalHarmony";
+export * from "./groove";
 export * from "./guideToneLines";
 export * from "./harmonicRhythm";
 export * from "./harmonyFunctions";
