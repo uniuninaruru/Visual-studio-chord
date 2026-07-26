@@ -184,6 +184,36 @@ describe("Phase 2 style harmony and explanations", () => {
     expect(enabledSpecials).toBeGreaterThan(0);
   });
 
+  it("returns to native harmony after at most two chromatic color chords", () => {
+    for (let seed = 0; seed < 64; seed += 1) {
+      const progression = generateProgression({
+        key: "C",
+        mode: "major",
+        bars: 16,
+        timeSignature: "4/4",
+        style: "jazz",
+        seed: `chromatic-run-${seed}`,
+        harmony: {
+          complexity: "advanced",
+          borrowedChordRate: 1,
+          secondaryDominantRate: 1,
+          explorationRate: 1,
+        },
+      });
+      let run = 0;
+      let maximum = 0;
+      for (const chord of progression.chords) {
+        const chromatic =
+          chord.specialKind === "borrowed"
+          || chord.specialKind === "secondaryDominant"
+          || chord.specialKind === "tritoneSubstitution";
+        run = chromatic ? run + 1 : 0;
+        maximum = Math.max(maximum, run);
+      }
+      expect(maximum, `seed ${seed}`).toBeLessThanOrEqual(2);
+    }
+  });
+
   it("applies voice-leading strength without changing the default voicing", () => {
     const previous = [72, 76, 79];
     const defaultVoicing = voiceChord("F#", "major", previous);
