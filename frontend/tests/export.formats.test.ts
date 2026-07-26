@@ -18,8 +18,8 @@ describe("composition export", () => {
   it("round-trips the versioned JSON format", () => {
     const json = exportCompositionJson(composition);
     const document = JSON.parse(json) as { schemaVersion: number; appVersion: string };
-    expect(document.schemaVersion).toBe(1);
-    expect(document.appVersion).toMatch(/^0\.2\./);
+    expect(document.schemaVersion).toBe(2);
+    expect(document.appVersion).toMatch(/^0\.3\./);
     const imported = importCompositionJson(json);
     expect(imported).toEqual(composition);
     expect(imported).not.toBe(composition);
@@ -140,5 +140,37 @@ describe("composition export", () => {
       (composition.notes[0]?.velocity ?? 0) / 127,
       1,
     );
+  });
+
+  it("round-trips additional voices and exports each as a MIDI track", () => {
+    const arranged = generateComposition({
+      ...DEFAULT_GENERATOR_SETTINGS,
+      bars: 8,
+      seed: "multi-voice-export",
+      arrangement: {
+        counterpoint: { enabled: true, position: "below", independence: 0.7 },
+        canon: { enabled: true, delayBeats: 2, interval: 7 },
+        polyrhythm: { enabled: true, pulses: 3 },
+      },
+    });
+
+    expect(arranged.voices?.map((voice) => voice.role)).toEqual([
+      "countermelody",
+      "canon",
+      "pulse",
+    ]);
+    expect(importCompositionJson(exportCompositionJson(arranged))).toEqual(arranged);
+
+    const midi = new Midi(exportCompositionMidi(arranged));
+    expect(midi.tracks.map((track) => track.name)).toEqual([
+      "Chords",
+      "Melody",
+      "Countermelody",
+      "Canon",
+      "Pulse layer",
+    ]);
+    for (const [index, voice] of (arranged.voices ?? []).entries()) {
+      expect(midi.tracks[index + 2]?.notes).toHaveLength(voice.notes.length);
+    }
   });
 });
