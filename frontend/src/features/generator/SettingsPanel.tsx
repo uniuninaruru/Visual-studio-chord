@@ -360,6 +360,8 @@ export function SettingsPanel({
               value={settings.melody.minMidi}
               onChange={(event) => onPatch({ melody: { minMidi: Number(event.target.value) } })}
             >
+              <option value={36}>C2</option>
+              <option value={43}>G2</option>
               <option value={48}>C3</option>
               <option value={55}>G3</option>
               <option value={60}>C4</option>
@@ -375,6 +377,8 @@ export function SettingsPanel({
               <option value={72}>C5</option>
               <option value={76}>E5</option>
               <option value={84}>C6</option>
+              <option value={88}>E6</option>
+              <option value={96}>C7</option>
             </select>
           </label>
         </div>
