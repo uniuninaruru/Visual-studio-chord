@@ -2,6 +2,7 @@ export * from "./advancedHarmony";
 export * from "./chords";
 export * from "./generator";
 export * from "./functionalHarmony";
+export * from "./guideToneLines";
 export * from "./harmonicRhythm";
 export * from "./harmonyFunctions";
 export * from "./melodicSkeleton";
