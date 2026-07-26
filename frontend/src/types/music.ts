@@ -295,6 +295,29 @@ export interface EuclideanRhythmSettings {
   rotation?: number;
 }
 
+/**
+ * Groove template. Off leaves every note exactly on the grid.
+ *
+ * Mirrors GrooveTemplateId in music/groove.ts, declared here for the same
+ * reason as MelodyScaleName: the settings types do not import the engine.
+ */
+export type GrooveTemplateName =
+  | "straight"
+  | "swing8"
+  | "swing16"
+  | "shuffle"
+  | "bossa"
+  | "laidBack"
+  | "pushed"
+  | "backbeat";
+
+export interface GrooveSettings {
+  enabled: boolean;
+  template: GrooveTemplateName;
+  /** 0..1. How much of the template to apply. Defaults to 1. */
+  amount?: number;
+}
+
 export interface SongFormSettings {
   form: SongFormId;
   /**
@@ -427,6 +450,11 @@ export interface GeneratorSettings {
    * slot-partition rhythm every composition had before it existed.
    */
   euclideanRhythm?: EuclideanRhythmSettings;
+  /**
+   * Plays the melody with a groove instead of exactly on the grid. Omitted
+   * keeps the metronomic placement every composition had before it existed.
+   */
+  groove?: GrooveSettings;
 }
 
 export interface BarEvent {
