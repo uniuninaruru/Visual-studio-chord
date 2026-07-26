@@ -16,6 +16,7 @@ export * from "./nonChordTones";
 export * from "./phrases";
 export * from "./progressionGenerator";
 export * from "./progressions";
+export * from "./reharmonization";
 export * from "./random";
 export * from "./sections";
 export * from "./rhythmGenerator";
