@@ -18,6 +18,11 @@ seeds. Every musical objective must be one of:
 | Dynamic non-functional harmony | Chan, Ito, and Mikami, *Development of a Dynamic Chord Progression Generation System for Digital Game based on Neo-Riemannian Theory* (DiGRA Japan 2023), <https://doi.org/10.57518/digrajproc.13.0_281> | P/L/R transformations as candidate moves for game and cinematic harmony, while functional cadence remains an independent constraint | Open-access proceedings |
 | Flexible harmonic rhythm | Wu et al., *Generating Chord Progression from Melody with Flexible Harmonic Rhythm and Controllable Harmonic Density*, <https://arxiv.org/abs/2112.11122> | Chord positions are generated on the metric grid and evaluated with melody rhythm, not fixed to one chord per bar | Paper plus MIT repository |
 | Flexible harmonic rhythm implementation | `sander-wood/autoharmonizer`, <https://github.com/sander-wood/autoharmonizer> | Representation and evaluation comparison only; no runtime dependency | MIT |
+| Bidirectional melody-conditioned harmonization | Kaliakatsos-Papakostas et al., *Melody Harmonization with Encoder-only Transformers*, <https://proceedings.mlr.press/v303/kaliakatsos-papakostas26a.html> | Use a single encoder with synchronized melody/harmony context as the primary neural baseline; test arbitrary fixed-chord conditioning | Open-access proceedings; independently implement |
+| Melody-attentive masking curriculum | Kaliakatsos-Papakostas et al., *Pay Cross Attention to Music*, <https://arxiv.org/abs/2601.16150> | Compare full-to-full harmony masking with random and causal masking so the model cannot solve training by ignoring melody | Preprint; hypothesis only until reproduced |
+| Harmony representation | Kaliakatsos-Papakostas et al., *Harmony Tokenization for Symbolic Music Generation*, <https://doi.org/10.3390/info16090759> | Compare factorized, spelling-preserving, and chunked harmony representations instead of assuming one tokenizer is universally best | CC BY article; independently implement |
+| Low-latency accompaniment | Wu et al., *ReaLchords*, <https://proceedings.mlr.press/v235/wu24c.html> | Later offline-teacher distillation and latency/quality comparison; not the first editor model | Open-access proceedings |
+| Rule-guided neural generation | Huang et al., *Symbolic Music Generation with Non-Differentiable Rule Guided Diffusion*, <https://proceedings.mlr.press/v235/huang24g.html> | Evaluate forward-only guidance from the existing auditable validator without converting every rule to a differentiable loss | Open-access proceedings |
 | Tonal-tension reference implementation | `merismeris/tonal-tension-TIS`, <https://github.com/merismeris/tonal-tension-TIS> | Black-box result comparison against published examples; code is not copied | No detected license: do not copy code |
 | Constraint-based polyphony | Hadjeres, Pachet, and Nielsen, *DeepBach*, <https://proceedings.mlr.press/v70/hadjeres17a.html> and <https://github.com/Ghadjeres/DeepBach> | Preview candidates can be regenerated around fixed notes/cadences instead of irreversible left-to-right generation | MIT |
 | Computational validation | `cuthbertLab/music21`, <https://github.com/cuthbertLab/music21> | Development-only cross-check for interval, voice-leading, and harmony fixtures | BSD-3-Clause |
@@ -86,3 +91,12 @@ The first experience model is `harmony-corpus-ngram-v1`.
 This is a pop-harmony language model, not a universal musical-quality model.
 Results for jazz, common-practice counterpoint, game music, and non-Western
 tonal systems require separate declared corpora and held-out evaluation.
+
+The next neural-model stage is specified in two readable languages:
+
+- state-of-the-art comparison:
+  [日本語](neural-harmonization-sota.ja.md) /
+  [English](neural-harmonization-sota.en.md);
+- implementation plan:
+  [日本語](neural-chord-model-plan.ja.md) /
+  [English](neural-chord-model-plan.en.md).

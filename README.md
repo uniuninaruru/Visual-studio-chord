@@ -563,6 +563,12 @@ docs/                     互換性マトリクスとリリース検証チェッ
 
 ## ロードマップ
 
+- ニューラルコード生成の先行研究・最先端比較:
+  [日本語](docs/research/neural-harmonization-sota.ja.md) /
+  [English](docs/research/neural-harmonization-sota.en.md)
+- CUDA / Apple Metal（MPS）/ CPUで同一checkpointを使う実装計画:
+  [日本語](docs/research/neural-chord-model-plan.ja.md) /
+  [English](docs/research/neural-chord-model-plan.en.md)
 - 名前付き進行・曲構造（セクション/転調）をBasic/Advanced設定UIから選択可能にする（現状はAPI/設定オブジェクト経由）
 - POP909以外の許諾済みコーパスを使ったスタイル別・階層型モデル
 - AutoHarmonizer等の公開学習済みモデルを共通backendへ移植し、旋律条件付き候補生成
