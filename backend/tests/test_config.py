@@ -46,7 +46,7 @@ def test_origins_are_configurable_from_environment(monkeypatch) -> None:
 
 @pytest.mark.parametrize(
     "preference",
-    ["auto", "linear", "mlp", "onnx", "mock-deterministic"],
+    ["auto", "corpus", "linear", "mlp", "onnx", "mock-deterministic"],
 )
 def test_inference_preference_is_configurable(monkeypatch, preference: str) -> None:
     monkeypatch.setenv("MTC_INFERENCE_MODEL", preference.upper())
@@ -59,6 +59,13 @@ def test_invalid_inference_preference_fails_closed(monkeypatch) -> None:
 
     with pytest.raises(ValueError, match="MTC_INFERENCE_MODEL"):
         Settings.from_env()
+
+
+def test_model_directory_is_configurable(monkeypatch, tmp_path) -> None:
+    model_directory = tmp_path / "large-local-models"
+    monkeypatch.setenv("MODEL_DIRECTORY", str(model_directory))
+
+    assert Settings.from_env().model_directory == model_directory.resolve()
 
 
 def test_shared_token_is_loaded_without_being_exposed_in_repr(monkeypatch) -> None:

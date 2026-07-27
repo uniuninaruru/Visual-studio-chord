@@ -11,7 +11,7 @@ import {
 import type { PreferencePersistenceMode } from "../src/storage";
 
 const features = {
-  version: 1 as const,
+  version: 2 as const,
   compositionId: "hook-test",
   harmony: { tension: 0.5 },
   melody: {},

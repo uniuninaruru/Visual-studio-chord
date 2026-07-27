@@ -1,7 +1,7 @@
 import type { GeneratedComposition } from "../types/music";
 
 export const PREFERENCE_MODEL_VERSION = 1 as const;
-export const PREFERENCE_FEATURE_VERSION = 1 as const;
+export const PREFERENCE_FEATURE_VERSION = 2 as const;
 
 export const PREFERENCE_CATEGORIES = [
   "harmony",

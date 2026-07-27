@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "music-theory-composer-backend"
-version = "0.2.0"
+version = "0.3.0"
 description = "Local FastAPI service for Visual studio chord"
 license = "MIT"
 requires-python = ">=3.11,<3.15"

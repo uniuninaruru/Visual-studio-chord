@@ -1,4 +1,6 @@
+import json
 import math
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -7,6 +9,7 @@ from app.schemas.api import RankCandidate
 from app.services.runtime import (
     BUILTIN_ONNX_MODEL_BYTES,
     AcceleratorOutOfMemoryError,
+    CorpusNGramBackend,
     DeterministicBackend,
     InferenceBackend,
     MockDeterministicBackend,
@@ -55,6 +58,96 @@ class _NonFiniteRuntime(_ShrinkableRuntime):
 
 def _candidates(count: int) -> list[RankCandidate]:
     return [RankCandidate(id=f"candidate-{index}") for index in range(count)]
+
+
+def _write_corpus_model(path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "modelId": "harmony-corpus-ngram-v1",
+                "orders": {
+                    "1": {"0:major": 20, "7:dominant7": 10, "9:minor": 5},
+                    "2": {
+                        "0:major>7:dominant7": 9,
+                        "7:dominant7>0:major": 9,
+                        "0:major>9:minor": 1,
+                    },
+                    "3": {
+                        "0:major>7:dominant7>0:major": 8,
+                        "0:major>9:minor>0:major": 1,
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_corpus_backend_prefers_frequent_context_without_theory_weights(tmp_path) -> None:
+    model_path = tmp_path / "harmony-corpus-v1.json"
+    _write_corpus_model(model_path)
+    backend = CorpusNGramBackend(model_path)
+    backend.load()
+
+    scores = backend.score_batch(
+        [
+            RankCandidate(
+                id="common",
+                features={
+                    "harmonyToken.3.0:major>7:dominant7>0:major": 1.0,
+                },
+            ),
+            RankCandidate(
+                id="rare",
+                features={
+                    "harmonyToken.3.0:major>9:minor>0:major": 1.0,
+                },
+            ),
+        ]
+    )
+
+    assert scores[0] > scores[1]
+    assert backend.health().loaded is True
+    backend.unload()
+    assert backend.health().loaded is False
+
+
+def test_corpus_backend_rejects_non_contiguous_orders(tmp_path) -> None:
+    model_path = tmp_path / "harmony-corpus-v1.json"
+    model_path.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "modelId": "harmony-corpus-ngram-v1",
+                "orders": {"1": {"0:major": 1}, "3": {"x>y>z": 1}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ModelUnavailableError, match="contiguous"):
+        CorpusNGramBackend(model_path).load()
+
+
+def test_tracked_pop909_aggregate_model_loads_and_scores() -> None:
+    model_path = Path(__file__).resolve().parents[2] / "models" / "harmony-corpus-v1.json"
+    backend = CorpusNGramBackend(model_path)
+    backend.load()
+
+    scores = backend.score_batch(
+        [
+            RankCandidate(
+                id="pop-cadence",
+                features={
+                    "harmony.harmonyToken.3.0:major>7:dominant7>0:major": 1.0,
+                },
+            )
+        ]
+    )
+
+    assert len(scores) == 1
+    assert math.isfinite(scores[0])
 
 
 def test_cuda_oom_shrinks_then_falls_back_to_cpu() -> None:
