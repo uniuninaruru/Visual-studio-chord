@@ -1,0 +1,83 @@
+schema_version: 1
+model_id: harmonyforge-bimask-base-v1
+task: melody_conditioned_variable_rhythm_harmonization
+
+representation:
+  ppq: 480
+  harmonic_frame: sixteenth
+  maximum_bars: 128
+  key_relative_roots: true
+  streams:
+    - global
+    - structure
+    - melody
+    - harmony
+  harmony_heads:
+    event: [no_chord, hold, change]
+    root_classes: 12
+    quality_source: frontend/src/types/music.ts#ChordQuality
+    inversion: [root, first, second, third, other]
+    bass_classes: 13
+    extensions: [six, seven, nine, eleven, thirteen, altered]
+    function: [tonic, predominant, dominant, other]
+    cadence: [none, authentic, plagal, half, deceptive, loop]
+
+architecture:
+  family: bidirectional_masked_transformer
+  layers: 12
+  hidden_size: 768
+  attention_heads: 12
+  feed_forward_size: 3072
+  normalization: pre_norm
+  activation: gelu
+  dropout: 0.1
+  positional_encoding: relative
+  bar_summary_tokens: true
+  factorized_output_heads: true
+
+training:
+  seed_set: [1729, 2718, 31415]
+  objective: mean_normalized_active_head_cross_entropy
+  masking:
+    - full_harmony
+    - contiguous_range
+    - disjoint_ranges
+    - random_frames
+    - causal_suffix
+  optimizer: adamw
+  learning_rate_schedule: warmup_cosine
+  gradient_clipping_norm: 1.0
+  validation_selection: preregistered_composite_without_test_listening
+  raw_data_in_git: false
+
+inference:
+  default_candidate_count: 32
+  output_mode: preview_only
+  seeded: true
+  hard_constraint_precedence: true
+  batch_reduction_on_oom: true
+  fallback_order: [cuda, mps, cpu, corpus, theory]
+
+runtime:
+  framework: pytorch
+  cuda:
+    training_precision_order: [bfloat16, float16, float32]
+    inference_precision_order: [bfloat16, float16, float32]
+    multi_gpu: distributed_data_parallel
+  mps:
+    training_precision_order: [float32, float16]
+    inference_precision_order: [float16, float32]
+    report_cpu_operation_fallback: true
+  cpu:
+    precision_order: [float32, bfloat16]
+
+artifact:
+  checkpoint_format: safetensors
+  manifest_required:
+    - checkpoint_sha256
+    - tokenizer_sha256
+    - data_manifest_sha256
+    - source_commit
+    - pytorch_version
+    - minimum_app_version
+    - minimum_api_version
