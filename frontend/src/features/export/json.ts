@@ -7,8 +7,8 @@ import { validateComposition } from "../../music";
 
 export const COMPOSITION_JSON_FORMAT = "music-theory-composer";
 export const COMPOSITION_JSON_VERSION = 1;
-export const PROJECT_SCHEMA_VERSION = 1;
-export const PROJECT_APP_VERSION = "0.2.0";
+export const PROJECT_SCHEMA_VERSION = 2;
+export const PROJECT_APP_VERSION = "0.3.0";
 export const MAX_COMPOSITION_JSON_CHARACTERS = 5_000_000;
 export const MAX_COMPOSITION_FILE_BYTES = 6_000_000;
 
@@ -152,9 +152,73 @@ export function isGeneratorSettings(value: unknown): value is GeneratorSettings 
     value.motif.transformationRate >= 0 &&
     value.motif.transformationRate <= 1
   );
+  const arrangement = value.arrangement;
+  const validArrangement = arrangement === undefined || (
+    isRecord(arrangement) &&
+    (
+      arrangement.counterpoint === undefined
+      || (
+        isRecord(arrangement.counterpoint)
+        && typeof arrangement.counterpoint.enabled === "boolean"
+        && (
+          arrangement.counterpoint.position === undefined
+          || arrangement.counterpoint.position === "above"
+          || arrangement.counterpoint.position === "below"
+        )
+        && (
+          arrangement.counterpoint.independence === undefined
+          || (
+            isFiniteNumber(arrangement.counterpoint.independence)
+            && arrangement.counterpoint.independence >= 0
+            && arrangement.counterpoint.independence <= 1
+          )
+        )
+      )
+    )
+    && (
+      arrangement.canon === undefined
+      || (
+        isRecord(arrangement.canon)
+        && typeof arrangement.canon.enabled === "boolean"
+        && isFiniteNumber(arrangement.canon.delayBeats)
+        && arrangement.canon.delayBeats > 0
+        && arrangement.canon.delayBeats <= 16
+        && (
+          arrangement.canon.interval === undefined
+          || (
+            Number.isInteger(arrangement.canon.interval)
+            && Math.abs(arrangement.canon.interval as number) <= 24
+          )
+        )
+        && (
+          arrangement.canon.inverted === undefined
+          || typeof arrangement.canon.inverted === "boolean"
+        )
+      )
+    )
+    && (
+      arrangement.polyrhythm === undefined
+      || (
+        isRecord(arrangement.polyrhythm)
+        && typeof arrangement.polyrhythm.enabled === "boolean"
+        && Number.isInteger(arrangement.polyrhythm.pulses)
+        && (arrangement.polyrhythm.pulses as number) >= 1
+        && (arrangement.polyrhythm.pulses as number) <= 16
+        && (
+          arrangement.polyrhythm.spanBars === undefined
+          || (
+            Number.isInteger(arrangement.polyrhythm.spanBars)
+            && (arrangement.polyrhythm.spanBars as number) >= 1
+            && (arrangement.polyrhythm.spanBars as number) <= 4
+          )
+        )
+      )
+    )
+  );
   return (
     validHarmony &&
     validMotif &&
+    validArrangement &&
     Number.isInteger(melody.minMidi) &&
     Number.isInteger(melody.maxMidi) &&
     (melody.minMidi as number) >= 0 &&
@@ -346,7 +410,7 @@ export function isGeneratedComposition(value: unknown): value is GeneratedCompos
 
   const roles = ["chordTone", "scaleTone", "passing", "neighbor", "approach"];
   const noteIds = new Set<string>();
-  const validNote = value.notes.every((item) => {
+  const validNoteItem = (item: unknown): boolean => {
     if (!isRecord(item)) {
       return false;
     }
@@ -374,9 +438,37 @@ export function isGeneratedComposition(value: unknown): value is GeneratedCompos
       typeof item.role === "string" &&
       roles.includes(item.role)
     );
-  });
+  };
+  const validNote = value.notes.every(validNoteItem);
 
-  return validChord && validNote;
+  const voiceIds = new Set<string>();
+  const voiceRoles = ["countermelody", "canon", "pulse"];
+  const voiceInstruments = ["softLead", "pluck", "bass"];
+  const validVoices = value.voices === undefined || (
+    Array.isArray(value.voices)
+    && value.voices.every((voice) =>
+      isRecord(voice)
+      && typeof voice.id === "string"
+      && voice.id.length > 0
+      && registerUnique(voiceIds, voice.id)
+      && typeof voice.name === "string"
+      && voice.name.length > 0
+      && typeof voice.role === "string"
+      && voiceRoles.includes(voice.role)
+      && typeof voice.instrument === "string"
+      && voiceInstruments.includes(voice.instrument)
+      && typeof voice.color === "string"
+      && /^#[0-9a-f]{6}$/i.test(voice.color)
+      && Number.isInteger(voice.midiChannel)
+      && (voice.midiChannel as number) >= 0
+      && (voice.midiChannel as number) <= 15
+      && (voice.muted === undefined || typeof voice.muted === "boolean")
+      && Array.isArray(voice.notes)
+      && voice.notes.every(validNoteItem)
+    )
+  );
+
+  return validChord && validNote && validVoices;
 }
 
 function makeDocument(
@@ -428,6 +520,7 @@ export function importCompositionJson(json: string): GeneratedComposition {
   // schema v1. Unknown newer schemas are rejected instead of guessed.
   if (
     parsed.schemaVersion !== undefined
+    && parsed.schemaVersion !== 1
     && parsed.schemaVersion !== PROJECT_SCHEMA_VERSION
   ) {
     throw new CompositionImportError(

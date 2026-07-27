@@ -11,6 +11,7 @@ import type {
   StylePresetId,
   TimeSignature,
 } from "../../types/music";
+import { PhaseControls } from "./PhaseControls";
 
 const KEY_OPTIONS: PitchClassName[] = [
   "C",
@@ -359,6 +360,10 @@ export function SettingsPanel({
               value={settings.melody.minMidi}
               onChange={(event) => onPatch({ melody: { minMidi: Number(event.target.value) } })}
             >
+              <option value={21}>A0（88鍵の最低音）</option>
+              <option value={28}>E1</option>
+              <option value={36}>C2</option>
+              <option value={43}>G2</option>
               <option value={48}>C3</option>
               <option value={55}>G3</option>
               <option value={60}>C4</option>
@@ -374,6 +379,9 @@ export function SettingsPanel({
               <option value={72}>C5</option>
               <option value={76}>E5</option>
               <option value={84}>C6</option>
+              <option value={88}>E6</option>
+              <option value={96}>C7</option>
+              <option value={108}>C8（88鍵の最高音）</option>
             </select>
           </label>
         </div>
@@ -418,6 +426,10 @@ export function SettingsPanel({
           </>
         )}
       </section>
+
+      <div hidden={activeTab !== "advanced"}>
+        <PhaseControls settings={settings} onPatch={onPatch} />
+      </div>
 
       <section className="settings-section seed-section" hidden={activeTab !== "basic"}>
         <label className="field">

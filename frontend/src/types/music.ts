@@ -318,6 +318,33 @@ export interface GrooveSettings {
   amount?: number;
 }
 
+/**
+ * Additional musical lines. The original `notes` array remains the editable
+ * lead melody so older projects and editor actions stay compatible.
+ */
+export interface ArrangementSettings {
+  /** A rule-aware line above or below the lead melody. */
+  counterpoint?: {
+    enabled: boolean;
+    position?: "above" | "below";
+    /** 0..1. Higher values prefer contrary and oblique motion. */
+    independence?: number;
+  };
+  /** A delayed imitation of the lead melody. */
+  canon?: {
+    enabled: boolean;
+    delayBeats: number;
+    interval?: number;
+    inverted?: boolean;
+  };
+  /** A pitched pulse layer divided independently from the meter. */
+  polyrhythm?: {
+    enabled: boolean;
+    pulses: number;
+    spanBars?: number;
+  };
+}
+
 export interface SongFormSettings {
   form: SongFormId;
   /**
@@ -455,6 +482,11 @@ export interface GeneratorSettings {
    * keeps the metronomic placement every composition had before it existed.
    */
   groove?: GrooveSettings;
+  /**
+   * Optional multi-voice arrangement. Omitted keeps the legacy one-melody
+   * output and therefore preserves old seeds byte-for-byte.
+   */
+  arrangement?: ArrangementSettings;
 }
 
 export interface BarEvent {
@@ -472,6 +504,27 @@ export interface NoteEvent {
   velocity: number;
   barIndex: number;
   role: NoteRole;
+}
+
+export type CompositionVoiceRole = "countermelody" | "canon" | "pulse";
+export type CompositionVoiceInstrument = "softLead" | "pluck" | "bass";
+
+/**
+ * One additional voice layered over the editable lead melody.
+ *
+ * Voice notes use the same integer-tick contract as the lead. Muting is saved
+ * with the project, while MIDI export intentionally keeps every voice as its
+ * own track so no musical data is lost.
+ */
+export interface CompositionVoice {
+  id: string;
+  name: string;
+  role: CompositionVoiceRole;
+  instrument: CompositionVoiceInstrument;
+  color: string;
+  midiChannel: number;
+  muted?: boolean;
+  notes: NoteEvent[];
 }
 
 export interface ChordEvent {
@@ -518,6 +571,8 @@ export interface GeneratedComposition {
   bars: BarEvent[];
   chords: ChordEvent[];
   notes: NoteEvent[];
+  /** Additional lines. Absent in legacy and single-voice projects. */
+  voices?: CompositionVoice[];
   /** Sorted, unique zero-based bar indices. */
   lockedBars: number[];
   /**

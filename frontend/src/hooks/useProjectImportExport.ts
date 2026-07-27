@@ -74,7 +74,12 @@ export function useProjectImportExport(
       midiBlob(composition),
       compositionFilename(String(composition.seed), "mid"),
     );
-    onToast("コードとメロディのMIDIを書き出しました。");
+    const additional = composition.voices?.length ?? 0;
+    onToast(
+      additional > 0
+        ? `コード・主旋律・追加声部${additional}本をMIDIへ書き出しました。`
+        : "コードとメロディのMIDIを書き出しました。",
+    );
   }, [composition, onToast]);
 
   const importProject = useCallback(async (file: File | undefined) => {

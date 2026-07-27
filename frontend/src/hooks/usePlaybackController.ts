@@ -15,6 +15,8 @@ export interface PlaybackControllerOptions {
   /** The composition that is actually sounding, which trails the draft. */
   playbackComposition: GeneratedComposition;
   playbackLoopRange: TickRange;
+  mutedTrackIds?: readonly string[];
+  soloTrackId?: string | null;
   /** Audio failures are reported as diagnostics, never as AI failures. */
   onAudioError: (error: UserFacingDiagnosticError | null) => void;
   onToast: (message: string) => void;
@@ -31,7 +33,14 @@ export interface PlaybackControllerOptions {
 export function usePlaybackController(
   options: PlaybackControllerOptions,
 ): PlaybackController {
-  const { playbackComposition, playbackLoopRange, onAudioError, onToast } = options;
+  const {
+    playbackComposition,
+    playbackLoopRange,
+    mutedTrackIds = [],
+    soloTrackId = null,
+    onAudioError,
+    onToast,
+  } = options;
   const transportRef = useRef<CompositionTransport | null>(null);
 
   useEffect(() => {
@@ -62,6 +71,10 @@ export function usePlaybackController(
     };
     transport.configure(playbackComposition, playbackLoopRange, handleTick);
   }, [playbackComposition, playbackLoopRange]);
+
+  useEffect(() => {
+    transportRef.current?.setTrackMix(mutedTrackIds, soloTrackId);
+  }, [mutedTrackIds, soloTrackId]);
 
   const play = useCallback(async () => {
     try {
