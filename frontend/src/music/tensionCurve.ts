@@ -98,11 +98,13 @@ export function analyzeTensionCurve(
     const harmonic = barChords.length === 0
       ? 0
       : barChords.reduce((sum, chord) => {
-          const base = tensionOf(functionForDegree(chord.degree));
-          // Anything not plainly diatonic is unsettling on its own terms.
-          const colour = chord.source === "diatonic" ? 0 : 0.25;
-          const tensions = (chord.tensions?.length ?? 0) > 0 ? 0.1 : 0;
-          return sum + clamp01(base + colour + tensions);
+          const functionRank = tensionOf(functionForDegree(chord.degree));
+          // Keep the three theory facts ordinal. The maximum rank is six:
+          // functional dominant (4), non-diatonic colour (1), extension (1).
+          // This replaces unsourced decimal bonuses with an inspectable scale.
+          const colourRank = chord.source === "diatonic" ? 0 : 1;
+          const extensionRank = (chord.tensions?.length ?? 0) > 0 ? 1 : 0;
+          return sum + (functionRank + colourRank + extensionRank) / 6;
         }, 0) / barChords.length;
 
     const barNotes = notes.filter((note) => note.barIndex === barIndex);

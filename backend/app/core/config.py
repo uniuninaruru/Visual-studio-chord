@@ -6,6 +6,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from ipaddress import ip_address
+from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -14,7 +15,14 @@ DEFAULT_CORS_ORIGINS = (
     "http://127.0.0.1:5173",
     "http://[::1]:5173",
 )
-InferenceModelPreference = Literal["auto", "linear", "mlp", "onnx", "mock-deterministic"]
+InferenceModelPreference = Literal[
+    "auto",
+    "corpus",
+    "linear",
+    "mlp",
+    "onnx",
+    "mock-deterministic",
+]
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -60,6 +68,7 @@ class Settings:
     app_name: str = "Visual studio chord API"
     cors_origins: tuple[str, ...] = DEFAULT_CORS_ORIGINS
     inference_model: InferenceModelPreference = "auto"
+    model_directory: Path = Path("./models")
     shared_token: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
@@ -69,14 +78,17 @@ class Settings:
         object.__setattr__(self, "cors_origins", tuple(dict.fromkeys(validated)))
         if self.inference_model not in {
             "auto",
+            "corpus",
             "linear",
             "mlp",
             "onnx",
             "mock-deterministic",
         }:
             raise ValueError(
-                "MTC_INFERENCE_MODEL must be auto, linear, mlp, onnx, or mock-deterministic"
+                "MTC_INFERENCE_MODEL must be auto, corpus, linear, mlp, onnx, "
+                "or mock-deterministic"
             )
+        object.__setattr__(self, "model_directory", self.model_directory.expanduser().resolve())
         if self.shared_token is not None and not re.fullmatch(
             r"[A-Za-z0-9_-]{16,512}",
             self.shared_token,
@@ -95,8 +107,10 @@ class Settings:
         )
         inference_model = os.getenv("MTC_INFERENCE_MODEL", "auto").strip().lower()
         shared_token = os.getenv("MTC_SHARED_TOKEN") or None
+        model_directory = Path(os.getenv("MODEL_DIRECTORY", "./models"))
         return cls(  # type: ignore[arg-type]
             cors_origins=origins,
             inference_model=inference_model,
+            model_directory=model_directory,
             shared_token=shared_token,
         )

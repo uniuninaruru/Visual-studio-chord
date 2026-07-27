@@ -15,7 +15,9 @@ import type {
 import {
   canCreateHarmonyCandidate,
   createAdvancedChordEvent,
+  createNeoRiemannianChordEvent,
 } from "./advancedHarmony";
+import { planAdvancedProgressionKinds } from "./advancedProgressionPlanner";
 import {
   cadentialDominantRaisesLeadingTone,
   createCadentialDominantChordEvent,
@@ -37,6 +39,7 @@ import {
   type HarmonyCandidateKind,
   type StylePreset,
 } from "./styles";
+import type { NeoRiemannianOperation } from "./neoRiemannian";
 
 export interface ProgressionGeneratorSettings {
   key: PitchClassName;
@@ -140,64 +143,50 @@ function chooseChordKinds(
   degrees: readonly number[],
 ): HarmonyCandidateKind[] {
   const complexity = settings.harmony?.complexity ?? "triads";
-  const kinds = degrees.map((degree, barIndex) => {
+  const candidates = degrees.map((degree, barIndex) => {
     const targetDegree = degrees[barIndex + 1];
     const protectedEnding = barIndex >= degrees.length - 2;
-    const available = availableKinds(
+    return availableKinds(
       preset,
       settings,
       degree,
       targetDegree,
       protectedEnding,
     );
-    const random = createSeededRandom(
-      deriveSeed(settings.seed, "harmony-kind", preset.id, barIndex, degree),
-    );
-    return random.weightedPick(
-      available,
-      available.map((kind) => harmonyKindWeight(preset, settings, kind)),
-    );
   });
-
-  const eligible = Array.from(
-    { length: Math.max(1, degrees.length - 2) },
-    (_, index) => index,
-  );
-  const forcedIndex = eligible[hashSeed(deriveSeed(settings.seed, "harmony-guarantee")) % eligible.length] as number;
-  if (complexity === "sevenths" && !kinds.includes("seventh")) {
-    kinds[forcedIndex] = "seventh";
-  }
-  if (complexity === "advanced" && !kinds.some((kind) => SPECIAL_KINDS.includes(kind))) {
-    const degree = degrees[forcedIndex] as number;
-    const targetDegree = degrees[forcedIndex + 1];
-    const availableSpecial = SPECIAL_KINDS.filter((kind) =>
-      harmonyKindWeight(preset, settings, kind) > 0 &&
-      canCreateHarmonyCandidate(kind, settings.key, settings.mode, degree, targetDegree),
-    ).sort((left, right) =>
-      harmonyKindWeight(preset, settings, right)
-        - harmonyKindWeight(preset, settings, left)
-        || left.localeCompare(right),
-    );
-    kinds[forcedIndex] = availableSpecial[0] ?? "seventh";
-  }
-
-  // Modal mixture is colour, not an accidental key change. Two chromatic
-  // chords may form one gesture, but the third returns to the native harmony.
-  // Secondary dominants are already tied to the following degree; this bound
-  // additionally stops several unrelated alterations from accumulating.
-  let chromaticRun = 0;
-  for (let index = 0; index < kinds.length; index += 1) {
-    const kind = kinds[index] as HarmonyCandidateKind;
-    const chromatic =
-      kind === "borrowed"
-      || kind === "secondaryDominant"
-      || kind === "tritoneSubstitution";
-    chromaticRun = chromatic ? chromaticRun + 1 : 0;
-    if (chromaticRun <= 2) continue;
-    kinds[index] = "seventh";
-    chromaticRun = 0;
-  }
-  return kinds;
+  const enabledSpecialKinds = SPECIAL_KINDS.filter((kind) =>
+    candidates.some((positionKinds) => positionKinds.includes(kind)),
+  ).sort();
+  const requireSpecial =
+    complexity === "advanced"
+    && (settings.harmony?.explorationRate ?? 1) > 0
+    && enabledSpecialKinds.length > 0;
+  const requiredKind = requireSpecial
+    ? enabledSpecialKinds[
+        hashSeed(deriveSeed(settings.seed, "harmony-colour-family", preset.id))
+        % enabledSpecialKinds.length
+      ]
+    : undefined;
+  return planAdvancedProgressionKinds({
+    key: settings.key,
+    mode: settings.mode,
+    degrees,
+    candidates,
+    preference: Object.fromEntries(
+      ([
+        "triad",
+        "seventh",
+        ...SPECIAL_KINDS,
+      ] as HarmonyCandidateKind[]).map((kind) => [
+        kind,
+        harmonyKindWeight(preset, settings, kind),
+      ]),
+    ) as Record<HarmonyCandidateKind, number>,
+    seed: deriveSeed(settings.seed, "harmony-plan", preset.id),
+    requireSeventh: complexity === "sevenths",
+    requireSpecial,
+    requireKind: requiredKind,
+  });
 }
 
 /**
@@ -222,6 +211,21 @@ function generateNamedProgression(
   const steps = slots.map(
     (_, index) => template.steps[index % template.steps.length] as ProgressionStep,
   );
+  const finalStep = steps.at(-1);
+  const firstStep = steps[0];
+  const finalIsAppliedDominant =
+    finalStep?.role === "secondaryDominant"
+    || finalStep?.role === "tritoneSubstitution";
+  if (
+    finalIsAppliedDominant
+    && finalStep.targetDegree !== undefined
+    && firstStep?.degree !== finalStep.targetDegree
+  ) {
+    // A requested bar count may cut through the middle of a repeating named
+    // template. Never strand V/x or subV/x at that truncation boundary: close
+    // the span on its declared target instead.
+    steps[steps.length - 1] = { degree: finalStep.targetDegree };
+  }
 
   const chords: ChordEvent[] = [];
   for (const [slotIndex, slot] of slots.entries()) {
@@ -299,23 +303,45 @@ function generateFunctionalProgression(
     const idHash = hashSeed(
       deriveSeed(settings.seed, "chord", "functional", slotIndex, candidate.step.degree),
     ).toString(36);
+    const previous = chords[chords.length - 1];
+    const operations: readonly NeoRiemannianOperation[] = ["P", "L", "R"];
+    const useNeoRiemannian =
+      candidate.function === "chromaticSequence"
+      && settings.harmony?.complexity === "advanced"
+      && (settings.harmony.explorationRate ?? 1) > 0
+      && previous !== undefined
+      && (previous.quality === "major" || previous.quality === "minor");
     chords.push(
-      createStepChordEvent({
+      useNeoRiemannian
+        ? createNeoRiemannianChordEvent({
+            key: settings.key,
+            mode: settings.mode,
+            previous,
+            operation: operations[
+              hashSeed(deriveSeed(settings.seed, "neo-riemannian", slotIndex))
+              % operations.length
+            ] as NeoRiemannianOperation,
+            startTick: slot.startTick,
+            durationTick: slot.durationTick,
+            id: `chord-${slotIndex}-${idHash}`,
+            voiceLeadingStrength: settings.harmony?.voiceLeadingStrength ?? 1,
+          })
+        : createStepChordEvent({
         key: settings.key,
         mode: settings.mode,
         step: candidate.step,
         startTick: slot.startTick,
         durationTick: slot.durationTick,
         id: `chord-${slotIndex}-${idHash}`,
-        previousNotes: chords[chords.length - 1]?.notes,
+        previousNotes: previous?.notes,
         voiceLeadingStrength: settings.harmony?.voiceLeadingStrength ?? 1,
-      }),
+          }),
     );
   }
 
   return {
     chords,
-    degrees: candidates.map((candidate) => candidate.step.degree),
+    degrees: chords.map((chord) => chord.degree),
     cadence,
     resolvedStyle: preset.id,
   };

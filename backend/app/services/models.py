@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 from dataclasses import dataclass
+from pathlib import Path
 from threading import RLock
 
 from app.schemas.api import (
@@ -23,6 +24,7 @@ from app.services.device import (
 )
 from app.services.ranking import linear_score
 from app.services.runtime import (
+    CorpusNGramBackend,
     DeterministicBackend,
     InferenceBackend,
     MockDeterministicBackend,
@@ -36,11 +38,12 @@ from app.services.runtime import (
 )
 
 LOCAL_MODEL_ID: ServerModelId = "local-deterministic-v1"
+CORPUS_MODEL_ID: ServerModelId = "harmony-corpus-ngram-v1"
 MLP_MODEL_ID: ServerModelId = "local-mlp-v1"
 ONNX_MODEL_ID: ServerModelId = "local-onnx-v1"
 MOCK_MODEL_ID: ServerModelId = "mock-deterministic-v1"
 SERVER_MODEL_IDS: frozenset[str] = frozenset(
-    {LOCAL_MODEL_ID, MLP_MODEL_ID, ONNX_MODEL_ID, MOCK_MODEL_ID}
+    {LOCAL_MODEL_ID, CORPUS_MODEL_ID, MLP_MODEL_ID, ONNX_MODEL_ID, MOCK_MODEL_ID}
 )
 
 
@@ -63,13 +66,19 @@ class RankOutcome:
 class ModelManager:
     """Cache only known backends; caller input is never interpreted as a path."""
 
-    def __init__(self, preferred_model: str = "auto") -> None:
+    def __init__(
+        self,
+        preferred_model: str = "auto",
+        *,
+        model_directory: Path | None = None,
+    ) -> None:
         self._linear_backend = DeterministicBackend()
         self._linear_backend.load()
         self._cache: dict[ServerModelId, InferenceBackend] = {}
         self._active_model: ServerModelId = LOCAL_MODEL_ID
         self._fallback_reason: str | None = None
         self._runtime_fallback_model: ServerModelId | None = None
+        self._model_directory = (model_directory or Path("./models")).resolve()
         self._lock = RLock()
         self._initialize_preference(preferred_model)
 
@@ -125,6 +134,18 @@ class ModelManager:
                 backend="linear",
                 mock=False,
             )
+        if model_id == CORPUS_MODEL_ID:
+            model_path = self._model_directory / "harmony-corpus-v1.json"
+            return ModelInfo(
+                id=model_id,
+                name="Corpus 3-gram harmony language model",
+                runtime="cpu",
+                available=loaded_backend is not None or model_path.is_file(),
+                loaded=loaded_backend is not None and loaded_backend.health().loaded,
+                capabilities=["rank"],
+                backend="corpus",
+                mock=False,
+            )
         if model_id == MOCK_MODEL_ID:
             return ModelInfo(
                 id=model_id,
@@ -176,6 +197,7 @@ class ModelManager:
             request_id=request_id,
             models=[
                 self.model_info(LOCAL_MODEL_ID, device),
+                self.model_info(CORPUS_MODEL_ID, device),
                 self.model_info(MLP_MODEL_ID, device),
                 self.model_info(ONNX_MODEL_ID, device),
                 self.model_info(MOCK_MODEL_ID, device),
@@ -255,6 +277,10 @@ class ModelManager:
             return backend
         if model_id == MOCK_MODEL_ID:
             backend = MockDeterministicBackend()
+        elif model_id == CORPUS_MODEL_ID:
+            backend = CorpusNGramBackend(
+                self._model_directory / "harmony-corpus-v1.json",
+            )
         else:
             backend = self._load_optional_runtime(model_id)
         backend.load()
@@ -265,6 +291,13 @@ class ModelManager:
         """Best-effort startup selection; optional runtime failures never escape."""
 
         if preferred_model == "linear":
+            return
+        if preferred_model == "corpus":
+            try:
+                self.load(CORPUS_MODEL_ID)
+            except Exception:
+                self._active_model = LOCAL_MODEL_ID
+                self._fallback_reason = "corpusUnavailableTheoryFallback"
             return
         if preferred_model == "mock-deterministic":
             self.load(MOCK_MODEL_ID)
@@ -280,6 +313,14 @@ class ModelManager:
         if preferred_model != "auto":
             self._fallback_reason = "invalidPreferenceCpuFallback"
             return
+
+        corpus_path = self._model_directory / "harmony-corpus-v1.json"
+        if corpus_path.is_file():
+            try:
+                self.load(CORPUS_MODEL_ID)
+                return
+            except Exception:
+                self._fallback_reason = "corpusLoadFailedTheoryFallback"
 
         device = detect_device()
         onnx_device = selected_onnx_device(device)

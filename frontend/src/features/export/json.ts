@@ -404,6 +404,16 @@ export function isGeneratedComposition(value: unknown): value is GeneratedCompos
       )) &&
       (item.explanation === undefined || (
         typeof item.explanation === "string" && item.explanation.length <= 1_000
+      )) &&
+      (item.transformation === undefined || (
+        isRecord(item.transformation) &&
+        item.transformation.theory === "neoRiemannian" &&
+        typeof item.transformation.operation === "string" &&
+        ["P", "L", "R"].includes(item.transformation.operation) &&
+        typeof item.transformation.fromRoot === "string" &&
+        roots.includes(item.transformation.fromRoot) &&
+        typeof item.transformation.fromQuality === "string" &&
+        ["major", "minor"].includes(item.transformation.fromQuality)
       ))
     );
   });

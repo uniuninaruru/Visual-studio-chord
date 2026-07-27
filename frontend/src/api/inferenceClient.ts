@@ -112,7 +112,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 const RUNTIMES = new Set(["cpu", "cuda", "mps", "coreml", "directml"]);
 const MODEL_RUNTIMES = new Set(["browser", ...RUNTIMES]);
-const BACKENDS = new Set(["linear", "pytorch", "onnx", "browser", "mock"]);
+const BACKENDS = new Set(["linear", "corpus", "pytorch", "onnx", "browser", "mock"]);
 
 function isNullableString(value: unknown): boolean {
   return value === null || typeof value === "string";

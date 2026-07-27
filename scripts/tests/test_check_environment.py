@@ -59,6 +59,24 @@ class EnvironmentDiagnosticsTests(unittest.TestCase):
         checks = [diagnostics.make_check("node", "error", "missing")]
         self.assertEqual(diagnostics.summarize(checks), ("blocked", 1))
 
+    def test_empirical_corpus_model_is_reported_separately(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            model_directory = Path(directory) / "large-models"
+            model_directory.mkdir()
+            (model_directory / "harmony-corpus-v1.json").write_text(
+                "{}",
+                encoding="utf-8",
+            )
+
+            check = diagnostics.check_models(
+                Path(directory),
+                {"MODEL_DIRECTORY": str(model_directory)},
+            )
+
+            self.assertEqual(check["status"], "ok")
+            self.assertTrue(check["details"]["corpusModelAvailable"])
+            self.assertIn("Empirical harmony corpus", check["summary"])
+
 
 if __name__ == "__main__":
     unittest.main()
