@@ -8,6 +8,30 @@
 ユーザー評価を分離した生成エンジンへ移行する大規模更新です。パッケージ、
 フロントエンド、バックエンドのバージョンを `0.3.0` に揃えました。
 
+### 設計 — 先行研究に基づくニューラルコード生成（次期0.4.x）
+
+- 2024〜2026年の旋律条件付き和声付け、可変ハーモニックリズム、和声token化、
+  非微分可能rule guidance、低遅延伴奏の一次資料を比較しました。
+- 主モデルを、旋律と和声を同じ時間軸で扱うsingle-encoder masked Transformer
+  `HarmonyForge-BiMask` としました。decoder-only、大規模audio-token生成、
+  学習前MLPは主経路にしません。
+- root、quality、inversion、bass、extensionsをfactorized headsで出力します。
+  flat vocabularyや別token化が優れる可能性は残し、ablationで比較します。
+- 同じtokenizer、architecture、checkpointをCUDA、Apple Metal（MPS）、CPUで
+  使用します。デバイス別モデルを作らず、precisionとbatch方針だけを変えます。
+- ニューラル出力は既存のハード理論制約、88鍵・左右手voicing、全track検証を
+  通過したpreviewとしてのみ返し、ユーザーのApply前に本編を上書きしません。
+- test leakage、データ権利不明、MPSのsilent CPU fallback、既存engineより低い
+  人間選好のいずれかが残る場合はreleaseしない停止条件を定義しました。
+- 実装前仕様を
+  [日本語](docs/research/neural-chord-model-plan.ja.md) /
+  [English](docs/research/neural-chord-model-plan.en.md)、
+  先行研究・最先端比較を
+  [日本語](docs/research/neural-harmonization-sota.ja.md) /
+  [English](docs/research/neural-harmonization-sota.en.md)
+  で追加しました。初期configは
+  `configs/models/harmonyforge-bimask-base-v1.yaml` です。
+
 ### 追加 — 909曲から学習した経験則モデル
 
 - POP909の909曲をローカルで解析し、1,131の調性区間、93,904コードトークン
