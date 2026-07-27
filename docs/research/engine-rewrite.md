@@ -48,3 +48,17 @@ interfaces remain stable. Their internal objectives change in this order:
 6. deterministic seed only as a final tie break.
 
 Every phase must include an ablation showing which objective changed the output.
+
+## Implemented harmony milestone
+
+- Functional transition decimals were replaced by ordinal preference tiers.
+- Chord-kind selection now searches the complete span instead of sampling each
+  slot independently.
+- Applied dominants and tritone substitutes must resolve to the declared next
+  degree and its actual pitch root, including section and modulation seams.
+- P/L/R transformations are used only as contextual candidates inside a
+  functional chromatic-sequence state. The saved chord records the operation
+  and source triad, and validation recomputes the transformation.
+- Common-tone loss, fixed-cardinality voice-leading distance, root direction,
+  sounding-bass direction, and chromatic-run length remain separate reported
+  facts; they are not collapsed into an unsourced float.

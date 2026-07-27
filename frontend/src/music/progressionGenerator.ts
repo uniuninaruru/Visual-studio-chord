@@ -15,6 +15,7 @@ import type {
 import {
   canCreateHarmonyCandidate,
   createAdvancedChordEvent,
+  createNeoRiemannianChordEvent,
 } from "./advancedHarmony";
 import { planAdvancedProgressionKinds } from "./advancedProgressionPlanner";
 import {
@@ -38,6 +39,7 @@ import {
   type HarmonyCandidateKind,
   type StylePreset,
 } from "./styles";
+import type { NeoRiemannianOperation } from "./neoRiemannian";
 
 export interface ProgressionGeneratorSettings {
   key: PitchClassName;
@@ -301,23 +303,45 @@ function generateFunctionalProgression(
     const idHash = hashSeed(
       deriveSeed(settings.seed, "chord", "functional", slotIndex, candidate.step.degree),
     ).toString(36);
+    const previous = chords[chords.length - 1];
+    const operations: readonly NeoRiemannianOperation[] = ["P", "L", "R"];
+    const useNeoRiemannian =
+      candidate.function === "chromaticSequence"
+      && settings.harmony?.complexity === "advanced"
+      && (settings.harmony.explorationRate ?? 1) > 0
+      && previous !== undefined
+      && (previous.quality === "major" || previous.quality === "minor");
     chords.push(
-      createStepChordEvent({
+      useNeoRiemannian
+        ? createNeoRiemannianChordEvent({
+            key: settings.key,
+            mode: settings.mode,
+            previous,
+            operation: operations[
+              hashSeed(deriveSeed(settings.seed, "neo-riemannian", slotIndex))
+              % operations.length
+            ] as NeoRiemannianOperation,
+            startTick: slot.startTick,
+            durationTick: slot.durationTick,
+            id: `chord-${slotIndex}-${idHash}`,
+            voiceLeadingStrength: settings.harmony?.voiceLeadingStrength ?? 1,
+          })
+        : createStepChordEvent({
         key: settings.key,
         mode: settings.mode,
         step: candidate.step,
         startTick: slot.startTick,
         durationTick: slot.durationTick,
         id: `chord-${slotIndex}-${idHash}`,
-        previousNotes: chords[chords.length - 1]?.notes,
+        previousNotes: previous?.notes,
         voiceLeadingStrength: settings.harmony?.voiceLeadingStrength ?? 1,
-      }),
+          }),
     );
   }
 
   return {
     chords,
-    degrees: candidates.map((candidate) => candidate.step.degree),
+    degrees: chords.map((chord) => chord.degree),
     cadence,
     resolvedStyle: preset.id,
   };
