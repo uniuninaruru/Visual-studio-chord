@@ -120,6 +120,7 @@ export interface ComposerStoreState {
 
 export interface ComposerStoreActions {
   generateComposition(settings?: GeneratorSettingsPatch): void;
+  adoptAutoFixPreview(composition: GeneratedComposition): boolean;
   regenerateSelected(options?: RegenerationOptions): boolean;
   generatePreviewVariations(
     options?: RegenerationOptions,
@@ -137,6 +138,7 @@ export interface ComposerStoreActions {
   duplicateNotes(noteIds: string[], deltaTick?: number): string[];
   quantizeNotes(noteIds: string[], gridTick?: number): number;
   toggleBarLock(barIndex: number): void;
+  toggleVoiceMute(voiceId: string): boolean;
   setSelectedRange(range: BarRange | null): void;
   setLoopRange(range: TickRange | BarRange | null): void;
   undo(): boolean;
@@ -517,6 +519,23 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     });
   },
 
+  adoptAutoFixPreview: (composition) => {
+    const validation = validateComposition(composition);
+    if (!validation.valid) return false;
+    const state = get();
+    const next = clone(composition);
+    const update = stateAfterComposition(state, next, "auto-fix", null, true);
+    const loopRange = { startTick: 0, endTick: next.totalTicks };
+    set({
+      ...update,
+      selectedBarRange: null,
+      loopRange,
+      playbackLoopRange: update.pendingCommit ? state.playbackLoopRange : loopRange,
+      regenerationIteration: 0,
+    });
+    return true;
+  },
+
   regenerateSelected: (options = {}) => {
     const state = get();
     const range = normalizedBarRange(state.selectedBarRange, state.draftComposition);
@@ -856,6 +875,20 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
       startBar: barIndex,
       endBar: barIndex + 1,
     }));
+  },
+
+  toggleVoiceMute: (voiceId) => {
+    const state = get();
+    const voice = state.draftComposition.voices?.find((candidate) => candidate.id === voiceId);
+    if (!voice) return false;
+    const composition = clone(state.draftComposition);
+    composition.voices = composition.voices?.map((candidate) =>
+      candidate.id === voiceId
+        ? { ...candidate, muted: !candidate.muted }
+        : candidate
+    );
+    set(stateAfterComposition(state, composition, voice.muted ? "unmute-voice" : "mute-voice", null));
+    return true;
   },
 
   setSelectedRange: (range) => {

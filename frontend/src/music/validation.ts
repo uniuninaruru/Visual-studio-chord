@@ -174,6 +174,50 @@ export function validateGeneratorSettings(settings: GeneratorSettings): Validati
       );
     }
   }
+  if (settings.arrangement?.counterpoint) {
+    const counterpoint = settings.arrangement.counterpoint;
+    if (typeof counterpoint.enabled !== "boolean") {
+      issues.push(error("settings.arrangement.counterpoint.enabled", "Counterpoint enabled must be boolean."));
+    }
+    if (
+      counterpoint.position !== undefined
+      && counterpoint.position !== "above"
+      && counterpoint.position !== "below"
+    ) {
+      issues.push(error("settings.arrangement.counterpoint.position", "Counterpoint position must be above or below."));
+    }
+    if (counterpoint.independence !== undefined && !isProbability(counterpoint.independence)) {
+      issues.push(error("settings.arrangement.counterpoint.independence", "Counterpoint independence must be between 0 and 1."));
+    }
+  }
+  if (settings.arrangement?.canon) {
+    const canon = settings.arrangement.canon;
+    if (
+      typeof canon.enabled !== "boolean"
+      || !Number.isFinite(canon.delayBeats)
+      || canon.delayBeats <= 0
+      || canon.delayBeats > 16
+      || (canon.interval !== undefined && (!Number.isInteger(canon.interval) || Math.abs(canon.interval) > 24))
+      || (canon.inverted !== undefined && typeof canon.inverted !== "boolean")
+    ) {
+      issues.push(error("settings.arrangement.canon", "Canon settings are out of range."));
+    }
+  }
+  if (settings.arrangement?.polyrhythm) {
+    const polyrhythm = settings.arrangement.polyrhythm;
+    if (
+      typeof polyrhythm.enabled !== "boolean"
+      || !Number.isInteger(polyrhythm.pulses)
+      || polyrhythm.pulses < 1
+      || polyrhythm.pulses > 16
+      || (
+        polyrhythm.spanBars !== undefined
+        && (!Number.isInteger(polyrhythm.spanBars) || polyrhythm.spanBars < 1 || polyrhythm.spanBars > 4)
+      )
+    ) {
+      issues.push(error("settings.arrangement.polyrhythm", "Polyrhythm settings are out of range."));
+    }
+  }
   return result(issues);
 }
 
@@ -187,6 +231,7 @@ export function assertValidGeneratorSettings(settings: GeneratorSettings): void 
 function validateNote(
   note: NoteEvent,
   composition: GeneratedComposition,
+  enforceMelodyRange = true,
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const context = { eventId: note.id, barIndex: note.barIndex };
@@ -221,7 +266,10 @@ function validateNote(
       issues.push(error("note.barBoundary", "Note crosses its declared bar boundary.", context));
     }
   }
-  if (note.midi < composition.settings.melody.minMidi || note.midi > composition.settings.melody.maxMidi) {
+  if (
+    enforceMelodyRange
+    && (note.midi < composition.settings.melody.minMidi || note.midi > composition.settings.melody.maxMidi)
+  ) {
     issues.push(error("note.range", "Note is outside the configured melody range.", context));
   }
   return issues;
@@ -433,6 +481,44 @@ export function validateComposition(composition: GeneratedComposition): Validati
       issues.push(error("notes.overlap", "Phase 1 melody notes must not overlap.", { eventId: note.id }));
     }
     previousEnd = Math.max(previousEnd, note.startTick + note.durationTick);
+  }
+
+  const voiceIds = new Set<string>();
+  for (const voice of composition.voices ?? []) {
+    if (!voice.id || voiceIds.has(voice.id)) {
+      issues.push(error("voices.duplicateId", "Voice IDs must be non-empty and unique."));
+    }
+    voiceIds.add(voice.id);
+    if (!voice.name.trim()) {
+      issues.push(error("voices.name", "Every voice must have a name.", { eventId: voice.id }));
+    }
+    if (!["countermelody", "canon", "pulse"].includes(voice.role)) {
+      issues.push(error("voices.role", "Voice role is unsupported.", { eventId: voice.id }));
+    }
+    if (!["softLead", "pluck", "bass"].includes(voice.instrument)) {
+      issues.push(error("voices.instrument", "Voice instrument is unsupported.", { eventId: voice.id }));
+    }
+    if (
+      !Number.isInteger(voice.midiChannel)
+      || voice.midiChannel < 0
+      || voice.midiChannel > 15
+    ) {
+      issues.push(error("voices.channel", "Voice MIDI channel must be between 0 and 15.", { eventId: voice.id }));
+    }
+    let voicePreviousEnd = -1;
+    for (const note of [...voice.notes].sort(
+      (left, right) => left.startTick - right.startTick || left.id.localeCompare(right.id),
+    )) {
+      if (noteIds.has(note.id)) {
+        issues.push(error("voices.duplicateNoteId", "Note IDs must be unique across every voice.", { eventId: note.id }));
+      }
+      noteIds.add(note.id);
+      issues.push(...validateNote(note, composition, false));
+      if (note.startTick < voicePreviousEnd) {
+        issues.push(error("voices.overlap", "Notes inside one voice must not overlap.", { eventId: note.id }));
+      }
+      voicePreviousEnd = Math.max(voicePreviousEnd, note.startTick + note.durationTick);
+    }
   }
 
   const lockSet = new Set<number>();

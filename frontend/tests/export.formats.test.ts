@@ -18,8 +18,8 @@ describe("composition export", () => {
   it("round-trips the versioned JSON format", () => {
     const json = exportCompositionJson(composition);
     const document = JSON.parse(json) as { schemaVersion: number; appVersion: string };
-    expect(document.schemaVersion).toBe(1);
-    expect(document.appVersion).toMatch(/^0\.2\./);
+    expect(document.schemaVersion).toBe(2);
+    expect(document.appVersion).toMatch(/^0\.3\./);
     const imported = importCompositionJson(json);
     expect(imported).toEqual(composition);
     expect(imported).not.toBe(composition);
@@ -125,20 +125,61 @@ describe("composition export", () => {
     expect(() => importCompositionJson(JSON.stringify(document))).toThrow(/incomplete or out of range/);
   });
 
-  it("exports separate, parseable chord and melody MIDI tracks", () => {
+  it("exports separate, parseable left hand, right hand and melody MIDI tracks", () => {
     const bytes = exportCompositionMidi(composition);
     const midi = new Midi(bytes);
 
     expect(midi.header.tempos[0]?.bpm).toBeCloseTo(composition.settings.bpm);
-    expect(midi.tracks.map((track) => track.name)).toEqual(["Chords", "Melody"]);
-    expect(midi.tracks[0]?.notes).toHaveLength(
-      composition.chords.reduce((total, chord) => total + chord.notes.length, 0),
+    expect(midi.tracks.map((track) => track.name)).toEqual([
+      "Bass / Left Hand",
+      "Chords / Right Hand",
+      "Melody",
+    ]);
+    expect(midi.tracks[0]?.notes).toHaveLength(composition.chords.length);
+    expect(midi.tracks[1]?.notes).toHaveLength(
+      composition.chords.reduce(
+        (total, chord) => total + Math.max(0, chord.notes.length - 1),
+        0,
+      ),
     );
-    expect(midi.tracks[1]?.notes).toHaveLength(composition.notes.length);
-    expect(midi.tracks[1]?.notes[0]?.ticks).toBe(composition.notes[0]?.startTick);
-    expect(midi.tracks[1]?.notes[0]?.velocity).toBeCloseTo(
+    expect(midi.tracks[2]?.notes).toHaveLength(composition.notes.length);
+    expect(midi.tracks[2]?.notes[0]?.ticks).toBe(composition.notes[0]?.startTick);
+    expect(midi.tracks[2]?.notes[0]?.velocity).toBeCloseTo(
       (composition.notes[0]?.velocity ?? 0) / 127,
       1,
     );
+  });
+
+  it("round-trips additional voices and exports each as a MIDI track", () => {
+    const arranged = generateComposition({
+      ...DEFAULT_GENERATOR_SETTINGS,
+      bars: 8,
+      seed: "multi-voice-export",
+      arrangement: {
+        counterpoint: { enabled: true, position: "below", independence: 0.7 },
+        canon: { enabled: true, delayBeats: 2, interval: 7 },
+        polyrhythm: { enabled: true, pulses: 3 },
+      },
+    });
+
+    expect(arranged.voices?.map((voice) => voice.role)).toEqual([
+      "countermelody",
+      "canon",
+      "pulse",
+    ]);
+    expect(importCompositionJson(exportCompositionJson(arranged))).toEqual(arranged);
+
+    const midi = new Midi(exportCompositionMidi(arranged));
+    expect(midi.tracks.map((track) => track.name)).toEqual([
+      "Bass / Left Hand",
+      "Chords / Right Hand",
+      "Melody",
+      "Countermelody",
+      "Canon",
+      "Pulse layer",
+    ]);
+    for (const [index, voice] of (arranged.voices ?? []).entries()) {
+      expect(midi.tracks[index + 3]?.notes).toHaveLength(voice.notes.length);
+    }
   });
 });

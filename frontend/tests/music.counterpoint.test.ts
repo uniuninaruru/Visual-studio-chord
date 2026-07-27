@@ -90,16 +90,14 @@ describe("writing a countermelody", () => {
     }
   });
 
-  it("still writes a note where the range cannot clear the melody", () => {
-    // The two lines are paired by position, so dropping one would silently
-    // misalign every comparison after it.
+  it("uses rests rather than crossing or adding dissonance when the range is impossible", () => {
     const composition = piece("narrow");
     const notes = generateCountermelody({
       melody: composition.notes, chords: composition.chords,
       scaleForBar: () => SCALE, range: [60, 64],
       settings: { enabled: true, position: "above" }, seed: "narrow",
     });
-    expect(notes).toHaveLength(composition.notes.length);
+    expect(notes.length).toBeLessThan(composition.notes.length);
     for (const note of notes) {
       expect(note.midi).toBeGreaterThanOrEqual(60);
       expect(note.midi).toBeLessThanOrEqual(64);
@@ -124,7 +122,7 @@ describe("writing a countermelody", () => {
     expect(checked).toBeGreaterThan(300);
   });
 
-  it("keeps dissonance rare", () => {
+  it("keeps first-species vertical intervals consonant throughout", () => {
     let dissonances = 0;
     let total = 0;
     for (const seed of ["c1", "c2", "c3", "c4", "c5", "c6"]) {
@@ -134,7 +132,7 @@ describe("writing a countermelody", () => {
       total += notes.length;
     }
     expect(total).toBeGreaterThan(300);
-    expect(dissonances / total).toBeLessThan(0.15);
+    expect(dissonances).toBe(0);
   });
 
   it("moves against the melody more as independence rises", () => {

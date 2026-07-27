@@ -12,6 +12,7 @@ import {
   type SectionEvent,
 } from "../types/music";
 import { voiceChord } from "./chords";
+import { buildArrangementVoices } from "./arrangement";
 import {
   planMelodicSkeleton,
   type MelodicSkeletonNote,
@@ -51,8 +52,8 @@ export const DEFAULT_GENERATOR_SETTINGS: Readonly<GeneratorSettings> = Object.fr
   style: "pop",
   seed: "phase-1",
   melody: Object.freeze({
-    minMidi: 60,
-    maxMidi: 84,
+    minMidi: 55,
+    maxMidi: 88,
     density: 0.52,
     velocity: 92,
     chordToneRate: 0.68,
@@ -89,6 +90,19 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
       ? { ...settings.euclideanRhythm }
       : undefined,
     groove: settings.groove ? { ...settings.groove } : undefined,
+    arrangement: settings.arrangement
+      ? {
+          counterpoint: settings.arrangement.counterpoint
+            ? { ...settings.arrangement.counterpoint }
+            : undefined,
+          canon: settings.arrangement.canon
+            ? { ...settings.arrangement.canon }
+            : undefined,
+          polyrhythm: settings.arrangement.polyrhythm
+            ? { ...settings.arrangement.polyrhythm }
+            : undefined,
+        }
+      : undefined,
     nonChordTones: settings.nonChordTones
       ? {
           ...settings.nonChordTones,
@@ -181,6 +195,28 @@ function compositionFingerprint(settings: GeneratorSettings): string {
           "non-chord-tones",
           settings.nonChordTones.rate ?? 0.5,
           [...(settings.nonChordTones.types ?? [])].sort().join(",") || "all",
+        ]
+      : []),
+    ...(settings.arrangement?.counterpoint?.enabled
+      ? [
+          "counterpoint",
+          settings.arrangement.counterpoint.position ?? "below",
+          settings.arrangement.counterpoint.independence ?? 0.5,
+        ]
+      : []),
+    ...(settings.arrangement?.canon?.enabled
+      ? [
+          "canon",
+          settings.arrangement.canon.delayBeats,
+          settings.arrangement.canon.interval ?? 0,
+          settings.arrangement.canon.inverted ?? false,
+        ]
+      : []),
+    ...(settings.arrangement?.polyrhythm?.enabled
+      ? [
+          "polyrhythm",
+          settings.arrangement.polyrhythm.pulses,
+          settings.arrangement.polyrhythm.spanBars ?? 1,
         ]
       : []),
   ].join("|");
@@ -337,6 +373,16 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
   });
   const durationTick = ticksPerBar(copiedSettings.timeSignature, PPQ);
   const fingerprint = compositionFingerprint(copiedSettings);
+  const totalTicks = durationTick * copiedSettings.bars;
+  const voices = buildArrangementVoices({
+    settings: copiedSettings,
+    melody: notes,
+    chords: progression.chords,
+    sections,
+    totalTicks,
+    ticksPerBar: durationTick,
+    ppq: PPQ,
+  });
   return {
     id: `composition-${hashSeed(fingerprint).toString(36)}`,
     version: 1,
@@ -344,13 +390,14 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
     settings: copiedSettings,
     ppq: PPQ,
     ticksPerBar: durationTick,
-    totalTicks: durationTick * copiedSettings.bars,
+    totalTicks,
     timeSignature: copiedSettings.timeSignature,
     resolvedStyle: progression.resolvedStyle,
     cadence: progression.cadence,
     bars: createBars(copiedSettings.bars, copiedSettings.timeSignature, PPQ),
     chords: progression.chords,
     notes,
+    ...(voices.length > 0 ? { voices } : {}),
     lockedBars: [],
     ...(sections ? { sections } : {}),
   };
@@ -627,6 +674,15 @@ export function regenerateRange(
     target,
     strength,
   );
+  const voices = buildArrangementVoices({
+    settings: variationSettings,
+    melody: notes,
+    chords,
+    sections: composition.sections,
+    totalTicks: composition.totalTicks,
+    ticksPerBar: composition.ticksPerBar,
+    ppq: composition.ppq,
+  });
   return {
     ...composition,
     id: `composition-${hashSeed(idSeed).toString(36)}`,
@@ -636,6 +692,7 @@ export function regenerateRange(
     resolvedStyle,
     chords,
     notes,
+    ...(voices.length > 0 ? { voices } : { voices: undefined }),
     lockedBars: [...composition.lockedBars],
   };
 }
