@@ -39,7 +39,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version=__version__,
     )
     application.state.settings = resolved_settings
-    application.state.model_manager = ModelManager(resolved_settings.inference_model)
+    application.state.model_manager = ModelManager(
+        resolved_settings.inference_model,
+        model_directory=resolved_settings.model_directory,
+    )
     application.state.preference_store = PreferenceStore()
 
     @application.exception_handler(RequestValidationError)

@@ -5,9 +5,11 @@ from __future__ import annotations
 import base64
 import hashlib
 import importlib
+import json
 import math
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from app.schemas.api import BackendKind, RankCandidate, RuntimeDevice
@@ -202,6 +204,178 @@ class MockDeterministicBackend(DeterministicBackend):
         if not self._loaded:
             raise RuntimeInferenceError("mock backend is not loaded")
         return [_mock_score(candidate) for candidate in candidates]
+
+
+class CorpusNGramBackend:
+    """Experience model learned from normalized, key-relative chord sequences.
+
+    The interpolation coefficient is derived from context frequency instead of
+    a hand-tuned style weight. Hard theory validation remains upstream of this
+    ranker, so statistical popularity cannot legalize an invalid resolution.
+    """
+
+    model_id = "harmony-corpus-ngram-v1"
+    backend_kind: BackendKind = "corpus"
+    mock = False
+    device: RuntimeDevice = "cpu"
+
+    def __init__(self, model_path: Path) -> None:
+        self._model_path = model_path
+        self._loaded = False
+        self._orders: dict[int, dict[str, int]] = {}
+        self._totals: dict[int, int] = {}
+        self._context_totals: dict[int, dict[str, int]] = {}
+        self._vocabulary_size = 0
+        self._maximum_order = 0
+
+    def load(self) -> None:
+        if self._loaded:
+            return
+        try:
+            payload = json.loads(self._model_path.read_text(encoding="utf-8"))
+            if (
+                not isinstance(payload, dict)
+                or payload.get("schemaVersion") != 1
+                or payload.get("modelId") != self.model_id
+                or not isinstance(payload.get("orders"), dict)
+            ):
+                raise ModelUnavailableError("Corpus harmony model has an invalid schema")
+            orders: dict[int, dict[str, int]] = {}
+            for raw_order, raw_counts in payload["orders"].items():
+                order = int(raw_order)
+                if order < 1 or order > 8 or not isinstance(raw_counts, dict):
+                    raise ModelUnavailableError("Corpus harmony model has an invalid order")
+                counts: dict[str, int] = {}
+                for gram, count in raw_counts.items():
+                    if (
+                        not isinstance(gram, str)
+                        or len(gram) > 128
+                        or not isinstance(count, int)
+                        or isinstance(count, bool)
+                        or count <= 0
+                    ):
+                        raise ModelUnavailableError("Corpus harmony model has invalid counts")
+                    counts[gram] = count
+                if not counts:
+                    raise ModelUnavailableError("Corpus harmony model contains an empty order")
+                orders[order] = counts
+            maximum_order = max(orders, default=0)
+            if set(orders) != set(range(1, maximum_order + 1)):
+                raise ModelUnavailableError(
+                    "Corpus harmony model orders must be contiguous from one"
+                )
+            self._orders = orders
+            self._totals = {
+                order: sum(counts.values())
+                for order, counts in orders.items()
+            }
+            self._context_totals = {}
+            for order, counts in orders.items():
+                if order == 1:
+                    continue
+                context_totals: dict[str, int] = {}
+                for gram, count in counts.items():
+                    context = ">".join(gram.split(">")[:-1])
+                    context_totals[context] = context_totals.get(context, 0) + count
+                self._context_totals[order] = context_totals
+            self._vocabulary_size = len(orders[1])
+            self._maximum_order = maximum_order
+            self._loaded = True
+        except ModelUnavailableError:
+            raise
+        except Exception:
+            raise ModelUnavailableError("Corpus harmony model could not be loaded") from None
+
+    @staticmethod
+    def _features_for_order(candidate: RankCandidate, order: int) -> dict[str, float]:
+        prefixes = (
+            f"harmonyToken.{order}.",
+            f"harmony.harmonyToken.{order}.",
+            f"degree.{order}.",
+            f"harmony.degree.{order}.",
+        )
+        return {
+            name.removeprefix(prefix): value
+            for name, value in candidate.features.items()
+            for prefix in prefixes
+            if name.startswith(prefix)
+        }
+
+    def _interpolated_probability(self, tokens: tuple[str, ...]) -> float:
+        """Return a data-weighted recursive n-gram probability.
+
+        Contexts observed often trust their maximum-likelihood estimate. Sparse
+        or unseen contexts automatically lean on the shorter suffix model.
+        """
+
+        if len(tokens) == 1:
+            count = self._orders[1].get(tokens[0], 0)
+            return (count + 1) / (self._totals[1] + self._vocabulary_size)
+
+        order = len(tokens)
+        gram = ">".join(tokens)
+        context = ">".join(tokens[:-1])
+        context_count = self._context_totals[order].get(context, 0)
+        lower_probability = self._interpolated_probability(tokens[1:])
+        if context_count == 0:
+            return lower_probability
+        maximum_likelihood = self._orders[order].get(gram, 0) / context_count
+        interpolation = context_count / (context_count + self._vocabulary_size)
+        return (
+            interpolation * maximum_likelihood
+            + (1 - interpolation) * lower_probability
+        )
+
+    def score_batch(self, candidates: list[RankCandidate]) -> list[float]:
+        if not self._loaded:
+            raise RuntimeInferenceError("corpus harmony model is not loaded")
+        scores: list[float] = []
+        for candidate in candidates:
+            score = 0.0
+            for order in range(self._maximum_order, 0, -1):
+                features = self._features_for_order(candidate, order)
+                if not features:
+                    continue
+                score = sum(
+                    fraction
+                    * math.log(
+                        max(
+                            self._interpolated_probability(tuple(gram.split(">"))),
+                            sys.float_info.min,
+                        )
+                    )
+                    for gram, fraction in features.items()
+                )
+                break
+            scores.append(round(score, 8))
+        return scores
+
+    def unload(self) -> None:
+        self._orders = {}
+        self._totals = {}
+        self._context_totals = {}
+        self._vocabulary_size = 0
+        self._maximum_order = 0
+        self._loaded = False
+
+    def health(self) -> BackendHealth:
+        return BackendHealth(
+            healthy=self._loaded,
+            loaded=self._loaded,
+            model_id=self.model_id,
+            backend=self.backend_kind,
+            device=self.device,
+            mock=self.mock,
+        )
+
+    def clear_accelerator_cache(self) -> None:
+        return None
+
+    def move_to_cpu(self) -> None:
+        return None
+
+    def restore_preferred_device(self) -> None:
+        return None
 
 
 def _mock_score(candidate: RankCandidate) -> float:

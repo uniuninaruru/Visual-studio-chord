@@ -62,3 +62,27 @@ Every phase must include an ablation showing which objective changed the output.
 - Common-tone loss, fixed-cardinality voice-leading distance, root direction,
   sounding-bass direction, and chromatic-run length remain separate reported
   facts; they are not collapsed into an unsourced float.
+
+## Empirical harmony milestone
+
+The first experience model is `harmony-corpus-ngram-v1`.
+
+- Training checkout: POP909 commit
+  `d83e6edba6872a704f5d3b8b32f5cb540088dae6`.
+- Training population: 909 songs, split into 1,131 uninterrupted key regions.
+- Normalized observations: 93,904 chord tokens.
+- Representation: `(root semitones relative to active key, normalized quality)`.
+- Orders: one through five.
+- Runtime: recursive interpolation. The interpolation coefficient is
+  `context_count / (context_count + vocabulary_size)`, so it is estimated from
+  evidence density rather than selected by ear.
+- Boundary: the model ranks candidates that already passed hard theory
+  validation. It cannot make an illegal resolution valid.
+- Reproducibility: `scripts/train-harmony-corpus.py`; model metadata records the
+  source repository and commit.
+- Data minimization: the output contains aggregate counts only, not MIDI,
+  titles, audio, lyrics, or raw chord annotations.
+
+This is a pop-harmony language model, not a universal musical-quality model.
+Results for jazz, common-practice counterpoint, game music, and non-Western
+tonal systems require separate declared corpora and held-out evaluation.

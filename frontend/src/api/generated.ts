@@ -212,7 +212,7 @@ export interface components {
              * Activemodel
              * @enum {string}
              */
-            activeModel: "local-deterministic-v1" | "local-mlp-v1" | "local-onnx-v1" | "mock-deterministic-v1";
+            activeModel: "local-deterministic-v1" | "harmony-corpus-ngram-v1" | "local-mlp-v1" | "local-onnx-v1" | "mock-deterministic-v1";
             /**
              * Apiversion
              * @description Expose the immutable contract version as a required response field.
@@ -225,7 +225,7 @@ export interface components {
              * Backend
              * @enum {string}
              */
-            backend: "linear" | "pytorch" | "onnx" | "browser" | "mock";
+            backend: "linear" | "corpus" | "pytorch" | "onnx" | "browser" | "mock";
             /** Fallbackreason */
             fallbackReason: string | null;
             /** Inferenceauthorized */
@@ -263,7 +263,7 @@ export interface components {
              * Modelid
              * @enum {string}
              */
-            modelId: "local-deterministic-v1" | "local-mlp-v1" | "local-onnx-v1" | "mock-deterministic-v1";
+            modelId: "local-deterministic-v1" | "harmony-corpus-ngram-v1" | "local-mlp-v1" | "local-onnx-v1" | "mock-deterministic-v1";
             /** Requestid */
             requestId?: string | null;
         };
@@ -273,12 +273,12 @@ export interface components {
              * Activebackend
              * @enum {string}
              */
-            activeBackend: "linear" | "pytorch" | "onnx" | "browser" | "mock";
+            activeBackend: "linear" | "corpus" | "pytorch" | "onnx" | "browser" | "mock";
             /**
              * Activemodel
              * @enum {string}
              */
-            activeModel: "local-deterministic-v1" | "local-mlp-v1" | "local-onnx-v1" | "mock-deterministic-v1";
+            activeModel: "local-deterministic-v1" | "harmony-corpus-ngram-v1" | "local-mlp-v1" | "local-onnx-v1" | "mock-deterministic-v1";
             /**
              * Activeruntime
              * @enum {string}
@@ -308,7 +308,7 @@ export interface components {
              * Backend
              * @enum {string}
              */
-            backend: "linear" | "pytorch" | "onnx" | "browser" | "mock";
+            backend: "linear" | "corpus" | "pytorch" | "onnx" | "browser" | "mock";
             /** Capabilities */
             capabilities: "rank"[];
             /** Id */
@@ -331,12 +331,12 @@ export interface components {
              * Activebackend
              * @enum {string}
              */
-            activeBackend: "linear" | "pytorch" | "onnx" | "browser" | "mock";
+            activeBackend: "linear" | "corpus" | "pytorch" | "onnx" | "browser" | "mock";
             /**
              * Activemodel
              * @enum {string}
              */
-            activeModel: "local-deterministic-v1" | "local-mlp-v1" | "local-onnx-v1" | "mock-deterministic-v1";
+            activeModel: "local-deterministic-v1" | "harmony-corpus-ngram-v1" | "local-mlp-v1" | "local-onnx-v1" | "mock-deterministic-v1";
             /**
              * Activeruntime
              * @enum {string}
@@ -428,7 +428,7 @@ export interface components {
             /** Candidates */
             candidates: components["schemas"]["RankCandidate"][];
             /** Modelid */
-            modelId?: ("local-deterministic-v1" | "local-mlp-v1" | "local-onnx-v1" | "mock-deterministic-v1") | null;
+            modelId?: ("local-deterministic-v1" | "harmony-corpus-ngram-v1" | "local-mlp-v1" | "local-onnx-v1" | "mock-deterministic-v1") | null;
             /**
              * Preferencecategory
              * @default combined
@@ -457,7 +457,7 @@ export interface components {
              * Backend
              * @enum {string}
              */
-            backend: "linear" | "pytorch" | "onnx" | "browser" | "mock";
+            backend: "linear" | "corpus" | "pytorch" | "onnx" | "browser" | "mock";
             /** Batchsize */
             batchSize: number;
             /**
@@ -473,7 +473,7 @@ export interface components {
              * Modelid
              * @enum {string}
              */
-            modelId: "local-deterministic-v1" | "local-mlp-v1" | "local-onnx-v1" | "mock-deterministic-v1";
+            modelId: "local-deterministic-v1" | "harmony-corpus-ngram-v1" | "local-mlp-v1" | "local-onnx-v1" | "mock-deterministic-v1";
             /** Ranked */
             ranked: components["schemas"]["RankedCandidate"][];
             /** Requestid */

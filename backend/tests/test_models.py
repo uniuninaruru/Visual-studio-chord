@@ -1,3 +1,5 @@
+import json
+
 from app.schemas.api import RankCandidate
 from app.services import models
 from app.services.device import DeviceInfo
@@ -69,6 +71,41 @@ def _device(**overrides) -> DeviceInfo:
     }
     values.update(overrides)
     return DeviceInfo(**values)
+
+
+def _write_corpus_model(model_directory) -> None:
+    model_directory.mkdir()
+    (model_directory / "harmony-corpus-v1.json").write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "modelId": models.CORPUS_MODEL_ID,
+                "orders": {
+                    "1": {"0:major": 2, "7:dominant7": 1},
+                    "2": {"0:major>7:dominant7": 1},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_auto_prefers_available_empirical_corpus_model(tmp_path) -> None:
+    model_directory = tmp_path / "models"
+    _write_corpus_model(model_directory)
+
+    manager = models.ModelManager("auto", model_directory=model_directory)
+
+    assert manager.active_model == models.CORPUS_MODEL_ID
+    assert manager.model_info(models.CORPUS_MODEL_ID, _device()).available is True
+    assert manager.model_info(models.CORPUS_MODEL_ID, _device()).backend == "corpus"
+
+
+def test_missing_explicit_corpus_model_falls_back_to_theory(tmp_path) -> None:
+    manager = models.ModelManager("corpus", model_directory=tmp_path / "missing")
+
+    assert manager.active_model == models.LOCAL_MODEL_ID
+    assert manager.fallback_reason == "corpusUnavailableTheoryFallback"
 
 
 def test_auto_prefers_gpu_onnx_and_caches_it(monkeypatch) -> None:

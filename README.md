@@ -1,12 +1,17 @@
 # Visual studio chord
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Version: 0.3.0](https://img.shields.io/badge/version-0.3.0-6f42c1.svg)](CHANGELOG.md)
 
 **コード進行とメロディを自動で作ってくれる、作曲の練習・アイデア出し用のアプリです。**
 
 キーと雰囲気を選んで「生成」を押すと、音楽理論に沿った曲が1曲できます。気に入らない部分だけを選んで作り直したり、音を直接動かしたりできます。**曲を再生したまま編集できる**のが特徴です。
 
 楽譜が読めなくても、音楽理論を知らなくても使えます。作った曲はMIDIファイルとして書き出せるので、GarageBandやCubaseなどのDAWに読み込んで続きを作れます。
+
+v0.3.0では、909曲のコード注釈から学習した経験則モデルと、論文に基づく
+制約探索を既存エンジンへ統合しました。理論的に無効な候補を先に除外し、
+残った候補を実曲コーパスで順位付けします。
 
 ### こんなことができます
 
@@ -379,20 +384,60 @@ CUDA や外部モデルは必須ではありません。Docker標準構成は移
 
 | 層 | 方式 |
 | --- | --- |
-| 生成 | 決定的な音楽理論エンジン（スケール・ダイアトニック和声・ケイデンス・ボイスリーディング・モチーフ） |
+| 制約付き生成 | 決定的な音楽理論エンジン（終止・適用和音の実根音解決・スケール・ボイスリーディング・モチーフ） |
+| 経験則モデル | POP909の909曲、1,131調性区間、93,904コードトークンから学習した1〜5次の調和言語モデル |
 | 好み調整 | 候補を特徴量化し、Like / Dislike / Favorite / A-B選択から更新した重みでランキング |
-| 実行環境 | ローカル推論バックエンドを任意選択（`MTC_INFERENCE_MODEL` = `auto` / `linear` / `mlp` / `onnx` / `mock-deterministic`） |
+| 実行環境 | ローカル推論バックエンドを任意選択（`MTC_INFERENCE_MODEL` = `auto` / `corpus` / `linear` / `mlp` / `onnx` / `mock-deterministic`） |
 
-曲そのものは生成AIではなく音楽理論エンジンが作ります。学習が効くのは「複数候補の並び順」であり、学習データが無い状態では中立（決定的な順序）になります。
+現行の経験則モデルは、正式データを直接書き換える生成モデルではありません。
+音楽理論エンジンが複数の安全な候補を作り、コーパス尤度と個人の好みで並べます。
+これにより、頻出するという理由だけで未解決ドミナントや声部交差を採用することを
+防ぎます。
 
 推論のフォールバックは次のとおりです。
 
 ```text
-利用可能なローカルGPU
-  → ローカルCPU
+経験則コーパスモデル（デスクトップCPU）
+  → 任意のローカルCPU / GPUモデル
     → ブラウザ軽量ランキング
       → 音楽理論だけの決定的生成
 ```
+
+`auto` は、学習済みのコーパスモデルが存在する場合、学習されていない開発用
+MLP / ONNX rankerより先に選びます。GPUが存在するだけで音楽品質が上がったとは
+判定しません。
+
+### 経験則モデルを再学習する
+
+追跡済みモデルはそのまま利用できます。POP909を別の場所へcheckoutし、
+集計モデルを再現する場合は次を実行します。
+
+```bash
+python3 scripts/train-harmony-corpus.py \
+  --pop909 /path/to/POP909-Dataset \
+  --output models/harmony-corpus-v1.json \
+  --max-order 5
+```
+
+学習器は転調を別系列に分け、現在キーに対するルート差とコード品質へ正規化し、
+隣接重複を除いてからn-gramを数えます。出力は一時ファイルからatomicに置換され、
+失敗時に以前のモデルを壊しません。元MIDI、曲名、歌詞、注釈行はモデルへ入りません。
+詳細と出典は [models/README.md](models/README.md) と
+[研究台帳](docs/research/engine-rewrite.md) を参照してください。
+
+### デスクトップ・スマートフォン・容量方針
+
+- **デスクトップ**: モデル保存、再学習、CPU/GPU推論、詳細編集、Diagnosticsを
+  担うローカルホストです。モデル容量にアプリ独自の上限は設けません。
+- **スマートフォン / タブレット**: 同じLAN上のデスクトップへ接続します。
+  画面は再生、生成、候補比較、評価を優先しますが、ランキング自体は
+  デスクトップ上の同じ高品質モデルを使用します。
+- **オフライン**: セットアップ済みなら、外部CDNやクラウド推論なしで
+  生成・再生・編集・保存・コーパスランキングを継続できます。
+
+今後は容量、モデルサイズ、ダウンロード量、クライアント計算量を主要な採否基準に
+しません。高品質モデルは`MODEL_DIRECTORY`へ置き、Gitへ巨大バイナリを直接含めず、
+モデルmanifestと検証値で再現可能に管理します。
 
 ## アーキテクチャ
 
@@ -407,7 +452,8 @@ React / TypeScript
                  ▼
 FastAPI local server
   ├─ health / device / models / rank / preferences
-  ├─ Mock / Linear / PyTorch / ONNX backend interface
+  ├─ Corpus n-gram / Mock / Linear / PyTorch / ONNX backend interface
+  ├─ POP909由来の集計モデルとローカル再学習
   ├─ OOM時のbatch縮小とCPUフォールバック
   └─ CUDA / MPS / Core ML / DirectML / CPU
 ```
@@ -436,7 +482,8 @@ Diagnostics では、build時のNode.js、接続中サーバーのPython / OS / 
 - CORSは明示したloopback originだけを許可し、ワイルドカードを拒否します。
 - APIから任意パス、任意モデル、シェルコマンドを指定できません。
 - 読込失敗や推論失敗後の中間データを正式プロジェクトとして保存しません。
-- `.env`、モデルファイル、個人パスはGitへ含めません。
+- `.env`、個人パス、巨大な外部モデル本体はGitへ含めません。再現可能な
+  集計コーパスモデルとmodel cardは例外として追跡します。
 
 ## 品質チェック
 
@@ -496,7 +543,7 @@ LOG_LEVEL=INFO
 
 FastAPI の OpenAPI は `/openapi.json` で確認できます。API はバージョン `1` と request ID を返し、モデルIDは許可リストからのみ選択できます。フロントエンド型は OpenAPI から生成し、CIで差分を検査します。
 
-プロジェクトJSONには `schemaVersion` と `appVersion` が含まれます。旧v1形式は安全に移行し、未知の将来バージョンは現在の曲を変更せず拒否します。読込時はサイズ、MIME / 拡張子の手掛かり、JSON構造、数値範囲、tick、MIDI値を検証します。モデル本体はGitへ含めません。
+プロジェクトJSONには `schemaVersion` と `appVersion` が含まれます。旧v1形式は安全に移行し、未知の将来バージョンは現在の曲を変更せず拒否します。読込時はサイズ、MIME / 拡張子の手掛かり、JSON構造、数値範囲、tick、MIDI値を検証します。モデルは曲データと別schemaで検証し、未知形式を無理に読み込みません。
 
 ## ディレクトリ
 
@@ -509,6 +556,7 @@ frontend/src/features/    UI、診断、JSON / MIDI
 frontend/src/api/         OpenAPI由来のローカル推論クライアント
 backend/app/              FastAPIと推論バックエンド
 backend/tests/            Unit / integration / optional GPU tests
+models/                   追跡可能な集計モデル、model card、外部モデル配置先
 scripts/                  全OSのsetup / dev / test / diagnostics
 docs/                     互換性マトリクスとリリース検証チェックリスト
 ```
@@ -516,8 +564,10 @@ docs/                     互換性マトリクスとリリース検証チェッ
 ## ロードマップ
 
 - 名前付き進行・曲構造（セクション/転調）をBasic/Advanced設定UIから選択可能にする（現状はAPI/設定オブジェクト経由）
+- POP909以外の許諾済みコーパスを使ったスタイル別・階層型モデル
+- AutoHarmonizer等の公開学習済みモデルを共通backendへ移植し、旋律条件付き候補生成
 - A/B選択データを使ったpairwise ranking学習
-- GPUを活かしたさらに高度な学習やコード生成
+- GPUを活かしたTransformer / diffusion候補生成とバッチ評価
 - 楽器の数を増やす
 - UI/UX面での快適性向上
 - VSTプラグイン化も視野に

@@ -66,11 +66,22 @@ describe("preference feature extraction", () => {
     customized.chords[2]!.specialKind = "borrowed";
     customized.chords[3]!.source = "diatonic";
     customized.chords[1]!.quality = "dominant7";
+    customized.settings.key = "C";
+    customized.chords[0]!.root = "C";
+    customized.chords[0]!.quality = "major";
+    customized.chords[1]!.root = "G";
+    customized.chords[2]!.root = "C";
+    customized.chords[2]!.quality = "major";
+    customized.chords[3]!.root = "F";
+    customized.chords[3]!.quality = "major";
     const features = extractHarmonyFeatures(customized);
 
     expect(features["roman.1.I"]).toBe(0.5);
     expect(features["roman.2.I>V/V"]).toBeCloseTo(1 / 3);
     expect(features["roman.3.V/V>V>I"]).toBe(0.5);
+    expect(
+      features["harmonyToken.4.0:major>7:dominant7>0:major>5:major"]
+    ).toBe(1);
     expect(features["cadence.authentic"] ?? features[`cadence.${customized.cadence}`]).toBeDefined();
     expect(features["source.secondaryDominant"]).toBe(0.25);
     expect(features["source.borrowed"]).toBe(0.25);
@@ -85,6 +96,45 @@ describe("preference feature extraction", () => {
       ["function.tonic", "function.predominant", "function.dominant", "function.other"]
         .reduce((sum, key) => sum + (features[key] ?? 0), 0),
     ).toBeCloseTo(1);
+  });
+
+  it("normalizes corpus tokens against the active section key", () => {
+    const generated = composition("modulated-corpus-features");
+    generated.settings.key = "C";
+    generated.sections = [
+      {
+        id: "section-c",
+        kind: "verse",
+        startBar: 0,
+        endBar: 2,
+        key: "C",
+        mode: "major",
+        transpose: 0,
+      },
+      {
+        id: "section-d",
+        kind: "chorus",
+        startBar: 2,
+        endBar: 4,
+        key: "D",
+        mode: "major",
+        transpose: 2,
+      },
+    ];
+    const roots = ["C", "G", "D", "A"] as const;
+    generated.chords.forEach((chord, index) => {
+      chord.root = roots[index] as typeof chord.root;
+      chord.quality = index % 2 === 0 ? "major" : "dominant7";
+      chord.startTick = index * generated.ticksPerBar;
+    });
+
+    const features = extractHarmonyFeatures(generated);
+
+    expect(
+      features[
+        "harmonyToken.4.0:major>7:dominant7>0:major>7:dominant7"
+      ]
+    ).toBe(1);
   });
 
   it("measures chord tones, melodic leaps, repetitions, contour, and density", () => {
