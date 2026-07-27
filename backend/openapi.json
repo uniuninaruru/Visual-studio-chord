@@ -178,6 +178,7 @@
           "activeModel": {
             "enum": [
               "local-deterministic-v1",
+              "harmony-corpus-ngram-v1",
               "local-mlp-v1",
               "local-onnx-v1",
               "mock-deterministic-v1"
@@ -199,6 +200,7 @@
           "backend": {
             "enum": [
               "linear",
+              "corpus",
               "pytorch",
               "onnx",
               "browser",
@@ -308,6 +310,7 @@
           "modelId": {
             "enum": [
               "local-deterministic-v1",
+              "harmony-corpus-ngram-v1",
               "local-mlp-v1",
               "local-onnx-v1",
               "mock-deterministic-v1"
@@ -342,6 +345,7 @@
           "activeBackend": {
             "enum": [
               "linear",
+              "corpus",
               "pytorch",
               "onnx",
               "browser",
@@ -353,6 +357,7 @@
           "activeModel": {
             "enum": [
               "local-deterministic-v1",
+              "harmony-corpus-ngram-v1",
               "local-mlp-v1",
               "local-onnx-v1",
               "mock-deterministic-v1"
@@ -432,6 +437,7 @@
           "backend": {
             "enum": [
               "linear",
+              "corpus",
               "pytorch",
               "onnx",
               "browser",
@@ -496,6 +502,7 @@
           "activeBackend": {
             "enum": [
               "linear",
+              "corpus",
               "pytorch",
               "onnx",
               "browser",
@@ -507,6 +514,7 @@
           "activeModel": {
             "enum": [
               "local-deterministic-v1",
+              "harmony-corpus-ngram-v1",
               "local-mlp-v1",
               "local-onnx-v1",
               "mock-deterministic-v1"
@@ -764,6 +772,7 @@
               {
                 "enum": [
                   "local-deterministic-v1",
+                  "harmony-corpus-ngram-v1",
                   "local-mlp-v1",
                   "local-onnx-v1",
                   "mock-deterministic-v1"
@@ -830,6 +839,7 @@
           "backend": {
             "enum": [
               "linear",
+              "corpus",
               "pytorch",
               "onnx",
               "browser",
@@ -871,6 +881,7 @@
           "modelId": {
             "enum": [
               "local-deterministic-v1",
+              "harmony-corpus-ngram-v1",
               "local-mlp-v1",
               "local-onnx-v1",
               "mock-deterministic-v1"
@@ -949,7 +960,7 @@
   },
   "info": {
     "title": "Visual studio chord API",
-    "version": "0.2.0"
+    "version": "0.3.0"
   },
   "openapi": "3.1.0",
   "paths": {

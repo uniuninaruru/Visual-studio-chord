@@ -25,10 +25,18 @@ RequestId = Annotated[
     str,
     Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$"),
 ]
-BackendKind: TypeAlias = Literal["linear", "pytorch", "onnx", "browser", "mock"]
+BackendKind: TypeAlias = Literal[
+    "linear",
+    "corpus",
+    "pytorch",
+    "onnx",
+    "browser",
+    "mock",
+]
 RuntimeDevice: TypeAlias = Literal["cpu", "cuda", "mps", "coreml", "directml"]
 ServerModelId: TypeAlias = Literal[
     "local-deterministic-v1",
+    "harmony-corpus-ngram-v1",
     "local-mlp-v1",
     "local-onnx-v1",
     "mock-deterministic-v1",

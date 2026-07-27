@@ -24,9 +24,16 @@ SCHEMA_VERSION = 1
 SUPPORTED_API_VERSION = "1"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SUPPORTED_PYTHON = ((3, 11), (3, 15))
-VALID_INFERENCE_MODES = {"auto", "linear", "mlp", "onnx", "mock-deterministic"}
+VALID_INFERENCE_MODES = {
+    "auto",
+    "corpus",
+    "linear",
+    "mlp",
+    "onnx",
+    "mock-deterministic",
+}
 VALID_PACKAGE_MANAGERS = {"auto", "npm", "pnpm"}
-MODEL_EXTENSIONS = {".onnx", ".pt", ".pth", ".safetensors"}
+MODEL_EXTENSIONS = {".json", ".onnx", ".pt", ".pth", ".safetensors"}
 
 
 def parse_version(value: str) -> tuple[int, ...] | None:
@@ -441,13 +448,23 @@ def check_models(project_root: Path, environment: dict[str, str]) -> dict[str, A
         )
     except OSError:
         models = []
+    corpus_present = "harmony-corpus-v1.json" in models
     return make_check(
         "models",
         "ok",
-        "Built-in deterministic CPU and embedded ONNX models are available."
-        if not models
-        else f"Found {len(models)} optional external model file(s).",
-        details={"directory": str(model_directory), "files": models[:50], "externalRequired": False},
+        "Empirical harmony corpus model is available."
+        if corpus_present
+        else (
+            "Built-in deterministic theory model is available; corpus model is missing."
+            if not models
+            else f"Found {len(models)} local model file(s)."
+        ),
+        details={
+            "directory": str(model_directory),
+            "files": models[:50],
+            "corpusModelAvailable": corpus_present,
+            "externalRequired": False,
+        },
         action=None,
         optional=True,
     )

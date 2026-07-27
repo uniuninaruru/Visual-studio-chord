@@ -17,9 +17,12 @@ import {
 } from "./chords";
 import { explainSpecialChord } from "./advancedHarmony";
 import { hasCadence } from "./harmonyFunctions";
+import { appliedDominantResolves } from "./progressionAnalysis";
+import { transformTriad } from "./neoRiemannian";
 import { sectionForBar, sectionsTileBars } from "./sections";
 import {
   getScaleMidiNotes,
+  getScalePitchClasses,
   isSupportedMode,
   midiToNoteName,
   normalizePitchClass,
@@ -461,6 +464,63 @@ export function validateComposition(composition: GeneratedComposition): Validati
       issues.push(error("chords.coverage", "Chord timeline contains a gap or overlap.", { eventId: chord.id }));
     }
     chordCursor = chord.startTick + chord.durationTick;
+  }
+  for (const [index, chord] of sortedChords.entries()) {
+    const next = sortedChords[index + 1]
+      ?? (composition.cadence === "loop" ? sortedChords[0] : undefined);
+    const chordBar = Math.floor(chord.startTick / composition.ticksPerBar);
+    const chordSection = sectionForBar(composition.sections, chordBar);
+    const targetRoot = chord.targetDegree === undefined
+      ? undefined
+      : getScalePitchClasses(
+          chordSection?.key ?? composition.settings.key,
+          chordSection?.mode ?? composition.settings.mode,
+        )[chord.targetDegree - 1];
+    if (!appliedDominantResolves(chord, next, targetRoot)) {
+      issues.push(
+        error(
+          "chord.appliedDominantResolution",
+          "Applied dominant must be followed by the declared target chord and pitch root.",
+          {
+            eventId: chord.id,
+            barIndex: Math.floor(chord.startTick / composition.ticksPerBar),
+          },
+        ),
+      );
+    }
+  }
+  for (const [index, chord] of sortedChords.entries()) {
+    const transformation = chord.transformation;
+    if (!transformation) continue;
+    const previous = sortedChords[index - 1];
+    const transformed = transformTriad(
+      {
+        root: transformation.fromRoot,
+        quality: transformation.fromQuality,
+      },
+      transformation.operation,
+    );
+    if (
+      transformation.theory !== "neoRiemannian"
+      || !previous
+      || previous.root !== transformation.fromRoot
+      || previous.quality !== transformation.fromQuality
+      || chord.source !== "other"
+      || chord.specialKind !== "chromatic"
+      || chord.root !== transformed.root
+      || chord.quality !== transformed.quality
+    ) {
+      issues.push(
+        error(
+          "chord.neoRiemannianTransformation",
+          "Neo-Riemannian chord must be the declared P/L/R transform of the previous triad.",
+          {
+            eventId: chord.id,
+            barIndex: Math.floor(chord.startTick / composition.ticksPerBar),
+          },
+        ),
+      );
+    }
   }
   if (chordCursor !== composition.totalTicks) {
     issues.push(error("chords.end", "Chord timeline does not end at totalTicks."));

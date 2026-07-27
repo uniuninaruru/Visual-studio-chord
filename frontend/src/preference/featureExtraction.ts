@@ -7,6 +7,7 @@ import type {
   HarmonyFunction,
   NoteEvent,
 } from "../types/music";
+import { normalizePitchClass } from "../music/scales";
 import {
   PREFERENCE_FEATURE_VERSION,
   type FeatureVector,
@@ -168,9 +169,27 @@ export function extractHarmonyFeatures(composition: GeneratedComposition): Featu
   const chords = sortedChords(composition);
   const features: FeatureVector = {};
   const romans = chords.map((chord) => chord.romanNumeral || "unknown");
+  const degrees = chords.map((chord) => String(chord.degree));
+  const harmonyTokens = chords.map((chord) => {
+    const barIndex = Math.floor(chord.startTick / composition.ticksPerBar);
+    const section = composition.sections?.find(
+      (candidate) =>
+        candidate.startBar <= barIndex && barIndex < candidate.endBar
+    );
+    const key = normalizePitchClass(section?.key ?? composition.settings.key);
+    const rootOffset = (PITCH_CLASS[chord.root] - PITCH_CLASS[key] + 12) % 12;
+    return `${rootOffset}:${chord.quality}`;
+  });
   addNGrams(features, "roman.1", romans, 1);
   addNGrams(features, "roman.2", romans, 2);
   addNGrams(features, "roman.3", romans, 3);
+  addNGrams(features, "degree.1", degrees, 1);
+  addNGrams(features, "degree.2", degrees, 2);
+  addNGrams(features, "degree.3", degrees, 3);
+  const corpusOrder = Math.min(5, harmonyTokens.length);
+  if (corpusOrder > 0) {
+    addNGrams(features, `harmonyToken.${corpusOrder}`, harmonyTokens, corpusOrder);
+  }
 
   for (const harmonyFunction of HARMONY_FUNCTIONS) {
     features[`function.${harmonyFunction}`] = fraction(

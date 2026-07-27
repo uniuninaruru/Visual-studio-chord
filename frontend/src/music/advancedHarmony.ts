@@ -3,6 +3,7 @@ import type {
   ChordQuality,
   HarmonyFunction,
   Mode,
+  NeoRiemannianTransformation,
   PitchClassName,
 } from "../types/music";
 import {
@@ -24,6 +25,10 @@ import {
   semitoneToPitchClass,
 } from "./scales";
 import type { HarmonyCandidateKind } from "./styles";
+import {
+  transformTriad,
+  type NeoRiemannianOperation,
+} from "./neoRiemannian";
 
 export interface ChordExplanation {
   allowed: boolean;
@@ -47,6 +52,17 @@ export interface CreateAdvancedChordOptions {
   suspension?: 2 | 4;
 }
 
+export interface CreateNeoRiemannianChordOptions {
+  key: PitchClassName;
+  mode: Mode;
+  previous: Pick<ChordEvent, "root" | "quality" | "notes">;
+  operation: NeoRiemannianOperation;
+  startTick: number;
+  durationTick: number;
+  id: string;
+  voiceLeadingStrength?: number;
+}
+
 // Defined in scales.ts so chords.ts can use it without a circular import;
 // re-exported here to keep this module's public surface unchanged.
 export { parallelModeFor };
@@ -55,6 +71,79 @@ function assertDegree(degree: number, label: string): void {
   if (!Number.isInteger(degree) || degree < 1 || degree > 7) {
     throw new RangeError(`${label} must be an integer from 1 to 7.`);
   }
+}
+
+function closestScaleDegree(
+  key: PitchClassName,
+  mode: Mode,
+  pitchClass: PitchClassName,
+): number {
+  const target = pitchClassToSemitone(pitchClass);
+  const scale = getScalePitchClasses(key, mode);
+  return scale.reduce(
+    (best, candidate, index) => {
+      const candidateSemitone = pitchClassToSemitone(candidate);
+      const direct = Math.abs(candidateSemitone - target) % 12;
+      const distance = Math.min(direct, 12 - direct);
+      return distance < best.distance
+        ? { degree: index + 1, distance }
+        : best;
+    },
+    { degree: 1, distance: Number.POSITIVE_INFINITY },
+  ).degree;
+}
+
+/**
+ * Materializes one exact P/L/R contextual inversion.
+ *
+ * This is deliberately a candidate move, not a global Tonnetz-distance score.
+ * The full progression planner still owns cadence and applied-resolution
+ * constraints.
+ */
+export function createNeoRiemannianChordEvent(
+  options: CreateNeoRiemannianChordOptions,
+): ChordEvent {
+  if (options.previous.quality !== "major" && options.previous.quality !== "minor") {
+    throw new Error("Neo-Riemannian P/L/R requires a major or minor triad.");
+  }
+  const fromQuality = options.previous.quality;
+  const transformed = transformTriad(
+    { root: options.previous.root, quality: fromQuality },
+    options.operation,
+  );
+  const voicing = voiceChord(
+    transformed.root,
+    transformed.quality,
+    options.previous.notes,
+    undefined,
+    options.voiceLeadingStrength,
+  );
+  const transformation: NeoRiemannianTransformation = {
+    theory: "neoRiemannian",
+    operation: options.operation,
+    fromRoot: options.previous.root,
+    fromQuality,
+  };
+  return {
+    id: options.id,
+    symbol: formatChordSymbol(transformed.root, transformed.quality),
+    romanNumeral: `NRT-${options.operation}`,
+    function: "other",
+    degree: closestScaleDegree(options.key, options.mode, transformed.root),
+    quality: transformed.quality,
+    root: transformed.root,
+    startTick: options.startTick,
+    durationTick: options.durationTick,
+    notes: voicing.notes,
+    inversion: voicing.inversion,
+    source: "other",
+    specialKind: "chromatic",
+    explanation:
+      `Neo-Riemannian ${options.operation}: `
+      + `${formatChordSymbol(options.previous.root, fromQuality)} → `
+      + `${formatChordSymbol(transformed.root, transformed.quality)}.`,
+    transformation,
+  };
 }
 
 function buildEvent(

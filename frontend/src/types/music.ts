@@ -93,6 +93,13 @@ export type ChordSpecialKind =
   | "passingDiminished"
   | "chromatic";
 
+export interface NeoRiemannianTransformation {
+  theory: "neoRiemannian";
+  operation: "P" | "L" | "R";
+  fromRoot: CanonicalPitchClass;
+  fromQuality: "major" | "minor";
+}
+
 /**
  * Colour tones stacked above a base triad/seventh. Kept separate from
  * ChordQuality so a chord can carry a seventh *and* a ninth at once, which the
@@ -555,6 +562,8 @@ export interface ChordEvent {
   borrowedFromMode?: Mode;
   /** Human-readable theory explanation generated with the chord. */
   explanation?: string;
+  /** Auditable derivation for a contextual Neo-Riemannian transformation. */
+  transformation?: NeoRiemannianTransformation;
 }
 
 export interface GeneratedComposition {

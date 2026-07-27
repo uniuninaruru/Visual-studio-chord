@@ -11,7 +11,7 @@ import {
   type CadenceType,
   type SectionEvent,
 } from "../types/music";
-import { voiceChord } from "./chords";
+import { createStepChordEvent, voiceChord } from "./chords";
 import { buildArrangementVoices } from "./arrangement";
 import {
   planMelodicSkeleton,
@@ -20,12 +20,13 @@ import {
 import { generateMelody } from "./melodyGenerator";
 import { applyPivotModulations } from "./modulation";
 import { generateProgression } from "./progressionGenerator";
+import { appliedDominantResolves } from "./progressionAnalysis";
 import { planPhrases, type PhrasePlanEntry } from "./phrases";
 import { planSections } from "./sections";
 import { revoiceInFourParts } from "./voiceLeading";
 import type { ConcreteStylePresetId } from "./styles";
 import { deriveSeed, hashSeed, seedToString } from "./random";
-import { midiToNoteName } from "./scales";
+import { getScalePitchClasses, midiToNoteName } from "./scales";
 import { createBars, tickToBarIndex, ticksPerBar, ticksPerBeat } from "./time";
 import { assertValidGeneratorSettings } from "./validation";
 
@@ -265,13 +266,63 @@ function planMelodyShape(
  * Generates each section's chords in its own key and concatenates them into the
  * flat, tick-contiguous chord array the rest of the app expects.
  */
+function closeStrandedAppliedDominants(
+  source: readonly ChordEvent[],
+  settings: GeneratorSettings,
+  sections: readonly SectionEvent[],
+  durationTick: number,
+): ChordEvent[] {
+  const chords = [...source];
+  let changed = true;
+  for (let pass = 0; pass < chords.length && changed; pass += 1) {
+    changed = false;
+    // Work backwards: replacing a target can invalidate the applied dominant
+    // immediately before it, which this same pass will then see.
+    for (let chordIndex = chords.length - 1; chordIndex >= 0; chordIndex -= 1) {
+      const chord = chords[chordIndex] as ChordEvent;
+      if (
+        chord.specialKind !== "secondaryDominant"
+        && chord.specialKind !== "tritoneSubstitution"
+      ) {
+        continue;
+      }
+      const barIndex = Math.floor(chord.startTick / durationTick);
+      const section = sections.find(
+        (candidate) => barIndex >= candidate.startBar && barIndex < candidate.endBar,
+      );
+      const targetDegree = chord.targetDegree;
+      if (!section || targetDegree === undefined) continue;
+      const expectedRoot = getScalePitchClasses(
+        section.key,
+        section.mode,
+      )[targetDegree - 1];
+      const next = chords[chordIndex + 1] ?? chords[0];
+      if (appliedDominantResolves(chord, next, expectedRoot)) continue;
+
+      chords[chordIndex] = createStepChordEvent({
+        key: section.key,
+        mode: section.mode,
+        step: { degree: targetDegree },
+        startTick: chord.startTick,
+        durationTick: chord.durationTick,
+        id: chord.id,
+        previousNotes: chords[chordIndex - 1]?.notes,
+        voiceLeadingStrength:
+          settings.harmony?.voiceLeadingStrength
+          ?? DEFAULT_HARMONY_SETTINGS.voiceLeadingStrength,
+      });
+      changed = true;
+    }
+  }
+  return chords;
+}
+
 function generateSectionedChords(
   settings: GeneratorSettings,
   sections: readonly SectionEvent[],
   durationTick: number,
 ): { chords: ChordEvent[]; degrees: number[]; cadence: CadenceType; resolvedStyle: ConcreteStylePresetId } {
   const chords: ChordEvent[] = [];
-  const degrees: number[] = [];
   let cadence: CadenceType = "loop";
   let resolvedStyle: ConcreteStylePresetId | null = null;
 
@@ -291,8 +342,6 @@ function generateSectionedChords(
     resolvedStyle ??= result.resolvedStyle;
     // The piece's cadence is the one it actually ends on.
     cadence = result.cadence;
-    degrees.push(...result.degrees);
-
     const tickOffset = section.startBar * durationTick;
     for (const [barIndex, chord] of result.chords.entries()) {
       chords.push({
@@ -302,9 +351,21 @@ function generateSectionedChords(
       });
     }
   }
-  return {
+
+  // Named templates and section lengths are planned independently. When a
+  // section truncates immediately after V/x or subV/x, the next section may
+  // start in another key and cannot serve as that applied chord's resolution.
+  // Close such a boundary on the declared target before concatenation becomes
+  // the saved song timeline.
+  const closedChords = closeStrandedAppliedDominants(
     chords,
-    degrees,
+    settings,
+    sections,
+    durationTick,
+  );
+  return {
+    chords: closedChords,
+    degrees: closedChords.map((chord) => chord.degree),
     cadence,
     resolvedStyle: resolvedStyle ?? "pop",
   };
@@ -342,6 +403,14 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
         copiedSettings.harmony?.voiceLeadingStrength ??
         DEFAULT_HARMONY_SETTINGS.voiceLeadingStrength,
     }).chords;
+    // A pivot may replace the target immediately following V/x or subV/x.
+    // Re-run the hard resolution invariant after the seam is rewritten.
+    progression.chords = closeStrandedAppliedDominants(
+      progression.chords,
+      copiedSettings,
+      sections,
+      barTicks,
+    );
   }
   // Re-voiced before the melody is written, since the melody scores its
   // candidates against the sounding chord tones.
