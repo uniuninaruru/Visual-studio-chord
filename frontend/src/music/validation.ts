@@ -18,6 +18,7 @@ import {
 import { explainSpecialChord } from "./advancedHarmony";
 import { hasCadence } from "./harmonyFunctions";
 import { appliedDominantResolves } from "./progressionAnalysis";
+import { transformTriad } from "./neoRiemannian";
 import { sectionForBar, sectionsTileBars } from "./sections";
 import {
   getScaleMidiNotes,
@@ -480,6 +481,39 @@ export function validateComposition(composition: GeneratedComposition): Validati
         error(
           "chord.appliedDominantResolution",
           "Applied dominant must be followed by the declared target chord and pitch root.",
+          {
+            eventId: chord.id,
+            barIndex: Math.floor(chord.startTick / composition.ticksPerBar),
+          },
+        ),
+      );
+    }
+  }
+  for (const [index, chord] of sortedChords.entries()) {
+    const transformation = chord.transformation;
+    if (!transformation) continue;
+    const previous = sortedChords[index - 1];
+    const transformed = transformTriad(
+      {
+        root: transformation.fromRoot,
+        quality: transformation.fromQuality,
+      },
+      transformation.operation,
+    );
+    if (
+      transformation.theory !== "neoRiemannian"
+      || !previous
+      || previous.root !== transformation.fromRoot
+      || previous.quality !== transformation.fromQuality
+      || chord.source !== "other"
+      || chord.specialKind !== "chromatic"
+      || chord.root !== transformed.root
+      || chord.quality !== transformed.quality
+    ) {
+      issues.push(
+        error(
+          "chord.neoRiemannianTransformation",
+          "Neo-Riemannian chord must be the declared P/L/R transform of the previous triad.",
           {
             eventId: chord.id,
             barIndex: Math.floor(chord.startTick / composition.ticksPerBar),

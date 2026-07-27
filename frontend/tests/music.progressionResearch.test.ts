@@ -3,11 +3,16 @@ import {
   DEFAULT_GENERATOR_SETTINGS,
   analyzeProgression,
   createAdvancedChordEvent,
+  createNeoRiemannianChordEvent,
   generateComposition,
   generateProgression,
   planAdvancedProgressionKinds,
   validateComposition,
 } from "../src/music";
+import {
+  exportCompositionJson,
+  importCompositionJson,
+} from "../src/features/export/json";
 import type {
   GeneratedComposition,
 } from "../src/types/music";
@@ -103,6 +108,72 @@ describe("research-grounded whole-progression planning", () => {
       voiceLeadingDistance: 1,
       rootMotion: 0,
     });
+  });
+
+  it("materializes an exact contextual L transform with auditable metadata", () => {
+    const major = createAdvancedChordEvent({
+      kind: "triad",
+      key: "C",
+      mode: "major",
+      degree: 1,
+      startTick: 0,
+      durationTick: 1920,
+      id: "major",
+    });
+    const transformed = createNeoRiemannianChordEvent({
+      key: "C",
+      mode: "major",
+      previous: major,
+      operation: "L",
+      startTick: 1920,
+      durationTick: 1920,
+      id: "leading-tone-exchange",
+    });
+    expect(transformed).toMatchObject({
+      root: "E",
+      quality: "minor",
+      source: "other",
+      specialKind: "chromatic",
+      transformation: {
+        theory: "neoRiemannian",
+        operation: "L",
+        fromRoot: "C",
+        fromQuality: "major",
+      },
+    });
+  });
+
+  it("uses P/L/R candidates inside functional generation without breaking cadence", () => {
+    let transformedSongs = 0;
+    for (let seed = 0; seed < 32; seed += 1) {
+      const composition = generateComposition({
+        ...DEFAULT_GENERATOR_SETTINGS,
+        bars: 8,
+        seed: `nrt-${seed}`,
+        functionalHarmony: { enabled: true, exploration: 1 },
+        harmony: { complexity: "advanced", explorationRate: 1 },
+      });
+      if (composition.chords.some((chord) => chord.transformation)) {
+        transformedSongs += 1;
+      }
+      expect(validateComposition(composition).errors, `seed ${seed}`).toEqual([]);
+    }
+    expect(transformedSongs).toBeGreaterThan(0);
+  });
+
+  it("round-trips Neo-Riemannian derivation metadata through project JSON", () => {
+    const composition = generateComposition({
+      ...DEFAULT_GENERATOR_SETTINGS,
+      bars: 8,
+      seed: "nrt-1",
+      functionalHarmony: { enabled: true, exploration: 1 },
+      harmony: { complexity: "advanced", explorationRate: 1 },
+    });
+    expect(composition.chords.some((chord) => chord.transformation)).toBe(true);
+    const restored = importCompositionJson(exportCompositionJson(composition));
+    expect(restored.chords.map((chord) => chord.transformation)).toEqual(
+      composition.chords.map((chord) => chord.transformation),
+    );
   });
 
   it("does not compare different chord cardinalities in one distance space", () => {
