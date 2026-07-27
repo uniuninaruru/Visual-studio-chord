@@ -30,82 +30,99 @@ export type FunctionalHarmonyState =
   | "modal"
   | "chromaticSequence";
 
-/** Which states may follow each state, and what that move costs. */
+/**
+ * Which states may follow each state, expressed as ordinal preference tiers.
+ *
+ * The former engine stored decimal "costs" such as 0.15 and 0.55. Those values
+ * looked precise but were not estimated from a corpus or listening experiment.
+ * A tier is honest about what the theory supplies: preferred, ordinary, or
+ * exceptional-but-legal. Search compares these integers lexicographically and
+ * never pretends that a predominant→dominant move is 3.67 times "better" than
+ * a plagal resolution.
+ */
+type TransitionTier = 1 | 2 | 3;
+
 const TRANSITIONS: Readonly<
-  Record<FunctionalHarmonyState, Readonly<Partial<Record<FunctionalHarmonyState, number>>>>
+  Record<FunctionalHarmonyState, Readonly<Partial<Record<FunctionalHarmonyState, TransitionTier>>>>
 > = {
   tonic: {
-    tonicProlongation: 0.2,
-    predominant: 0.3,
-    dominantPreparation: 0.6,
-    dominant: 0.5,
-    modal: 0.8,
-    chromaticSequence: 1.1,
+    tonicProlongation: 1,
+    predominant: 1,
+    dominantPreparation: 2,
+    dominant: 2,
+    modal: 2,
+    chromaticSequence: 3,
   },
   tonicProlongation: {
-    tonicProlongation: 0.5,
+    tonicProlongation: 2,
     // Settling back onto the tonic proper — how a loop closes without a cadence.
-    tonic: 0.3,
-    predominant: 0.2,
-    dominantPreparation: 0.5,
-    dominant: 0.5,
-    modal: 0.8,
+    tonic: 1,
+    predominant: 1,
+    dominantPreparation: 2,
+    dominant: 2,
+    modal: 3,
   },
   predominant: {
-    predominant: 0.55,
-    dominantPreparation: 0.25,
-    dominant: 0.15,
+    predominant: 2,
+    dominantPreparation: 1,
+    dominant: 1,
     // IV→I: the plagal move. Legal, but it resolves without the dominant's
-    // tension, so it costs more than going through the dominant.
-    resolution: 0.5,
-    modal: 0.9,
-    chromaticSequence: 1.0,
+    // tension, so it belongs to the ordinary rather than preferred tier.
+    resolution: 2,
+    modal: 3,
+    chromaticSequence: 3,
   },
   dominantPreparation: {
     // A preparation exists to reach the dominant; anything else wastes it.
-    dominant: 0.1,
-    predominant: 0.8,
-    chromaticSequence: 1.0,
+    dominant: 1,
+    predominant: 3,
+    chromaticSequence: 3,
   },
   dominant: {
-    resolution: 0.1,
+    resolution: 1,
     // Repeating the dominant prolongs tension, which is usable but not free.
-    dominant: 0.6,
+    dominant: 2,
     // Going back to a predominant undoes the tension just built.
-    predominant: 1.2,
+    predominant: 3,
   },
   resolution: {
-    tonic: 0.2,
-    tonicProlongation: 0.3,
-    predominant: 0.4,
-    modal: 0.9,
-    chromaticSequence: 1.1,
+    tonic: 1,
+    tonicProlongation: 1,
+    predominant: 2,
+    modal: 3,
+    chromaticSequence: 3,
   },
   modal: {
-    modal: 0.6,
-    tonic: 0.4,
-    predominant: 0.5,
-    dominant: 0.6,
-    resolution: 0.7,
+    modal: 2,
+    tonic: 1,
+    predominant: 2,
+    dominant: 2,
+    resolution: 3,
   },
   chromaticSequence: {
-    chromaticSequence: 0.5,
-    dominant: 0.4,
-    predominant: 0.6,
-    tonic: 0.7,
+    chromaticSequence: 2,
+    dominant: 1,
+    predominant: 2,
+    tonic: 2,
   },
 };
 
-/** How much tension each state carries, 0..1. Used to shape the span's arc. */
+/**
+ * Ordinal functional tension.
+ *
+ * These are ranks, not pseudo-measurements. Perceptual tonal-tension models are
+ * implemented separately from this grammar; the path planner only needs the
+ * well-established ordering tonic < predominant < dominant.
+ */
 const TENSION: Readonly<Record<FunctionalHarmonyState, number>> = {
   tonic: 0,
-  tonicProlongation: 0.15,
-  predominant: 0.45,
-  dominantPreparation: 0.65,
-  dominant: 0.9,
-  resolution: 0.1,
-  modal: 0.4,
-  chromaticSequence: 0.75,
+  tonicProlongation: 1,
+  predominant: 2,
+  dominantPreparation: 3,
+  dominant: 4,
+  resolution: 0,
+  modal: 2,
+  chromaticSequence: 3,
 };
 
 /**
@@ -115,17 +132,15 @@ const TENSION: Readonly<Record<FunctionalHarmonyState, number>> = {
  * chord's function depends on where it sits, not only on what it is: vi is a
  * tonic substitute after V and a predominant approaching ii.
  */
-const DEGREES_FOR_STATE: Readonly<
-  Record<FunctionalHarmonyState, ReadonlyArray<readonly [number, number]>>
-> = {
-  tonic: [[1, 0], [6, 0.5], [3, 0.7]],
-  tonicProlongation: [[1, 0.2], [3, 0.4], [6, 0.3]],
-  predominant: [[4, 0], [2, 0.1], [6, 0.5]],
-  dominantPreparation: [[2, 0.1], [4, 0.2], [6, 0.6]],
-  dominant: [[5, 0], [7, 0.4]],
-  resolution: [[1, 0], [6, 0.6]],
-  modal: [[7, 0.2], [4, 0.4], [3, 0.5], [6, 0.5]],
-  chromaticSequence: [[5, 0.3], [2, 0.4], [6, 0.5], [3, 0.6]],
+const DEGREES_FOR_STATE: Readonly<Record<FunctionalHarmonyState, readonly number[]>> = {
+  tonic: [1, 6, 3],
+  tonicProlongation: [6, 3, 1],
+  predominant: [4, 2, 6],
+  dominantPreparation: [2, 4, 6],
+  dominant: [5, 7],
+  resolution: [1, 6],
+  modal: [7, 4, 3, 6],
+  chromaticSequence: [5, 2, 6, 3],
 };
 
 export interface FunctionalChordCandidate {
@@ -210,27 +225,54 @@ export function planFunctionalPath(
   const freeLength = length - tail.length;
   const states = Object.keys(TRANSITIONS) as FunctionalHarmonyState[];
 
-  // Tension is expected to rise across the span; a state far from the expected
-  // level at its position is penalised, which is what gives the path an arc
-  // rather than letting it idle on tonic until the cadence.
-  const positionPenalty = (state: FunctionalHarmonyState, index: number): number => {
+  /**
+   * The grammar supplies an ordinal tension target. Exploration changes that
+   * target by one adjacent rank at selected interior positions; it never adds a
+   * floating random cost to the theory rules.
+   */
+  const targetTension = (index: number): number => {
     const progress = freeLength <= 1 ? 0 : index / (freeLength - 1);
-    const expected = 0.1 + progress * 0.5;
-    return Math.abs(TENSION[state] - expected) * 0.8;
+    const base = Math.round(progress * 3);
+    if (exploration === 0 || index === 0) return base;
+    const draw = hashSeed(deriveSeed(seed, "harmony-exploration", index)) % 1000;
+    if (draw >= Math.round(exploration * 1000)) return base;
+    const direction =
+      hashSeed(deriveSeed(seed, "harmony-exploration-direction", index)) % 2 === 0
+        ? -1
+        : 1;
+    return Math.min(4, Math.max(0, base + direction));
   };
 
-  // A deterministic per-state nudge, so two spans with the same shape but
-  // different seeds do not always pick the identical route.
-  const jitter = (state: FunctionalHarmonyState, index: number): number =>
-    exploration === 0
-      ? 0
-      : ((hashSeed(deriveSeed(seed, "harmony-path", index, state)) % 100) / 100) *
-        exploration *
-        0.9;
+  interface PathScore {
+    /** Distance from the requested ordinal tension curve. */
+    contourDeviation: number;
+    /** Sum of preferred/ordinary/exceptional transition tiers. */
+    transitionTier: number;
+    /** Number of immediately repeated functions. */
+    repetitions: number;
+    /** Deterministic final tie break only; never outweighs musical criteria. */
+    tieBreak: number;
+  }
+  type Cell = {
+    score: PathScore;
+    previous: FunctionalHarmonyState | null;
+  };
+  const compareScore = (left: PathScore, right: PathScore): number =>
+    left.contourDeviation - right.contourDeviation
+    || left.transitionTier - right.transitionTier
+    || left.repetitions - right.repetitions
+    || left.tieBreak - right.tieBreak;
 
-  type Cell = { cost: number; previous: FunctionalHarmonyState | null };
   let previousRow = new Map<FunctionalHarmonyState, Cell>();
-  previousRow.set(start, { cost: 0, previous: null });
+  previousRow.set(start, {
+    score: {
+      contourDeviation: Math.abs(TENSION[start] - targetTension(0)),
+      transitionTier: 0,
+      repetitions: 0,
+      tieBreak: 0,
+    },
+    previous: null,
+  });
 
   const rows: Array<Map<FunctionalHarmonyState, Cell>> = [previousRow];
   for (let index = 1; index < freeLength; index += 1) {
@@ -240,8 +282,19 @@ export function planFunctionalPath(
       for (const [from, cell] of previousRow) {
         const move = transitionCost(from, to);
         if (move === null) continue;
-        const cost = cell.cost + move + positionPenalty(to, index) + jitter(to, index);
-        if (!best || cost < best.cost) best = { cost, previous: from };
+        const score: PathScore = {
+          contourDeviation:
+            cell.score.contourDeviation
+            + Math.abs(TENSION[to] - targetTension(index)),
+          transitionTier: cell.score.transitionTier + move,
+          repetitions: cell.score.repetitions + (from === to ? 1 : 0),
+          tieBreak:
+            cell.score.tieBreak
+            + (hashSeed(deriveSeed(seed, "harmony-path-tie", index, from, to)) % 997),
+        };
+        if (!best || compareScore(score, best.score) < 0) {
+          best = { score, previous: from };
+        }
       }
       if (best) row.set(to, best);
     }
@@ -252,13 +305,16 @@ export function planFunctionalPath(
   // Close onto the cadence: the last free state must be able to reach it.
   const firstTail = tail[0] as FunctionalHarmonyState;
   let endState: FunctionalHarmonyState | null = null;
-  let endCost = Number.POSITIVE_INFINITY;
+  let endScore: PathScore | null = null;
   for (const [state, cell] of previousRow) {
     const move = transitionCost(state, firstTail);
     if (move === null) continue;
-    const cost = cell.cost + move;
-    if (cost < endCost) {
-      endCost = cost;
+    const score = {
+      ...cell.score,
+      transitionTier: cell.score.transitionTier + move,
+    };
+    if (!endScore || compareScore(score, endScore) < 0) {
+      endScore = score;
       endState = state;
     }
   }
@@ -297,16 +353,18 @@ export function assignChordsToPath(
 
   for (const [index, state] of path.entries()) {
     const options = DEGREES_FOR_STATE[state];
-    const scored = options
-      .map(([degree, penalty]) => {
-        const repeat = degree === previousDegree ? 0.7 : 0;
-        const nudge =
-          (hashSeed(deriveSeed(seed, "harmony-degree", index, degree)) % 40) / 100;
-        return { degree, score: penalty + repeat + nudge };
-      })
-      .sort((left, right) => left.score - right.score || left.degree - right.degree);
-
-    const degree = (scored[0]?.degree ?? 1) as number;
+    // The array order is the theory rank. Within the best rank that avoids an
+    // immediate repetition, the seed is only a deterministic tie breaker.
+    const nonRepeating = options.filter((degree) => degree !== previousDegree);
+    const pool = nonRepeating.length > 0 ? nonRepeating : options;
+    const preferredCount =
+      state === "modal" || state === "chromaticSequence" || state === "tonicProlongation"
+        ? Math.min(2, pool.length)
+        : 1;
+    const preferred = pool.slice(0, preferredCount);
+    const degree = (preferred[
+      hashSeed(deriveSeed(seed, "harmony-degree-tie", index, state)) % preferred.length
+    ] ?? 1) as number;
     const previousState = path[index - 1];
     candidates.push({
       step: {

@@ -17,9 +17,11 @@ import {
 } from "./chords";
 import { explainSpecialChord } from "./advancedHarmony";
 import { hasCadence } from "./harmonyFunctions";
+import { appliedDominantResolves } from "./progressionAnalysis";
 import { sectionForBar, sectionsTileBars } from "./sections";
 import {
   getScaleMidiNotes,
+  getScalePitchClasses,
   isSupportedMode,
   midiToNoteName,
   normalizePitchClass,
@@ -461,6 +463,30 @@ export function validateComposition(composition: GeneratedComposition): Validati
       issues.push(error("chords.coverage", "Chord timeline contains a gap or overlap.", { eventId: chord.id }));
     }
     chordCursor = chord.startTick + chord.durationTick;
+  }
+  for (const [index, chord] of sortedChords.entries()) {
+    const next = sortedChords[index + 1]
+      ?? (composition.cadence === "loop" ? sortedChords[0] : undefined);
+    const chordBar = Math.floor(chord.startTick / composition.ticksPerBar);
+    const chordSection = sectionForBar(composition.sections, chordBar);
+    const targetRoot = chord.targetDegree === undefined
+      ? undefined
+      : getScalePitchClasses(
+          chordSection?.key ?? composition.settings.key,
+          chordSection?.mode ?? composition.settings.mode,
+        )[chord.targetDegree - 1];
+    if (!appliedDominantResolves(chord, next, targetRoot)) {
+      issues.push(
+        error(
+          "chord.appliedDominantResolution",
+          "Applied dominant must be followed by the declared target chord and pitch root.",
+          {
+            eventId: chord.id,
+            barIndex: Math.floor(chord.startTick / composition.ticksPerBar),
+          },
+        ),
+      );
+    }
   }
   if (chordCursor !== composition.totalTicks) {
     issues.push(error("chords.end", "Chord timeline does not end at totalTicks."));
