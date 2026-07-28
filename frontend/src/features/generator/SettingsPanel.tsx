@@ -199,6 +199,9 @@ export function SettingsPanel({
               <option value={4}>4 bars</option>
               <option value={8}>8 bars</option>
               <option value={16}>16 bars</option>
+              <option value={24}>24 bars</option>
+              <option value={32}>32 bars</option>
+              <option value={48}>48 bars</option>
             </select>
           </label>
         </div>
