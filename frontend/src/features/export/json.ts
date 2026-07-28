@@ -115,7 +115,7 @@ export function isGeneratorSettings(value: unknown): value is GeneratorSettings 
     value.bpm < 40 ||
     value.bpm > 240 ||
     !Number.isInteger(value.bars) ||
-    (value.bars !== 4 && value.bars !== 8 && value.bars !== 16) ||
+    ![4, 8, 16, 24, 32, 48].includes(value.bars as number) ||
     typeof value.key !== "string" ||
     !pitchClasses.includes(value.key) ||
     typeof value.mode !== "string" ||

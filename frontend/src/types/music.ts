@@ -34,7 +34,7 @@ export type Mode =
   | "dorian"
   | "mixolydian";
 export type TimeSignature = "4/4" | "3/4" | "6/8";
-export type BarCount = 4 | 8 | 16;
+export type BarCount = 4 | 8 | 16 | 24 | 32 | 48;
 
 export type StylePresetId =
   | "pop"
