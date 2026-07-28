@@ -75,8 +75,8 @@ export function validateGeneratorSettings(settings: GeneratorSettings): Validati
   if (!["4/4", "3/4", "6/8"].includes(settings.timeSignature)) {
     issues.push(error("settings.timeSignature", "Time signature must be 4/4, 3/4, or 6/8."));
   }
-  if (![4, 8, 16].includes(settings.bars)) {
-    issues.push(error("settings.bars", "Bar count must be 4, 8, or 16."));
+  if (![4, 8, 16, 24, 32, 48].includes(settings.bars)) {
+    issues.push(error("settings.bars", "Bar count must be 4, 8, 16, 24, 32, or 48."));
   }
   if (
     ![
