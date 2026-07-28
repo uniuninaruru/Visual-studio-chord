@@ -24,7 +24,8 @@ import { parallelModeFor, semitoneToPitchClass, pitchClassToSemitone } from "./s
  * Section layouts per form and bar count.
  *
  * Every layout divides its bar count evenly, so allocation is exact and no
- * section can be squeezed to zero bars. Only 4, 8 and 16 bars are reachable.
+ * section can be squeezed to zero bars. Bar counts above the largest entry
+ * reuse the richest layout that still fits, stretched to length.
  */
 const FORM_LAYOUTS: Readonly<
   Record<Exclude<SongFormId, "none">, Readonly<Record<number, readonly SectionKind[]>>>
@@ -81,6 +82,33 @@ export function isSongFormId(value: unknown): value is SongFormId {
     value === "aaba" ||
     value === "throughComposed"
   );
+}
+
+/**
+ * The most detailed layout a bar count can carry, for lengths with no entry of
+ * their own.
+ *
+ * The largest table entry that is not longer than the piece, stretched across
+ * it. Falling back to the eight-bar layout instead — as this did — gives a
+ * forty-eight bar song four twelve-bar blocks with no intro or outro, and a
+ * twelve-bar pre-chorus is not a pre-chorus. Taking the sixteen-bar layout
+ * gives the same song eight six-bar sections, which is what the form means.
+ */
+function richestLayoutWithin(
+  layouts: Readonly<Record<number, readonly SectionKind[]>>,
+  bars: number,
+): readonly SectionKind[] {
+  let best: readonly SectionKind[] = [];
+  let bestBars = 0;
+  for (const [key, kinds] of Object.entries(layouts)) {
+    const layoutBars = Number(key);
+    if (layoutBars > bars || layoutBars < bestBars) continue;
+    // A section must never be squeezed to zero bars.
+    if (kinds.length > bars) continue;
+    best = kinds;
+    bestBars = layoutBars;
+  }
+  return best;
 }
 
 /**
@@ -158,7 +186,7 @@ export function planSections(
   if (options.form === "none") return undefined;
 
   const layouts = FORM_LAYOUTS[options.form];
-  const kinds = layouts[options.bars] ?? layouts[8] ?? [];
+  const kinds = layouts[options.bars] ?? richestLayoutWithin(layouts, options.bars);
   if (kinds.length === 0) return undefined;
 
   const lengths = allocateBars(options.bars, kinds.length);
