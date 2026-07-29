@@ -52,7 +52,31 @@ if [[ -z "$PYTHON_COMMAND" ]] ||
 fi
 
 if [[ ! -x "$VENV_PYTHON" ]]; then
-  "$PYTHON_COMMAND" -m venv "$VENV_DIR"
+  # `venv` on a directory that already exists refuses to touch it and exits
+  # non-zero, so a virtual environment whose interpreter has gone — the usual
+  # cause being a system or Xcode Python that was upgraded or removed out from
+  # under it — is never repaired by running this script again. Rebuilding in
+  # place is what the user wants and what they cannot get otherwise; --clear
+  # discards only the environment, never the project.
+  if [[ -e "$VENV_DIR" ]]; then
+    printf 'The .venv interpreter is missing, so the environment is being rebuilt.\n' >&2
+    if ! "$PYTHON_COMMAND" -m venv --clear "$VENV_DIR"; then
+      printf 'Could not rebuild .venv. Delete the directory and run this script again.\n' >&2
+      exit 1
+    fi
+  elif ! "$PYTHON_COMMAND" -m venv "$VENV_DIR"; then
+    printf 'Could not create .venv.\n' >&2
+    exit 1
+  fi
+fi
+
+# Report what is actually wrong. A broken environment and one built on the
+# wrong Python need different answers, and telling someone to install a
+# supported Python when they already have one sends them somewhere useless.
+if [[ ! -x "$VENV_PYTHON" ]]; then
+  printf 'The .venv interpreter is still missing after a rebuild attempt.\n' >&2
+  printf 'Delete the .venv directory and run this script again.\n' >&2
+  exit 1
 fi
 
 if ! "$VENV_PYTHON" -c 'import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] < (3, 15) else 1)'; then
