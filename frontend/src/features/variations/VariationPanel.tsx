@@ -186,7 +186,13 @@ export function VariationPanel({
                   <button
                     className="primary-button variation-adopt-button"
                     type="button"
-                    aria-label={`候補 ${label} のプレビューを採用して履歴へ保存`}
+                    // The accessible name has to contain the visible text, or a
+                    // voice-control user reading "この候補を採用" off the screen
+                    // cannot activate the button they are looking at. An
+                    // aria-label replaces the text rather than adding to it, so
+                    // the extra context is wrapped around the visible words
+                    // instead of paraphrasing them away.
+                    aria-label={`候補 ${label}: この候補を採用して履歴へ保存`}
                     onClick={() => onAdopt(sourceIndex)}
                   >
                     この候補を採用

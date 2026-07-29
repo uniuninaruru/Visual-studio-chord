@@ -7,6 +7,26 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Fixed — the adopt button could no longer be reached by its visible text (`browser-e2e` failure)
+
+An `aria-label` added to the "この候補を採用" button on each candidate card replaced
+the visible text rather than adding to it. Because `aria-label` **overrides** the
+accessible name, the button was named `候補 A のプレビューを採用して履歴へ保存` and
+could not be found by the words printed on it.
+
+- This is a **WCAG 2.5.3 "Label in Name"** violation: a voice-control user saying
+  what they can see cannot operate the button they are looking at.
+- `browser-e2e` failed on all three platforms (ubuntu/chromium, macos/webkit,
+  windows/chromium), because the end-to-end test looks the button up by its
+  visible text.
+- The label is now `候補 A: この候補を採用して履歴へ保存`, which keeps the added
+  context while containing the visible words.
+
+**Why the fast test layer missed it**: a unit test asserted that the `aria-label`
+contained `"プレビューを採用して履歴へ保存"` — it pinned the wording, so it moved
+with the wording. It now asserts the contract that matters, that the accessible
+name contains the visible text.
+
 ### Fixed — setup rebuilds a virtual environment whose interpreter has gone (`e8546cc`)
 
 `.venv/bin/python` is a symlink. When the Python it points at is upgraded or
