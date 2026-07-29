@@ -2,7 +2,7 @@
 
 **日本語** | [English](neural-chord-model-plan.en.md)
 
-状態: 実装に進むための設計を確定。測定・学習は未実施
+状態: v0.4研究プレビュー基盤を実装。学習・音楽品質評価は未実施
 
 対象リリース: 0.4.xで研究プレビュー、聴取実験合格後のみ1.0
 
@@ -10,6 +10,25 @@
 
 解釈上の注記: ここでは「Meta環境」をApple Metal/MPSとして扱う。Meta AIの
 ハードウェアやAudioCraftを意味する場合は別の設計対象である。
+
+## 実装状況（v0.4.0）
+
+本書は研究計画を含むため、実装済みと実験候補を区別する。v0.4.0で実装したのは、
+tokenizer、104,567,874 parameterのPyTorch module、factorized heads、
+SafeTensors checkpoint gate、CUDA / MPS / CPU adapter、非同期API v2、
+cancel、mock fixture、preview安全境界である。学習済みcheckpointは同梱せず、
+closed test、ablation、聴取実験もまだ完了していない。
+
+v0.4のneural requestが実際に条件として使うのは、旋律、調性、拍子／範囲、
+edit mask、固定済み既存和声だけである。4章のFormとstyle、mood、density、
+complexity、exploration、contourは研究上の目標入力であり、現行modelの
+無言のcontrolではない。UIでも理論generator／fallback用設定と明示する。
+
+実装済みモデルはlearned window-position embeddingとbar・拍位置embeddingを使う。
+この版にrotary／relative positional attentionは入っていない。後者、sparse
+attention、SCG型stepwise guidance、causal studentは比較実験候補であり、
+現行機能として扱わない。実装と研究由来部分の境界は
+[ニューラル和声アーキテクチャ](../neural-harmony-architecture.ja.md)に記録する。
 
 ## 1. 採用する方針
 
@@ -106,9 +125,9 @@ PPQ契約へ変換する。
 | Event | `NO_CHORD`、`HOLD`、`CHANGE` |
 | Root | key-relativeな12半音クラス |
 | Quality | 現在の`ChordQuality`語彙と`OTHER` |
-| Inversion | root、1st、2nd、3rd、other |
-| Bass | root-relativeな12 pitch classesと`ROOT` |
-| Extensions | multi-labelの6、7、9、11、13と対応alterations |
+| Inversion | root、1st、2nd、3rd。分析用`other`は製品変換時に拒否 |
+| Bass | root-relativeな12 pitch classes。offset 0がroot |
+| Extensions | multi-labelの6、9、b9、#9、11、#11、13、b13 |
 | Function補助 | tonic、predominant、dominant、other |
 | Cadence補助 | none、authentic、plagal、half、deceptive、loop |
 
@@ -140,16 +159,19 @@ model factors
 
 - single-encoder Transformer
 - 旋律と和声を時間整列し、別stream typeのtokenとして表す
-- stream、bar、beat、section、edit-mask embedding
-- PyTorch SDPA対応範囲でrotaryまたはrelative positional attention
-- 12 layers、hidden 768、12 attention heads、FFN 3072
-- pre-norm、GELUまたはSiLU、dropout 0.1
+- learned window position、stream、bar、拍位置、section、edit-mask embedding
+- 既存extension multi-hotを入力するbiasなし8→768 projection
+- 12 layers、hidden 768、12 attention heads、FFN 4096
+- pre-norm、GELU、dropout 0.1
 - v1は最大128小節。超える曲はsection単位windowで処理
 - 最終hidden stateを共有するfactorized output heads
-- 目標約100〜130M parameters。実装moduleから実測する
+- **104,567,874 parameters**。実装moduleと同じ式で回帰検査する
 
 24 layers・hidden 1024の大型variantはbaseがbaselineに勝った後だけ試す。
 大きさ自体は和声品質の証拠ではない。
+
+rotary／relative positional attentionは、現行learned embeddingに勝つかを
+同じdata splitとparameter予算で比較した後だけ採用する研究variantとする。
 
 ### 5.2 階層的文脈
 
@@ -201,8 +223,11 @@ effective-number class weightingで扱い、test setを聴いて選ばない。
    explicit preferenceで生存候補を辞書式にrankする。
 8. model/device/seed/checkpoint provenance付きpreviewを返す。
 
-初期実装は既定32候補とし件数を設定可能にする。製品側からモデル容量の固定上限は
-設けず、利用可能メモリに合わせてbatchを調整し、OOM時は縮小する。
+v0.4実装は既定32候補（APIで1〜32）とするが、モデルforwardは
+`candidate_decoding_batch: 1`で1つのtokenizer windowだけを処理し、共有logitsから
+候補variantをsamplingする。`candidateCount`と実行batch sizeは別の値である。
+v0.4はOOM時にbatchを縮小せず、許可されていればacceleratorからCPUへ移る。
+適応的batch縮小は測定後に検討する将来項目とする。
 
 ## 6. 制約統合
 
@@ -275,7 +300,8 @@ PyTorch version、minimum app/API version、supported precisionを持つ。
 - deterministic modeでは`torch.use_deterministic_algorithms(True)`と
   使用SDPA backendを宣言
 - fast modeがbitwise reproduction非保証なら明示
-- allocation failure時はbatch縮小、cache解放、retry後にCPU fallback
+- v0.4のallocation failureは理由を記録してCPU fallback。candidate batch縮小、
+  cache解放後retryは将来の性能実験
 
 ### 8.3 Metal/MPS
 
@@ -285,7 +311,7 @@ PyTorch version、minimum app/API version、supported precisionを持つ。
 - CPU fallbackをDiagnosticsで全件表示し、silent fallbackを禁止
 - allocated memoryとallocator diagnosticsを表示
 - MPS high-watermark safety limitを無効化しない
-- MPS OOMではCPUへ移る前にbatchを縮小
+- v0.4のMPS OOMは理由を記録してCPUへ移る。事前のbatch縮小は未実装
 
 ### 8.4 Cross-device合格条件
 
@@ -317,8 +343,8 @@ device/dtype/backend、checkpoint SHA-256、各stage時間、warning/fallback re
 - 結果は常にpreviewで、明示的Applyまで本編へ反映しない
 - `Neural CUDA`、`Neural Metal`、`Neural CPU`、checkpoint version、
   CPU fallbackの有無を表示
-- 失敗時は曲を変更せず、retry、smaller batch、CPU、corpus ranker、
-  theory-onlyを提示
+- 失敗時は曲を変更せず、retry、CPU、corpus ranker、theory-onlyを提示。
+  smaller batchは将来実装後にだけ提示
 - smartphoneはdesktop serverのmodelを使い、必要性を測定するまで
   mobile専用checkpointは作らない
 

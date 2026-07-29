@@ -7,14 +7,30 @@ import {
 } from "../../storage";
 
 export interface AiJobStatus {
-  state: "idle" | "running" | "completed" | "cancelled" | "error";
+  state: "idle" | "running" | "cancelling" | "completed" | "cancelled" | "error";
   label: string;
   stage: string;
   progress: number;
   startedAt: number | null;
-  device: string;
+  elapsedMs?: number;
+  device: string | null;
   backend: string;
   message?: string;
+  modelId?: string;
+  dtype?: string | null;
+  mock?: boolean;
+  trained?: boolean;
+  checkpointSha256?: string | null;
+  tokenizerSha256?: string;
+  sourceCommit?: string | null;
+  candidateCount?: number;
+  batchSize?: number;
+  deterministic?: boolean;
+  cpuFallbackUsed?: boolean;
+  fallbackReason?: string | null;
+  preferredDevice?: "auto" | "cpu" | "cuda" | "mps";
+  canRetryOnCpu?: boolean;
+  rebasedAgainstNewerEdits?: boolean;
 }
 
 interface ProjectStatusBarProps {
@@ -34,6 +50,7 @@ interface ProjectStatusBarProps {
   online: boolean;
   connectionLabel: string;
   onCancelAi: () => void;
+  onRetryAiOnCpu?: () => void;
   onOpenDiagnostics: () => void;
 }
 
@@ -92,15 +109,20 @@ export function ProjectStatusBar({
   online,
   connectionLabel,
   onCancelAi,
+  onRetryAiOnCpu,
   onOpenDiagnostics,
 }: ProjectStatusBarProps) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (aiJob.state !== "running") return;
+    if (aiJob.state !== "running" && aiJob.state !== "cancelling") return;
     const timer = window.setInterval(() => setNow(Date.now()), 500);
     return () => window.clearInterval(timer);
   }, [aiJob.state]);
-  const elapsed = aiJob.startedAt === null ? 0 : Math.max(0, (now - aiJob.startedAt) / 1_000);
+  const elapsed = aiJob.elapsedMs !== undefined
+    ? Math.max(0, aiJob.elapsedMs / 1_000)
+    : aiJob.startedAt === null
+      ? 0
+      : Math.max(0, (now - aiJob.startedAt) / 1_000);
   const currentBar = Math.floor(Math.max(0, currentTick) / Math.max(1, ticksPerBar)) + 1;
 
   // Only shown once it can actually be measured; an unmeasurable store would
@@ -116,6 +138,15 @@ export function ProjectStatusBar({
   const savedTime = lastSavedAt
     ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(lastSavedAt))
     : null;
+  const aiActive = aiJob.state === "running" || aiJob.state === "cancelling";
+  const deviceLabel = aiJob.device === null
+    ? "Detecting device…"
+    : aiJob.device === "mps"
+      ? "Apple Metal (MPS)"
+      : aiJob.device?.toUpperCase();
+  const checkpointLabel = aiJob.checkpointSha256
+    ? `ckpt ${aiJob.checkpointSha256.slice(0, 8)}`
+    : aiJob.modelId ? "No checkpoint" : null;
 
   return (
     <section className="project-status-bar" aria-label="現在のアプリ状態">
@@ -135,16 +166,68 @@ export function ProjectStatusBar({
             : "Applied"}
         </span>
       </div>
-      <div className="status-item ai-status" aria-live="polite">
+      <div className="status-item ai-status" aria-live="polite" aria-atomic="true">
         <strong>AI</strong>
-        {aiJob.state === "running" ? (
+        <div className="ai-status-content">
           <span>
-            {aiJob.stage} · {Math.round(aiJob.progress)}% · {elapsed.toFixed(1)}s
-            <button type="button" onClick={onCancelAi}>Cancel</button>
+            {aiActive
+              ? `${aiJob.stage} · ${Math.round(aiJob.progress)}% · ${elapsed.toFixed(1)}s`
+              : aiJob.state === "error" ? aiJob.message ?? "Failed safely" : aiJob.label}
           </span>
-        ) : (
-          <span>{aiJob.state === "error" ? aiJob.message ?? "Failed safely" : aiJob.label}</span>
-        )}
+          {aiJob.modelId && (
+            <span className="ai-provenance-badges" aria-label="推論の由来">
+              <span title={`Model: ${aiJob.modelId}`}>
+                {aiJob.mock ? "Mock / untrained" : aiJob.trained ? "Neural / trained" : "Untrained"}
+              </span>
+              <span title="実際に推論したデバイス">{deviceLabel}</span>
+              <span title={`Backend: ${aiJob.backend}${aiJob.dtype ? ` · ${aiJob.dtype}` : ""}`}>
+                {aiJob.backend}{aiJob.dtype ? ` · ${aiJob.dtype}` : ""}
+              </span>
+              {checkpointLabel && <span title={aiJob.checkpointSha256 ?? "学習済みcheckpointなし"}>{checkpointLabel}</span>}
+              {aiJob.candidateCount !== undefined && (
+                <span title="提案数と実際のモデルforward batch">
+                  {aiJob.candidateCount}候補 · batch {aiJob.batchSize ?? "—"}
+                </span>
+              )}
+              {aiJob.cpuFallbackUsed && <span title={aiJob.fallbackReason ?? "CPU fallback"}>CPU fallback</span>}
+              {aiJob.fallbackReason && !aiJob.cpuFallbackUsed && (
+                <span title={aiJob.fallbackReason}>
+                  {aiJob.fallbackReason.toLowerCase().includes("theory fallback")
+                    ? "Theory fallback"
+                    : "Fallback"}
+                </span>
+              )}
+              {aiJob.rebasedAgainstNewerEdits && (
+                <span title="ジョブ開始後の編集・ロックへ候補を再検証してリベースしました">
+                  Rebased
+                </span>
+              )}
+            </span>
+          )}
+          <span className="ai-status-actions">
+            {aiActive && (
+              <button
+                type="button"
+                onClick={onCancelAi}
+                disabled={aiJob.state === "cancelling"}
+                title={aiJob.state === "cancelling"
+                  ? "サーバーへキャンセルを要求済みです。"
+                  : "候補生成だけを停止します。再生と編集内容は維持されます。"}
+              >
+                {aiJob.state === "cancelling" ? "Cancelling…" : "Cancel"}
+              </button>
+            )}
+            {aiJob.canRetryOnCpu && onRetryAiOnCpu && !aiActive && (
+              <button
+                type="button"
+                onClick={onRetryAiOnCpu}
+                title="同じ選択範囲をCPU指定で再実行します。現在の曲は採用まで変わりません。"
+              >
+                CPUで再試行
+              </button>
+            )}
+          </span>
+        </div>
       </div>
       <div className="status-item" title={`推論バックエンド: ${aiJob.backend || engineLabel}`}>
         <strong>Engine</strong>

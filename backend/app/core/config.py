@@ -15,6 +15,14 @@ DEFAULT_CORS_ORIGINS = (
     "http://127.0.0.1:5173",
     "http://[::1]:5173",
 )
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_MODEL_DIRECTORY = PROJECT_ROOT / "models"
+DEFAULT_NEURAL_CONFIG_PATH = (
+    PROJECT_ROOT
+    / "configs"
+    / "models"
+    / "harmonyforge-bimask-base-v1.yaml"
+)
 InferenceModelPreference = Literal[
     "auto",
     "corpus",
@@ -68,7 +76,10 @@ class Settings:
     app_name: str = "Visual studio chord API"
     cors_origins: tuple[str, ...] = DEFAULT_CORS_ORIGINS
     inference_model: InferenceModelPreference = "auto"
-    model_directory: Path = Path("./models")
+    model_directory: Path = DEFAULT_MODEL_DIRECTORY
+    neural_config_path: Path = DEFAULT_NEURAL_CONFIG_PATH
+    enable_neural_mock: bool = False
+    enable_research_checkpoint: bool = False
     shared_token: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
@@ -89,6 +100,11 @@ class Settings:
                 "or mock-deterministic"
             )
         object.__setattr__(self, "model_directory", self.model_directory.expanduser().resolve())
+        object.__setattr__(
+            self,
+            "neural_config_path",
+            self.neural_config_path.expanduser().resolve(),
+        )
         if self.shared_token is not None and not re.fullmatch(
             r"[A-Za-z0-9_-]{16,512}",
             self.shared_token,
@@ -107,10 +123,32 @@ class Settings:
         )
         inference_model = os.getenv("MTC_INFERENCE_MODEL", "auto").strip().lower()
         shared_token = os.getenv("MTC_SHARED_TOKEN") or None
-        model_directory = Path(os.getenv("MODEL_DIRECTORY", "./models"))
+        model_directory = Path(
+            os.getenv("MODEL_DIRECTORY", str(DEFAULT_MODEL_DIRECTORY))
+        )
+        neural_config_path = Path(
+            os.getenv(
+                "NEURAL_MODEL_CONFIG",
+                str(DEFAULT_NEURAL_CONFIG_PATH),
+            )
+        )
         return cls(  # type: ignore[arg-type]
             cors_origins=origins,
             inference_model=inference_model,
             model_directory=model_directory,
+            neural_config_path=neural_config_path,
+            enable_neural_mock=_environment_bool("MTC_ENABLE_NEURAL_MOCK"),
+            enable_research_checkpoint=_environment_bool(
+                "MTC_ENABLE_RESEARCH_CHECKPOINT"
+            ),
             shared_token=shared_token,
         )
+
+
+def _environment_bool(name: str) -> bool:
+    value = os.getenv(name, "false").strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off", ""}:
+        return False
+    raise ValueError(f"{name} must be a boolean value")

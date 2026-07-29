@@ -99,4 +99,8 @@ The next neural-model stage is specified in two readable languages:
   [English](neural-harmonization-sota.en.md);
 - implementation plan:
   [日本語](neural-chord-model-plan.ja.md) /
-  [English](neural-chord-model-plan.en.md).
+  [English](neural-chord-model-plan.en.md);
+- v0.4 implementation/provenance map, including shipped behavior, future
+  experiments, preview safety, and the primary-source bibliography:
+  [日本語](../neural-harmony-architecture.ja.md) /
+  [English](../neural-harmony-architecture.en.md).

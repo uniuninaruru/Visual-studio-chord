@@ -37,7 +37,7 @@ jobs:
         shell: pwsh
         run: |
           .\scripts\setup-acceleration.ps1 cuda
-          .\.venv\Scripts\python.exe scripts\verify_acceleration.py --json --require-gpu
+          .\.venv\Scripts\python.exe scripts\verify_acceleration.py --json --require-torch-device cuda
           .\.venv\Scripts\python.exe -m pytest backend\tests\test_gpu_integration.py
 
   linux-cuda:
@@ -59,5 +59,5 @@ jobs:
       - name: Install and prove the pinned CUDA runtime
         run: |
           ./scripts/setup-acceleration.sh cuda
-          .venv/bin/python scripts/verify_acceleration.py --json --require-gpu
+          .venv/bin/python scripts/verify_acceleration.py --json --require-torch-device cuda
           .venv/bin/python -m pytest backend/tests/test_gpu_integration.py

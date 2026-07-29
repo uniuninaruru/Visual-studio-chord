@@ -27,12 +27,14 @@ jobs:
         if: runner.os != 'Windows'
         env:
           MTC_PACKAGE_MANAGER: npm
+          MTC_ACCELERATION: none
         run: ./scripts/setup.sh
       - name: Run portable Windows setup
         if: runner.os == 'Windows'
         shell: pwsh
         env:
           MTC_PACKAGE_MANAGER: npm
+          MTC_ACCELERATION: none
         run: .\scripts\setup.ps1
       - name: Validate POSIX launchers
         if: runner.os != 'Windows'
@@ -152,15 +154,96 @@ jobs:
       - run: python -m pip install pip==25.0.1 setuptools==83.0.0
       - run: python -m pip install --requirement backend/requirements.lock
       - run: python -m pip install --no-deps --no-build-isolation --editable backend
+      - name: Verify base dependency lane stays torch-free
+        run: |
+          python -c "from pathlib import Path; lines={line.split('==', 1)[0].lower() for line in Path('backend/requirements.lock').read_text().splitlines() if line and not line[0].isspace() and not line.startswith('#')}; forbidden=lines & {'torch', 'safetensors'}; assert not forbidden, f'base lock contains optional neural packages: {sorted(forbidden)}'"
       - run: python scripts/export-openapi.py --check
       - run: python -m pytest
         working-directory: backend
       - run: python -m ruff check app tests
         working-directory: backend
 
+  backend-neural-cpu:
+    name: Backend neural CPU
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.lock
+            backend/requirements-acceleration-cpu.lock
+      - run: python -m pip install pip==25.0.1 setuptools==83.0.0
+      - name: Install pinned test and neural CPU dependencies
+        run: >-
+          python -m pip install
+          --requirement backend/requirements.lock
+          --requirement backend/requirements-acceleration-cpu.lock
+      - run: python -m pip install --no-deps --no-build-isolation --editable backend
+      - name: Verify neural runtime and exact architecture
+        working-directory: backend
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          import safetensors
+          import torch
+
+          from app.ml.contracts import load_model_config
+          from app.ml.model import build_harmony_forge_model
+
+          assert torch.__version__.split("+", 1)[0] == "2.13.0"
+          assert safetensors.__version__ == "0.8.0"
+          config = load_model_config(
+              Path("../configs/models/harmonyforge-bimask-base-v1.yaml")
+          )
+          model = build_harmony_forge_model(config, torch_module=torch)
+          assert sum(parameter.numel() for parameter in model.parameters()) == 104_567_874
+          fields = (
+              "melody_midi",
+              "melody_role",
+              "metrical_slot",
+              "bar_index",
+              "key_root",
+              "mode",
+              "harmony_event",
+              "harmony_root",
+              "harmony_quality",
+              "harmony_inversion",
+              "harmony_bass",
+              "edit_mask",
+          )
+          batch = {
+              field: torch.zeros((1, 4), dtype=torch.long)
+              for field in fields
+          }
+          batch["harmony_extensions"] = torch.zeros((1, 4, 8), dtype=torch.float32)
+          batch["padding_mask"] = torch.zeros((1, 4), dtype=torch.bool)
+          with torch.inference_mode():
+              outputs = model(batch)
+          assert outputs["event"].shape == (1, 4, 3)
+          PY
+      - name: Run neural contract tests on CPU
+        working-directory: backend
+        run: >-
+          python -m pytest
+          tests/test_ml_tokenizer.py
+          tests/test_harmony_checkpoint.py
+          tests/test_harmony_api.py
+          tests/test_training_dataset.py
+          tests/test_training_torch_optional.py
+          tests/test_training_cli.py
+      - name: Smoke test installed HarmonyForge commands
+        run: |
+          harmonyforge-compile --help
+          harmonyforge-train --help
+          harmonyforge-evaluate --help
+
   containers:
     runs-on: ubuntu-latest
-    needs: [frontend, backend]
+    needs: [frontend, backend, backend-neural-cpu]
     env:
       MTC_SHARED_TOKEN: ci-only-token-00000000000000000000000000000000
     steps:

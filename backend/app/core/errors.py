@@ -6,7 +6,7 @@ from collections.abc import Mapping
 
 from fastapi.responses import JSONResponse
 
-from app.schemas.api import ErrorInfo, ErrorResponse, PublicErrorCode
+from app.schemas.api import ErrorInfo, ErrorResponse, ErrorResponseV2, PublicErrorCode
 
 _ERRORS: dict[int, tuple[PublicErrorCode, str]] = {
     401: ("AUTHENTICATION_REQUIRED", "Authentication is required."),
@@ -25,6 +25,7 @@ def error_response(
     status_code: int,
     *,
     headers: Mapping[str, str] | None = None,
+    api_version: str = "1",
 ) -> JSONResponse:
     """Create a stable public error without native exception or path details."""
 
@@ -39,13 +40,20 @@ def error_response(
             ),
         ),
     )
-    payload = ErrorResponse(
-        request_id=request_id,
-        error=ErrorInfo(code=code, message=message),
+    payload = (
+        ErrorResponseV2(
+            request_id=request_id,
+            error=ErrorInfo(code=code, message=message),
+        )
+        if api_version == "2"
+        else ErrorResponse(
+            request_id=request_id,
+            error=ErrorInfo(code=code, message=message),
+        )
     )
     response_headers = dict(headers or {})
     response_headers["X-Request-ID"] = request_id
-    response_headers["X-API-Version"] = "1"
+    response_headers["X-API-Version"] = api_version
     return JSONResponse(
         status_code=status_code,
         content=payload.model_dump(mode="json", by_alias=True),
@@ -59,6 +67,21 @@ def documented_errors(*status_codes: int) -> dict[int, dict[str, object]]:
     return {
         status_code: {
             "model": ErrorResponse,
+            "description": _ERRORS.get(
+                status_code,
+                ("HTTP_ERROR", "Request failed."),
+            )[1],
+        }
+        for status_code in status_codes
+    }
+
+
+def documented_errors_v2(*status_codes: int) -> dict[int, dict[str, object]]:
+    """Version-two error metadata for neural harmony routes."""
+
+    return {
+        status_code: {
+            "model": ErrorResponseV2,
             "description": _ERRORS.get(
                 status_code,
                 ("HTTP_ERROR", "Request failed."),

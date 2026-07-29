@@ -2,7 +2,8 @@
 
 [日本語](neural-chord-model-plan.ja.md) | **English**
 
-Status: design approved for implementation; measurements not yet run
+Status: v0.4 research-preview foundation implemented; training and musical
+quality evaluation not yet run
 
 Target release family: 0.4.x research previews, 1.0 only after listening tests
 
@@ -11,6 +12,29 @@ Runtime targets: NVIDIA CUDA, Apple Metal via PyTorch MPS, CPU fallback
 Interpretation note: “Meta environment” is treated as Apple Metal/MPS. If Meta
 AI hardware or AudioCraft was intended, it is a different target and must be
 designed separately.
+
+## Implementation status (v0.4.0)
+
+This document includes a research plan, so implemented behavior and proposed
+experiments are kept separate. v0.4.0 implements the tokenizer, a
+104,567,874-parameter PyTorch module, factorized heads, the SafeTensors
+checkpoint gate, CUDA/MPS/CPU adapters, asynchronous API v2, cancellation, a
+mock fixture, and the preview safety boundary. It does not bundle a trained
+checkpoint, and closed-test evaluation, ablations, and listening tests remain
+outstanding.
+
+The v0.4 neural request conditions only on melody, tonality, meter/range, the
+edit mask, and fixed existing harmony. Form plus style, mood, density,
+complexity, exploration, and contour in section 4 are target research inputs,
+not silent controls of the current model; the UI labels them as theory
+generator/fallback settings.
+
+The implemented model uses learned window-position embeddings plus bar and
+metrical-position embeddings. It does not implement rotary or relative
+positional attention. Those mechanisms, sparse attention, SCG-style stepwise
+guidance, and a causal student remain comparison experiments, not current
+features. The exact implementation/prior-work boundary is recorded in the
+[neural harmony architecture note](../neural-harmony-architecture.en.md).
 
 ## 1. Decision
 
@@ -119,9 +143,9 @@ At each harmonic frame:
 | Event | `NO_CHORD`, `HOLD`, `CHANGE` |
 | Root | 12 key-relative semitone classes |
 | Quality | current application `ChordQuality` vocabulary plus `OTHER` |
-| Inversion | root, 1st, 2nd, 3rd, other |
-| Bass | 12 root-relative pitch classes plus `ROOT` |
-| Extensions | multi-label 6, 7, 9, 11, 13 and supported alterations |
+| Inversion | root, 1st, 2nd, 3rd; analysis-only `other` is rejected by product decoding |
+| Bass | 12 root-relative pitch classes; offset 0 is the root |
+| Extensions | multi-label 6, 9, b9, #9, 11, #11, 13, b13 |
 | Function auxiliary | tonic, predominant, dominant, other |
 | Cadence auxiliary | none, authentic, plagal, half, deceptive, loop |
 
@@ -153,18 +177,21 @@ Working name: **HarmonyForge-BiMask**
 
 - single-encoder Transformer;
 - melody and harmony occupy aligned but separately typed tokens;
-- learned stream, bar, beat, section, and edit-mask embeddings;
-- rotary or relative positional attention within the supported PyTorch SDPA
-  path;
-- 12 layers, hidden size 768, 12 attention heads, FFN size 3072;
-- pre-norm, GELU or SiLU, dropout 0.1;
+- learned window-position, stream, bar, metrical-position, section, and
+  edit-mask embeddings;
+- a bias-free 8→768 projection for existing-extension multi-hot conditioning;
+- 12 layers, hidden size 768, 12 attention heads, FFN size 4096;
+- pre-norm, GELU, dropout 0.1;
 - maximum 128 bars in v1, windowed by section for longer projects;
 - factorized output heads sharing the final hidden state;
-- target size: roughly 100–130M parameters, measured from the implemented
-  module rather than asserted from this document.
+- **104,567,874 parameters**, regression-checked with the same formula as the
+  implemented module.
 
 The large research variant may use 24 layers and hidden size 1024 only after the
 base model beats baselines. Capacity alone is not evidence of better harmony.
+Rotary or relative positional attention remains a research variant to compare
+against the implemented learned embeddings on the same data split and parameter
+budget.
 
 ### 5.2 Hierarchical context
 
@@ -226,9 +253,13 @@ listening to the test set.
    empirical corpus likelihood, and explicit preference.
 8. Return previews with model/device/seed/checkpoint provenance.
 
-The first implementation generates 32 candidates by default but exposes the
-count. There is no product-level model-size or client-compute ceiling; batch
-size adapts to available memory and may be reduced after OOM.
+The v0.4 implementation requests 32 candidates by default (API range 1–32),
+but one model forward processes one tokenizer window at
+`candidate_decoding_batch: 1`; candidate variants are sampled from the shared
+logits. `candidateCount` and execution batch size are separate values. v0.4
+does not shrink a batch after OOM: it records the reason and, when allowed,
+falls back from the accelerator to CPU. Adaptive batch shrinking remains a
+future measured optimization.
 
 ## 6. Constraint integration
 
@@ -348,8 +379,9 @@ precision. Caller input can select an allowlisted model ID, never a file path.
   `torch.use_deterministic_algorithms(True)` and a declared SDPA backend;
 - fast production mode may use fused attention, but reports that bitwise
   reproduction is not guaranteed;
-- catch real allocation failures, shrink candidate batch, clear cache, then
-  retry on CUDA or fall back to CPU.
+- v0.4 records real allocation failures and falls back to CPU; candidate-batch
+  shrinking and a cache-clear/retry policy remain future performance
+  experiments.
 
 ### 8.3 Metal/MPS
 
@@ -362,7 +394,8 @@ precision. Caller input can select an allowlisted model ID, never a file path.
 - monitor MPS allocated memory and expose allocator diagnostics;
 - do not disable the MPS high-watermark safety limit merely because capacity is
   not a product constraint;
-- MPS OOM reduces batch size before CPU fallback.
+- v0.4 reports MPS OOM and falls back to CPU; pre-fallback batch reduction is
+  not implemented.
 
 ### 8.4 Cross-device acceptance
 
@@ -425,8 +458,9 @@ metadata or backend-native tensors.
 - Result is always a preview.
 - Show `Neural CUDA`, `Neural Metal`, or `Neural CPU`, checkpoint version, and
   whether any CPU operation fallback occurred.
-- On failure: composition unchanged; retry, smaller batch, CPU, corpus ranker,
-  or theory-only actions.
+- On failure: composition unchanged; offer retry, CPU, corpus ranker, or
+  theory-only actions. Offer a smaller batch only after that future behavior is
+  implemented.
 - Smartphone uses the desktop server’s model. It does not need a separate
   mobile checkpoint unless future measurements justify one.
 

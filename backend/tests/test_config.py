@@ -1,6 +1,13 @@
+from pathlib import Path
+
 import pytest
 
-from app.core.config import Settings, validate_cors_origin
+from app.core.config import (
+    DEFAULT_MODEL_DIRECTORY,
+    DEFAULT_NEURAL_CONFIG_PATH,
+    Settings,
+    validate_cors_origin,
+)
 
 
 @pytest.mark.parametrize(
@@ -66,6 +73,25 @@ def test_model_directory_is_configurable(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("MODEL_DIRECTORY", str(model_directory))
 
     assert Settings.from_env().model_directory == model_directory.resolve()
+
+
+def test_default_artifact_paths_do_not_depend_on_working_directory(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("MODEL_DIRECTORY", raising=False)
+    monkeypatch.delenv("NEURAL_MODEL_CONFIG", raising=False)
+
+    direct = Settings()
+    from_environment = Settings.from_env()
+
+    assert direct.model_directory == DEFAULT_MODEL_DIRECTORY.resolve()
+    assert from_environment.model_directory == DEFAULT_MODEL_DIRECTORY.resolve()
+    assert direct.neural_config_path == DEFAULT_NEURAL_CONFIG_PATH.resolve()
+    assert from_environment.neural_config_path == DEFAULT_NEURAL_CONFIG_PATH.resolve()
+    assert direct.model_directory != (Path.cwd() / "models").resolve()
+    assert direct.neural_config_path.is_file()
 
 
 def test_shared_token_is_loaded_without_being_exposed_in_repr(monkeypatch) -> None:

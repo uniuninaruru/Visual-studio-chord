@@ -96,4 +96,55 @@ describe("VariationPanel ranked candidates", () => {
 
     expect(ranked.map(({ sourceIndex }) => sourceIndex)).toEqual([0, 1, 2]);
   });
+
+  it("labels neural previews, explicit mock state, validation, and provenance", () => {
+    const neuralCandidate = candidate(0, 0.3);
+    neuralCandidate.neural = {
+      candidateId: "mock-candidate",
+      modelId: "mock-harmonyforge-bimask-v1",
+      device: "cpu",
+      backend: "mock",
+      dtype: "float32",
+      mock: true,
+      trained: false,
+      checkpointSha256: null,
+      tokenizerSha256: "tokenizer",
+      sourceCommit: null,
+      candidateCount: 3,
+      batchSize: 1,
+      cpuFallbackUsed: false,
+      fallbackReason: null,
+      neuralMeanLogProbability: null,
+      meanConfidence: 0.5,
+      hardRuleVector: {},
+      clientTheoryValidated: true,
+      rebasedAgainstNewerEdits: true,
+      theoryWarnings: ["Cadence metadata warning"],
+      arrangementWarnings: [],
+    };
+
+    act(() => {
+      root.render(
+        <VariationPanel
+          candidates={[neuralCandidate]}
+          activeAuditionIndex={null}
+          onAudition={vi.fn()}
+          onAdopt={vi.fn()}
+          onFeedback={vi.fn()}
+        />,
+      );
+    });
+
+    expect(host.textContent).toContain("Mock · untrained");
+    expect(host.textContent).toContain("Client gateValidated · 1 warnings");
+    expect(host.textContent).toContain("checkpointなし");
+    expect(host.textContent).toContain("3候補 · batch 1");
+    expect(host.textContent).toContain("Rebased");
+    expect(
+      host.querySelector(".variation-neural-badge")?.getAttribute("aria-label"),
+    ).toContain("未学習Mock");
+    expect(
+      host.querySelector(".variation-adopt-button")?.getAttribute("aria-label"),
+    ).toContain("プレビューを採用して履歴へ保存");
+  });
 });
