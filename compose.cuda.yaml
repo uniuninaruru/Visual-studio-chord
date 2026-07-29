@@ -1,0 +1,6 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.cuda.Dockerfile
+    gpus: all

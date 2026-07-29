@@ -1,4 +1,10 @@
+param(
+  [ValidateSet("auto", "cuda", "directml", "cpu", "none")]
+  [string]$Acceleration = "auto"
+)
+
 $ErrorActionPreference = "Stop"
+$AccelerationWasExplicit = $PSBoundParameters.ContainsKey("Acceleration")
 
 $ProjectDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $VenvDir = Join-Path $ProjectDir ".venv"
@@ -6,6 +12,12 @@ $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 
 . (Join-Path $ProjectDir "scripts\runtime.ps1")
 Import-ProjectEnvironment -ProjectDir $ProjectDir
+if (-not $AccelerationWasExplicit -and $env:MTC_ACCELERATION) {
+  $Acceleration = $env:MTC_ACCELERATION.ToLowerInvariant()
+  if ($Acceleration -notin @("auto", "cuda", "directml", "cpu", "none")) {
+    throw "MTC_ACCELERATION must be auto, cuda, directml, cpu, or none."
+  }
+}
 Assert-NodeRuntime
 $PackageManager = Get-PackageManager -ProjectDir $ProjectDir
 
@@ -84,6 +96,15 @@ $EnvFile = Join-Path $ProjectDir ".env"
 if (-not (Test-Path $EnvFile)) {
   Copy-Item (Join-Path $ProjectDir ".env.example") $EnvFile
   Write-Host "Created .env from .env.example. Existing environment files are never overwritten."
+}
+
+if ($Acceleration -eq "none") {
+  Write-Host 'PyTorch installation skipped by explicit setup profile "none".'
+} else {
+  & (Join-Path $ProjectDir "scripts\setup-acceleration.ps1") -Backend $Acceleration
+  if ($LASTEXITCODE -ne 0) {
+    throw "PyTorch/acceleration setup failed. Browser/theory mode remains available."
+  }
 }
 
 Invoke-Checked -Program $VenvPython -Arguments @(

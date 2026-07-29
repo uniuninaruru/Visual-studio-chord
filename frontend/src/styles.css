@@ -1585,6 +1585,34 @@ button.voice-chip {
   gap: 6px;
 }
 
+.regeneration-engine-note {
+  max-width: 180px;
+  padding: 4px 7px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-tertiary);
+  background: var(--color-surface-subtle);
+  font-size: 8px;
+  font-weight: 750;
+  line-height: 1.25;
+}
+
+.regeneration-engine-note.is-mock {
+  border-color: var(--color-warning);
+  color: var(--color-warning);
+}
+
+.neural-conditioning-note {
+  max-width: 260px;
+  color: var(--color-text-tertiary);
+  font-size: 8px;
+  line-height: 1.35;
+}
+
+.neural-device-control select {
+  min-width: 94px;
+}
+
 .regenerate-button {
   min-height: 42px;
   white-space: nowrap;
@@ -1923,17 +1951,43 @@ button.voice-chip {
 }
 
 .status-item.ai-status {
-  min-width: 210px;
+  min-width: 320px;
+}
+
+.ai-status-content {
+  display: grid;
+  gap: 3px;
+}
+
+.ai-provenance-badges,
+.ai-status-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.ai-provenance-badges > span {
+  padding: 1px 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-secondary);
+  background: white;
+  font-size: 7px;
 }
 
 .status-item.ai-status button {
-  margin-left: 8px;
+  margin-left: 0;
   padding: 1px 6px;
   border: 1px solid var(--color-border-strong);
   border-radius: 4px;
   background: white;
   font-size: 8px;
   cursor: pointer;
+}
+
+.status-item.ai-status button:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .save-status.is-session span,
@@ -2156,6 +2210,24 @@ button.voice-chip {
 .variation-audition-badge { color: var(--color-text-tertiary); font-size: 8px; }
 .variation-audition-badge { color: var(--color-accent); font-weight: 800; }
 
+.variation-neural-badge {
+  grid-column: 1 / -1;
+  justify-self: start;
+  padding: 3px 6px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, white);
+  border-radius: 999px;
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.variation-neural-badge.is-mock {
+  border-color: color-mix(in srgb, var(--color-warning) 55%, white);
+  color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 8%, white);
+}
+
 .variation-chord-summary > span,
 .variation-preference-score dt {
   color: var(--color-text-tertiary);
@@ -2179,6 +2251,19 @@ button.voice-chip {
 
 .variation-preference-score div { display: grid; gap: 2px; }
 .variation-preference-score dd { margin: 0; font-size: 12px; font-weight: 800; }
+.variation-provenance-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.variation-provenance-row span {
+  padding: 2px 5px;
+  border-radius: 999px;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-subtle);
+  font-size: 7px;
+  font-weight: 700;
+}
 .variation-primary-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
 .variation-primary-actions button { min-height: 34px; padding-inline: 7px; font-size: 9px; }
 

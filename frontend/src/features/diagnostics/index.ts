@@ -5,6 +5,7 @@ export {
   type BackendDiagnostics,
   type BackendModelDiagnostic,
   type DiagnosticsPanelProps,
+  type HarmonyJobDiagnostic,
   type ModelAvailabilityStatus,
   type StorageMode,
   type UserFacingDiagnosticError,

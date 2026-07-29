@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import type { NeuralHarmonyPreviewMetadata } from "../api/inferenceTypes";
 import { sortVariationCandidates } from "../features/variations/variationRanking";
 import type { VariationCandidate } from "../features/variations/VariationPanel";
 import {
@@ -20,6 +21,7 @@ export interface CandidateRankingOptions {
   candidateFeatureSets: readonly PreferenceFeatureSet[];
   preferenceModel: PreferenceModel;
   preferenceCategory: PreferenceCategory;
+  neuralMetadataByCompositionId: Readonly<Record<string, NeuralHarmonyPreviewMetadata>>;
 }
 
 export interface CandidateRanking {
@@ -52,6 +54,7 @@ export function useCandidateRanking(
     candidateFeatureSets,
     preferenceModel,
     preferenceCategory,
+    neuralMetadataByCompositionId,
   } = options;
 
   const [serverScores, setServerScores] = useState<Record<string, number>>({});
@@ -68,6 +71,7 @@ export function useCandidateRanking(
       return {
         composition: candidate,
         sourceIndex: index,
+        neural: neuralMetadataByCompositionId[candidate.id],
         // The server returns an unbounded score; squashing it keeps the display
         // on the same scale as the browser scorer's output.
         preference: serverScore === undefined
@@ -82,6 +86,7 @@ export function useCandidateRanking(
     preferenceModel,
     previewVariations,
     serverScores,
+    neuralMetadataByCompositionId,
   ]);
 
   return {

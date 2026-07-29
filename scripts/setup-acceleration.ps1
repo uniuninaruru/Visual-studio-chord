@@ -18,8 +18,8 @@ if ($Backend -eq "auto") {
   if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
     $Backend = "cuda"
   } else {
-    # DirectML covers supported AMD, Intel, and NVIDIA DirectX 12 adapters.
-    $Backend = "directml"
+    # HarmonyForge uses PyTorch. DirectML remains an explicit ONNX-ranker mode.
+    $Backend = "cpu"
   }
 }
 
@@ -51,7 +51,10 @@ if ($InstallExitCode -ne 0 -and -not $AutoRequested) {
 }
 
 if ($InstallExitCode -eq 0 -and $Backend -eq "cpu") {
-  & $VenvPython $ProbeScript
+  & $VenvPython $ProbeScript --require-torch-device cpu
+  $ProbeExitCode = $LASTEXITCODE
+} elseif ($InstallExitCode -eq 0 -and $Backend -eq "cuda") {
+  & $VenvPython $ProbeScript --require-torch-device cuda
   $ProbeExitCode = $LASTEXITCODE
 } elseif ($InstallExitCode -eq 0) {
   & $VenvPython $ProbeScript --require-gpu
@@ -61,13 +64,13 @@ if ($InstallExitCode -eq 0 -and $Backend -eq "cpu") {
 }
 
 if ($ProbeExitCode -ne 0 -and $AutoRequested -and $Backend -eq "cuda") {
-  Write-Warning "CUDA did not pass a real inference probe. Trying DirectML before CPU."
+  Write-Warning "CUDA did not pass the PyTorch tensor probe. Switching to pinned PyTorch CPU."
   & $VenvPython -m pip uninstall -y onnxruntime onnxruntime-gpu onnxruntime-directml | Out-Host
-  $InstallExitCode = Install-Lock "requirements-acceleration-directml.lock"
+  $InstallExitCode = Install-Lock "requirements-acceleration-cpu.lock"
   if ($InstallExitCode -eq 0) {
-    & $VenvPython $ProbeScript --require-gpu
+    & $VenvPython $ProbeScript --require-torch-device cpu
     $ProbeExitCode = $LASTEXITCODE
-    if ($ProbeExitCode -eq 0) { $Backend = "directml" }
+    if ($ProbeExitCode -eq 0) { $Backend = "cpu" }
   } else {
     $ProbeExitCode = $InstallExitCode
   }
@@ -80,7 +83,7 @@ if ($ProbeExitCode -ne 0 -and $AutoRequested) {
   if ($InstallExitCode -ne 0) {
     throw "CPU runtime installation failed. Browser/theory mode remains available."
   }
-  & $VenvPython $ProbeScript
+  & $VenvPython $ProbeScript --require-torch-device cpu
   if ($LASTEXITCODE -ne 0) {
     throw "CPU runtime verification failed. Browser/theory mode remains available."
   }

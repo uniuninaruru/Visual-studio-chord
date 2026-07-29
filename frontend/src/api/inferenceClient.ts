@@ -1,6 +1,10 @@
 import type {
   BackendConnection,
   DeviceResponse,
+  HarmonyGenerateRequest,
+  HarmonyJobResponse,
+  HarmonyModelId,
+  HarmonyModelManifestResponse,
   HealthResponse,
   ModelsResponse,
   PreferenceUpdateResponse,
@@ -12,8 +16,10 @@ import type {
 
 const API_TIMEOUT_MS = 1_600;
 const INFERENCE_TIMEOUT_MS = 30_000;
+const SERVER_FEATURE_ENTRY_LIMIT = 128;
 const ACCESS_TOKEN_SESSION_KEY = "music-theory-composer:lan-access";
 const API_VERSION = "1";
+const HARMONY_API_VERSION = "2";
 let requestSequence = 0;
 
 export class LocalApiError extends Error {
@@ -46,6 +52,11 @@ function createRequestId(): string {
   }
   requestSequence += 1;
   return `web-${Date.now().toString(36)}-${requestSequence.toString(36)}`;
+}
+
+/** Creates the correlation id that stays stable across a v2 harmony job. */
+export function createHarmonyRequestId(): string {
+  return createRequestId();
 }
 
 function accessToken(): string | null {
@@ -113,6 +124,51 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const RUNTIMES = new Set(["cpu", "cuda", "mps", "coreml", "directml"]);
 const MODEL_RUNTIMES = new Set(["browser", ...RUNTIMES]);
 const BACKENDS = new Set(["linear", "corpus", "pytorch", "onnx", "browser", "mock"]);
+const MODEL_CAPABILITIES = new Set(["rank", "generateHarmony"]);
+const HARMONY_MODELS = new Set([
+  "harmonyforge-bimask-base-v1",
+  "mock-harmonyforge-bimask-v1",
+]);
+const HARMONY_JOB_STATES = new Set([
+  "queued",
+  "running",
+  "cancelRequested",
+  "completed",
+  "cancelled",
+  "failed",
+]);
+const HARMONY_STAGES = new Set([
+  "Queued",
+  "Loading checkpoint",
+  "Encoding",
+  "Neural proposal",
+  "Decoding",
+  "Schema validation",
+  "Client theory validation",
+  "Complete",
+  "Cancel requested",
+  "Cancelled",
+  "Failed",
+]);
+const HARMONY_DTYPES = new Set(["float32", "float16", "bfloat16"]);
+const HARMONY_QUALITIES = new Set([
+  "major",
+  "minor",
+  "diminished",
+  "augmented",
+  "dominant7",
+  "major7",
+  "minor7",
+  "halfDiminished7",
+  "diminished7",
+  "minorMajor7",
+  "augmentedMajor7",
+  "sus2",
+  "sus4",
+  "add9",
+  "minorAdd9",
+]);
+const HARMONY_EXTENSIONS = new Set(["6", "9", "b9", "#9", "11", "#11", "13", "b13"]);
 
 function isNullableString(value: unknown): boolean {
   return value === null || typeof value === "string";
@@ -164,11 +220,11 @@ function isModelsResponse(value: unknown): value is ModelsResponse {
     isRecord(model)
     && typeof model.id === "string"
     && typeof model.name === "string"
-    && MODEL_RUNTIMES.has(String(model.runtime))
+    && (model.runtime === null || MODEL_RUNTIMES.has(String(model.runtime)))
     && typeof model.available === "boolean"
     && typeof model.loaded === "boolean"
     && Array.isArray(model.capabilities)
-    && model.capabilities.every((capability) => capability === "rank")
+    && model.capabilities.every((capability) => MODEL_CAPABILITIES.has(String(capability)))
     && BACKENDS.has(String(model.backend))
     && typeof model.mock === "boolean"
   );
@@ -178,6 +234,160 @@ function isModelsResponse(value: unknown): value is ModelsResponse {
     && BACKENDS.has(String(value.activeBackend))
     && typeof value.mock === "boolean"
     && isNullableString(value.fallbackReason);
+}
+
+function isHarmonyCandidate(value: unknown): boolean {
+  if (!isRecord(value) || !Array.isArray(value.events)) return false;
+  return typeof value.candidateId === "string"
+    && value.adoptable === false
+    && value.requiresClientValidation === true
+    && value.hardRuleValidation === "pendingClient"
+    && (value.neuralMeanLogProbability === null
+      || (
+        typeof value.neuralMeanLogProbability === "number"
+        && Number.isFinite(value.neuralMeanLogProbability)
+      ))
+    && isRecord(value.hardRuleVector)
+    && Object.values(value.hardRuleVector).every((number) =>
+      typeof number === "number" && Number.isFinite(number)
+    )
+    && value.events.every((event) =>
+      isRecord(event)
+      && Number.isInteger(event.startTick)
+      && Number(event.startTick) >= 0
+      && Number.isInteger(event.durationTick)
+      && Number(event.durationTick) > 0
+      && Number.isInteger(event.rootOffsetFromKey)
+      && Number(event.rootOffsetFromKey) >= 0
+      && Number(event.rootOffsetFromKey) <= 11
+      && HARMONY_QUALITIES.has(String(event.quality))
+      && Number.isInteger(event.inversion)
+      && Number(event.inversion) >= 0
+      && Number(event.inversion) <= 3
+      && Number.isInteger(event.bassOffsetFromRoot)
+      && Number(event.bassOffsetFromRoot) >= 0
+      && Number(event.bassOffsetFromRoot) <= 11
+      && Array.isArray(event.extensions)
+      && event.extensions.every((extension) => HARMONY_EXTENSIONS.has(String(extension)))
+      && typeof event.confidence === "number"
+      && Number.isFinite(event.confidence)
+      && event.confidence >= 0
+      && event.confidence <= 1
+      && ["generated", "preserved", "conditionOnly"].includes(String(event.maskMode))
+    );
+}
+
+function isHarmonyJobResponse(
+  value: unknown,
+  expectedRequestId: string,
+): value is HarmonyJobResponse {
+  return isRecord(value)
+    && value.apiVersion === HARMONY_API_VERSION
+    && value.requestId === expectedRequestId
+    && HARMONY_JOB_STATES.has(String(value.state))
+    && HARMONY_STAGES.has(String(value.stage))
+    && typeof value.progress === "number"
+    && value.progress >= 0
+    && value.progress <= 100
+    && typeof value.elapsedMs === "number"
+    && value.elapsedMs >= 0
+    && HARMONY_MODELS.has(String(value.modelId))
+    && (value.device === null || RUNTIMES.has(String(value.device)))
+    && (value.backend === "pytorch" || value.backend === "mock")
+    && (value.dtype === null || HARMONY_DTYPES.has(String(value.dtype)))
+    && typeof value.mock === "boolean"
+    && typeof value.trained === "boolean"
+    && isNullableString(value.checkpointSha256)
+    && typeof value.tokenizerSha256 === "string"
+    && isNullableString(value.sourceCommit)
+    && Number.isInteger(value.batchSize)
+    && Number.isInteger(value.candidateCount)
+    && typeof value.deterministic === "boolean"
+    && typeof value.cpuFallbackUsed === "boolean"
+    && isNullableString(value.fallbackReason)
+    && isRecord(value.stageTimingsMs)
+    && value.partialCandidateStored === false
+    && Array.isArray(value.candidates)
+    && value.candidates.every(isHarmonyCandidate)
+    && (value.error === null || (
+      isRecord(value.error)
+      && typeof value.error.code === "string"
+      && typeof value.error.message === "string"
+      && value.error.compositionSafe === true
+      && value.error.fallbackAvailable === true
+    ));
+}
+
+function isHarmonyManifestResponse(value: unknown): value is HarmonyModelManifestResponse {
+  return isRecord(value)
+    && value.apiVersion === HARMONY_API_VERSION
+    && typeof value.requestId === "string"
+    && HARMONY_MODELS.has(String(value.modelId))
+    && typeof value.available === "boolean"
+    && typeof value.mock === "boolean"
+    && typeof value.trained === "boolean"
+    && ["notEvaluated", "researchOnly", "validated"].includes(String(value.evaluationStatus))
+    && isNullableString(value.checkpointSha256)
+    && typeof value.tokenizerSha256 === "string"
+    && isRecord(value.architecture)
+    && Array.isArray(value.supportedDevices)
+    && value.supportedDevices.every((device) => ["cpu", "cuda", "mps"].includes(String(device)))
+    && isNullableString(value.unavailableReason);
+}
+
+async function localApiError(response: Response): Promise<LocalApiError> {
+  let code: string | null = null;
+  try {
+    const errorBody: unknown = await response.json();
+    if (
+      isRecord(errorBody)
+      && isRecord(errorBody.error)
+      && typeof errorBody.error.code === "string"
+    ) code = errorBody.error.code;
+  } catch {
+    // A non-JSON proxy response is still represented by its HTTP status.
+  }
+  if (response.status === 401 || response.status === 403) clearLocalAccessToken();
+  return new LocalApiError(response.status, code);
+}
+
+async function requestHarmonyApi(
+  path: string,
+  method: "GET" | "POST",
+  expectedRequestId: string | null,
+  body?: unknown,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  const controller = new AbortController();
+  const handleExternalAbort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) handleExternalAbort();
+  else signal?.addEventListener("abort", handleExternalAbort, { once: true });
+  const timeout = globalThis.setTimeout(() => controller.abort("timeout"), INFERENCE_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(path, {
+      method,
+      headers: {
+        Accept: "application/json",
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+        ...requestHeaders(),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw await localApiError(response);
+    const payload: unknown = await response.json();
+    if (!isRecord(payload) || payload.apiVersion !== HARMONY_API_VERSION) {
+      throw new Error(`Local harmony API version mismatch (expected ${HARMONY_API_VERSION}).`);
+    }
+    if (expectedRequestId !== null && payload.requestId !== expectedRequestId) {
+      throw new Error("Local harmony API returned an unexpected request ID.");
+    }
+    return payload;
+  } finally {
+    globalThis.clearTimeout(timeout);
+    signal?.removeEventListener("abort", handleExternalAbort);
+  }
 }
 
 async function postJson<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
@@ -279,9 +489,34 @@ export function rankCandidates(
   preferenceCategory: ServerPreferenceCategory = "combined",
   signal?: AbortSignal,
 ): Promise<RankResponse> {
+  const candidateFeatureKeys = new Set(
+    candidates.flatMap((candidate) => Object.keys(candidate.features)),
+  );
+  const selectedFeatureKeys = [...candidateFeatureKeys]
+    .sort((left, right) => {
+      const weightDifference =
+        Math.abs(preferenceWeights[right] ?? 0)
+        - Math.abs(preferenceWeights[left] ?? 0);
+      return weightDifference || left.localeCompare(right);
+    })
+    .slice(0, SERVER_FEATURE_ENTRY_LIMIT);
+  const selected = new Set(selectedFeatureKeys);
+  const boundedCandidates = candidates.map((candidate) => ({
+    ...candidate,
+    features: Object.fromEntries(
+      Object.entries(candidate.features)
+        .filter(([feature]) => selected.has(feature))
+        .sort(([left], [right]) => left.localeCompare(right)),
+    ),
+  }));
+  const boundedWeights = Object.fromEntries(
+    Object.entries(preferenceWeights)
+      .filter(([feature]) => selected.has(feature))
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
   return postJson<RankResponse>("/api/rank", {
-    candidates,
-    preferenceWeights,
+    candidates: boundedCandidates,
+    preferenceWeights: boundedWeights,
     preferenceCategory,
     batchSize: 64,
     allowCpuFallback: true,
@@ -303,9 +538,81 @@ export function updateServerPreference(
   }, signal);
 }
 
+export async function startHarmonyGeneration(
+  request: HarmonyGenerateRequest,
+  signal?: AbortSignal,
+): Promise<HarmonyJobResponse> {
+  const payload = await requestHarmonyApi(
+    "/api/v2/harmony/generate",
+    "POST",
+    request.requestId,
+    request,
+    signal,
+  );
+  if (!isHarmonyJobResponse(payload, request.requestId)) {
+    throw new Error("Local harmony API returned a malformed job response.");
+  }
+  return payload;
+}
+
+export async function getHarmonyJob(
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<HarmonyJobResponse> {
+  const payload = await requestHarmonyApi(
+    `/api/v2/jobs/${encodeURIComponent(requestId)}`,
+    "GET",
+    requestId,
+    undefined,
+    signal,
+  );
+  if (!isHarmonyJobResponse(payload, requestId)) {
+    throw new Error("Local harmony API returned a malformed job response.");
+  }
+  return payload;
+}
+
+export async function cancelHarmonyGeneration(
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<HarmonyJobResponse> {
+  const payload = await requestHarmonyApi(
+    `/api/v2/harmony/cancel/${encodeURIComponent(requestId)}`,
+    "POST",
+    requestId,
+    { apiVersion: HARMONY_API_VERSION, requestId },
+    signal,
+  );
+  if (!isHarmonyJobResponse(payload, requestId)) {
+    throw new Error("Local harmony API returned a malformed cancellation response.");
+  }
+  return payload;
+}
+
+export async function getHarmonyModelManifest(
+  modelId: HarmonyModelId,
+  signal?: AbortSignal,
+): Promise<HarmonyModelManifestResponse> {
+  const payload = await requestHarmonyApi(
+    `/api/v2/models/${encodeURIComponent(modelId)}/manifest`,
+    "GET",
+    null,
+    undefined,
+    signal,
+  );
+  if (!isHarmonyManifestResponse(payload) || payload.modelId !== modelId) {
+    throw new Error("Local harmony API returned a malformed model manifest.");
+  }
+  return payload;
+}
+
 export type {
   BackendConnection,
   DeviceResponse,
+  HarmonyGenerateRequest,
+  HarmonyJobResponse,
+  HarmonyModelId,
+  HarmonyModelManifestResponse,
   HealthResponse,
   ModelsResponse,
   RankResponse,

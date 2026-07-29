@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { BackendConnection } from "../api/inferenceClient";
 import type {
   BackendDiagnostics,
+  HarmonyJobDiagnostic,
   UserFacingDiagnosticError,
 } from "../features/diagnostics";
 import { fallbackLabel } from "../features/status/fallbackLabel";
+import type { AiJobStatus } from "../features/status/ProjectStatusBar";
 import {
   detectBrowserCapabilities,
   type BrowserCapabilities,
@@ -40,11 +42,34 @@ export function useDiagnostics(
   backend: BackendConnection,
   lastRankInfo: RankInfo | null,
   refreshBackend: () => Promise<void>,
+  aiJob?: AiJobStatus,
 ): DiagnosticsState {
   const [browserCapabilities, setBrowserCapabilities] =
     useState<BrowserCapabilities | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [audioError, setAudioError] = useState<UserFacingDiagnosticError | null>(null);
+  const lastHarmonyJob = useMemo<HarmonyJobDiagnostic | undefined>(() => {
+    if (!aiJob?.modelId) return undefined;
+    return {
+      modelId: aiJob.modelId,
+      stage: aiJob.stage,
+      device: aiJob.device === null
+        ? aiJob.state === "running" || aiJob.state === "cancelling"
+          ? "Detecting device…"
+          : "device not reported"
+        : aiJob.device === "mps" ? "Apple Metal (MPS)" : aiJob.device.toUpperCase(),
+      backend: `${aiJob.backend}${aiJob.dtype ? ` / ${aiJob.dtype}` : ""}`,
+      checkpoint: aiJob.checkpointSha256
+        ? `ckpt ${aiJob.checkpointSha256.slice(0, 12)}`
+        : "checkpointなし",
+      candidateSummary: aiJob.candidateCount === undefined
+        ? undefined
+        : `${aiJob.candidateCount}候補 · batch ${aiJob.batchSize ?? "—"}`,
+      mock: aiJob.mock ?? false,
+      trained: aiJob.trained ?? false,
+      fallback: aiJob.fallbackReason,
+    };
+  }, [aiJob]);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +88,7 @@ export function useDiagnostics(
         device: null,
         inferenceBackend: "確認中",
         models: [],
+        lastHarmonyJob,
         apiCompatibility: "checking",
         expectedApiVersion: "1",
       };
@@ -74,6 +100,7 @@ export function useDiagnostics(
         device: "Browser / CPU",
         inferenceBackend: "Browser linear / Theory-only",
         models: [],
+        lastHarmonyJob,
         apiCompatibility: apiMismatch ? "incompatible" : "unknown",
         expectedApiVersion: "1",
         error: {
@@ -96,12 +123,37 @@ export function useDiagnostics(
       inferenceBackend: `${backend.models.activeModel} / ${backend.models.activeRuntime}${lastRankInfo ? ` · last ${lastRankInfo.runtime}${lastRankInfo.batchSize ? ` batch ${lastRankInfo.batchSize}` : ""}${lastRankInfo.fallback ? ` · ${lastRankInfo.fallback}` : ""}` : ""}`,
       models: backend.models.models
         .filter((model) => model.id !== "browser-linear-v1")
-        .map((model) => ({
-          id: model.id,
-          name: model.name,
-          status: model.available ? "ready" as const : "missing" as const,
-          detail: `${model.runtime}${model.loaded ? " · loaded" : " · available on demand"}${model.id === backend.models.activeModel && fallbackLabel(backend.models.fallbackReason) ? ` · ${fallbackLabel(backend.models.fallbackReason)}` : ""}`,
-        })),
+        .map((model) => {
+          const harmony = model.capabilities.includes("generateHarmony");
+          const modelKind = model.mock
+            ? model.available
+              ? "explicit Mock · untrained"
+              : "explicit Mock disabled"
+            : harmony
+              ? model.available
+                ? "trained checkpoint ready"
+                : "trained checkpoint missing"
+              : "ranking model";
+          return {
+            id: model.id,
+            name: model.name,
+            status: model.available ? "ready" as const : "missing" as const,
+            detail: [
+              model.loaded
+                ? model.runtime ?? "runtime not reported"
+                : "not loaded",
+              model.loaded
+                ? "loaded"
+                : model.available ? "available on demand" : "unavailable",
+              `capability: ${model.capabilities.join(", ")}`,
+              modelKind,
+              model.id === backend.models.activeModel
+                ? fallbackLabel(backend.models.fallbackReason)
+                : null,
+            ].filter(Boolean).join(" · "),
+          };
+        }),
+      lastHarmonyJob,
       apiCompatibility: serverApiVersion === undefined
         ? "unknown"
         : serverApiVersion === "1"
@@ -121,7 +173,7 @@ export function useDiagnostics(
         diagnosticCode: "LOCAL_API_ACCESS_REQUIRED",
       },
     };
-  }, [backend, lastRankInfo]);
+  }, [backend, lastHarmonyJob, lastRankInfo]);
 
   const retryDiagnostics = useCallback(async () => {
     // Clearing first makes the panel show the probe running rather than

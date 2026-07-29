@@ -107,4 +107,55 @@ describe("DiagnosticsPanel", () => {
     expect(document.activeElement).toBe(opener);
     root = createRoot(host);
   });
+
+  it("shows HarmonyForge checkpoint/mock rows and last-job provenance", () => {
+    act(() => {
+      root.render(
+        <DiagnosticsPanel
+          browserCapabilities={browserCapabilities}
+          backend={{
+            connection: "connected",
+            device: "Apple Silicon",
+            inferenceBackend: "harmony-corpus-ngram-v1 / cpu",
+            apiCompatibility: "compatible",
+            models: [
+              {
+                id: "harmonyforge-bimask-base-v1",
+                name: "HarmonyForge BiMask",
+                status: "missing",
+                detail: "mps · capability: generateHarmony · trained checkpoint missing",
+              },
+              {
+                id: "mock-harmonyforge-bimask-v1",
+                name: "HarmonyForge Mock",
+                status: "ready",
+                detail: "cpu · capability: generateHarmony · explicit Mock · untrained",
+              },
+            ],
+            lastHarmonyJob: {
+              modelId: "mock-harmonyforge-bimask-v1",
+              stage: "Complete",
+              device: "CPU",
+              backend: "mock / float32",
+              checkpoint: "checkpointなし",
+              candidateSummary: "3候補 · batch 1",
+              mock: true,
+              trained: false,
+              fallback: "Theory fallback",
+            },
+          }}
+          projectStorageMode="localStorage"
+          historyStorageMode="memory"
+          preferenceStorageMode="indexeddb"
+          onRetry={vi.fn()}
+          onClose={onClose}
+        />,
+      );
+    });
+
+    expect(host.textContent).toContain("trained checkpoint missing");
+    expect(host.textContent).toContain("explicit Mock · untrained");
+    expect(host.textContent).toContain("Last Harmony jobMock / untrained · Complete");
+    expect(host.textContent).toContain("CPU · mock / float32 · checkpointなし · 3候補 · batch 1");
+  });
 });

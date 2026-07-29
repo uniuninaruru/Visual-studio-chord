@@ -63,4 +63,102 @@ describe("ProjectStatusBar", () => {
       "Edited · Apply at next bar · Pending loop: 1–1 小節ループ",
     );
   });
+
+  it("does not claim CPU before device probing and exposes cancellable progress", () => {
+    const onCancelAi = vi.fn();
+    act(() => {
+      root.render(
+        <ProjectStatusBar
+          playback="playing"
+          currentTick={0}
+          ticksPerBar={1_920}
+          loopLabel="全体ループ"
+          pendingCommit={false}
+          updateTiming="nextBar"
+          aiJob={{
+            state: "running",
+            label: "Neural harmony preview",
+            stage: "Loading checkpoint",
+            progress: 5,
+            startedAt: Date.now(),
+            elapsedMs: 420,
+            device: null,
+            backend: "pytorch",
+            modelId: "harmonyforge-bimask-base-v1",
+            dtype: null,
+            mock: false,
+            trained: true,
+            checkpointSha256: "abcdef0123456789",
+            candidateCount: 3,
+            batchSize: 1,
+          }}
+          engineLabel="Neural Harmony / Detecting device…"
+          saveStatus="saved"
+          lastSavedAt={null}
+          online
+          connectionLabel="Local server connected"
+          onCancelAi={onCancelAi}
+          onOpenDiagnostics={vi.fn()}
+        />,
+      );
+    });
+
+    expect(host.textContent).toContain("Loading checkpoint · 5% · 0.4s");
+    expect(host.textContent).toContain("Detecting device…");
+    expect(host.textContent).not.toContain("CPU");
+    expect(host.textContent).toContain("3候補 · batch 1");
+    act(() => host.querySelector<HTMLButtonElement>(".ai-status button")?.click());
+    expect(onCancelAi).toHaveBeenCalledOnce();
+  });
+
+  it("marks explicit mock/untrained provenance and offers a real CPU retry", () => {
+    const onRetry = vi.fn();
+    act(() => {
+      root.render(
+        <ProjectStatusBar
+          playback="stopped"
+          currentTick={0}
+          ticksPerBar={1_920}
+          loopLabel="全体ループ"
+          pendingCommit={false}
+          updateTiming="nextBar"
+          aiJob={{
+            state: "completed",
+            label: "3 previews ready · theory fallback",
+            stage: "Complete",
+            progress: 100,
+            startedAt: Date.now(),
+            elapsedMs: 50,
+            device: "cpu",
+            backend: "mock",
+            modelId: "mock-harmonyforge-bimask-v1",
+            dtype: "float32",
+            mock: true,
+            trained: false,
+            checkpointSha256: null,
+            candidateCount: 3,
+            batchSize: 1,
+            fallbackReason: "Accelerator failed · theory fallback",
+            canRetryOnCpu: true,
+          }}
+          engineLabel="Browser / Theory fallback"
+          saveStatus="saved"
+          lastSavedAt={null}
+          online
+          connectionLabel="Local server connected"
+          onCancelAi={vi.fn()}
+          onRetryAiOnCpu={onRetry}
+          onOpenDiagnostics={vi.fn()}
+        />,
+      );
+    });
+
+    expect(host.textContent).toContain("Mock / untrained");
+    expect(host.textContent).toContain("No checkpoint");
+    expect(host.textContent).toContain("Theory fallback");
+    const retry = [...host.querySelectorAll("button")]
+      .find((button) => button.textContent === "CPUで再試行");
+    act(() => retry?.click());
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
 });

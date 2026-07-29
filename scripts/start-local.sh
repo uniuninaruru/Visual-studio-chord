@@ -2,6 +2,12 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BACKEND_MODE="${1:-cpu}"
+
+if [[ "$BACKEND_MODE" != "cpu" && "$BACKEND_MODE" != "cuda" ]]; then
+  printf 'Usage: ./scripts/start-local.sh [cpu|cuda]\n' >&2
+  exit 2
+fi
 
 # shellcheck source=runtime.sh
 source "$PROJECT_DIR/scripts/runtime.sh"
@@ -43,4 +49,10 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-docker compose up --build
+if [[ "$BACKEND_MODE" == "cuda" ]]; then
+  printf 'Docker backend: NVIDIA CUDA (NVIDIA Container Toolkit required)\n'
+  docker compose -f compose.yaml -f compose.cuda.yaml up --build
+else
+  printf 'Docker backend: CPU\n'
+  docker compose up --build
+fi
