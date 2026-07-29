@@ -71,7 +71,25 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 if (-not (Test-Path $VenvPython)) {
-  Invoke-Checked -Program $PythonProgram -Arguments ($PythonArguments + @("-m", "venv", $VenvDir))
+  # `venv` on a directory that already exists refuses to touch it and exits
+  # non-zero, so an environment whose interpreter has gone — usually a Python
+  # that was upgraded or uninstalled out from under it — is never repaired by
+  # running this script again. Rebuilding in place is what the user wants and
+  # what they cannot get otherwise; -Clear discards only the environment.
+  if (Test-Path $VenvDir) {
+    Write-Warning "The .venv interpreter is missing, so the environment is being rebuilt."
+    Invoke-Checked -Program $PythonProgram -Arguments ($PythonArguments + @("-m", "venv", "--clear", $VenvDir))
+  }
+  else {
+    Invoke-Checked -Program $PythonProgram -Arguments ($PythonArguments + @("-m", "venv", $VenvDir))
+  }
+}
+
+# Report what is actually wrong. A broken environment and one built on the
+# wrong Python need different answers, and telling someone to install a
+# supported Python when they already have one sends them somewhere useless.
+if (-not (Test-Path $VenvPython)) {
+  throw "The .venv interpreter is still missing after a rebuild attempt. Delete the .venv directory and run this script again."
 }
 
 & $VenvPython -c "import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] < (3, 15) else 1)"

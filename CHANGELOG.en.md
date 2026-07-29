@@ -5,6 +5,41 @@
 Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 [Japanese changelog](CHANGELOG.md) contains the complete pre-0.4 history.
 
+## Unreleased
+
+### Fixed — setup rebuilds a virtual environment whose interpreter has gone (`e8546cc`)
+
+`.venv/bin/python` is a symlink. When the Python it points at is upgraded or
+uninstalled — an Xcode or system Python is the usual case — the link dangles and
+every script that uses the environment fails with a file-not-found error naming
+a path that plainly exists.
+
+Running setup again did not help. `venv` will not touch a directory that already
+exists: **with pip it exits non-zero, and without pip it exits zero having
+repaired nothing**, so a script checking the return code is told it succeeded.
+
+Setup then fell through to its next check and reported `The existing .venv uses
+an unsupported Python`. That is the wrong diagnosis and it sends the reader
+somewhere useless: the environment does not use an unsupported Python, it has no
+Python at all, and installing one will not fix it.
+
+- `scripts/setup.sh` and `scripts/setup.ps1` now rebuild in place with `--clear`
+  when the interpreter is missing and the directory exists, and say so while
+  doing it. `--clear` discards the environment and never the project.
+- If a rebuild still leaves no interpreter, the message says to delete the
+  directory rather than blaming the Python version.
+- The version complaint is now reachable **only when there really is a working
+  interpreter of the wrong version**.
+- `scripts/tests/test_setup_venv_repair.py` pins the `venv` behaviour the
+  workaround exists for, that each script rebuilds, and the order of the two
+  messages. It asserts the outcome rather than the return code, because that
+  varies with pip. Removing `--clear` from either script fails the suite.
+
+**Verified** by reproducing the failure and repairing this checkout's own
+`.venv`, which had been pointing at a removed Xcode Python: 154 tests pass from
+the repository root and 133 from `backend/`, and `import app` works from an
+unrelated directory again.
+
 ## 0.4.0 — Major update: HarmonyForge neural-harmony research preview (2026-07-28)
 
 This major update turns the research plan into an executable model, artifact,
