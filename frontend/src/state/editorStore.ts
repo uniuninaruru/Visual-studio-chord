@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   DEFAULT_GENERATOR_SETTINGS,
+  analyzeArrangementQuality,
   generateComposition as buildComposition,
   regenerateRange,
   replaceChordSymbol,
@@ -126,6 +127,14 @@ export interface ComposerStoreActions {
     options?: RegenerationOptions,
     control?: PreviewGenerationControl,
   ): Promise<number>;
+  /**
+   * Atomically publishes already validated external previews without changing
+   * the draft, committed composition, playback, or history.
+   */
+  publishPreviewVariations(
+    sourceCompositionId: string,
+    candidates: readonly GeneratedComposition[],
+  ): number;
   auditionPreviewVariation(index: number | null): boolean;
   adoptPreviewVariation(index: number): boolean;
   editChord(chordId: string, edit: ChordEdit): boolean;
@@ -633,6 +642,52 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
       regenerationIteration: latest.regenerationIteration + Math.max(1, rebasedPreviews.length),
     });
     return rebasedPreviews.length;
+  },
+
+  publishPreviewVariations: (sourceCompositionId, candidates) => {
+    const state = get();
+    if (state.draftComposition.id !== sourceCompositionId) return 0;
+    const source = state.draftComposition;
+    const sameNonHarmonyData = (candidate: GeneratedComposition) =>
+      candidate.ppq === source.ppq
+      && candidate.ticksPerBar === source.ticksPerBar
+      && candidate.totalTicks === source.totalTicks
+      && candidate.timeSignature === source.timeSignature
+      && JSON.stringify(candidate.settings) === JSON.stringify(source.settings)
+      && JSON.stringify(candidate.bars) === JSON.stringify(source.bars)
+      && JSON.stringify(candidate.notes) === JSON.stringify(source.notes)
+      && JSON.stringify(candidate.voices ?? []) === JSON.stringify(source.voices ?? [])
+      && JSON.stringify(candidate.sections ?? []) === JSON.stringify(source.sections ?? [])
+      && JSON.stringify(candidate.lockedBars) === JSON.stringify(source.lockedBars);
+    const previews = candidates
+      .slice(0, 3)
+      .filter((candidate) =>
+        candidate.id !== source.id
+        && sameNonHarmonyData(candidate)
+        && validateComposition(candidate).valid
+        && analyzeArrangementQuality(candidate).errors === 0
+      )
+      .map(clone);
+    if (previews.length === 0) return 0;
+    const auditionBase = state.auditionBaseComposition;
+    set({
+      previewVariations: previews,
+      auditionedVariationIndex: null,
+      committedComposition: auditionBase
+        ? clone(auditionBase)
+        : state.committedComposition,
+      pendingCommit: auditionBase
+        ? state.auditionBasePendingCommit
+        : state.pendingCommit,
+      playbackLoopRange: auditionBase
+        ? state.auditionBasePlaybackLoopRange ?? state.playbackLoopRange
+        : state.playbackLoopRange,
+      auditionBaseComposition: null,
+      auditionBasePendingCommit: false,
+      auditionBasePlaybackLoopRange: null,
+      regenerationIteration: state.regenerationIteration + previews.length,
+    });
+    return previews.length;
   },
 
   auditionPreviewVariation: (index) => {

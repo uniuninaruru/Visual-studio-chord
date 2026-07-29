@@ -38,6 +38,7 @@ import type {
   NoteEvent,
 } from "./types/music";
 import { formatBarBeat, modeLabel } from "./utils/musicFormat";
+import type { NeuralHarmonyPreviewMetadata } from "./api/inferenceTypes";
 
 
 
@@ -85,6 +86,9 @@ export default function App() {
   } = useBackendConnection();
   const [preferenceCategory, setPreferenceCategory] =
     useState<PreferenceCategory>("combined");
+  const [neuralPreviewMetadata, setNeuralPreviewMetadata] = useState<
+    Record<string, NeuralHarmonyPreviewMetadata>
+  >({});
   const candidateFeatureSets = useMemo(
     () => store.previewVariations.map(extractPreferenceFeatures),
     [store.previewVariations],
@@ -103,31 +107,11 @@ export default function App() {
     candidateFeatureSets,
     preferenceModel: preferenceProfile.model,
     preferenceCategory,
+    neuralMetadataByCompositionId: neuralPreviewMetadata,
   });
 
-  const {
-    browserCapabilities,
-    diagnosticsOpen,
-    setDiagnosticsOpen,
-    audioError,
-    setAudioError,
-    backendDiagnostics,
-    retryDiagnostics,
-  } = useDiagnostics(backend, lastRankInfo, refreshBackend);
   const [mutedTrackIds, setMutedTrackIds] = useState<string[]>([]);
   const [soloTrackId, setSoloTrackId] = useState<string | null>(null);
-  const {
-    play: handlePlay,
-    pause: handlePause,
-    stop: handleStop,
-  } = usePlaybackController({
-    playbackComposition: store.committedComposition,
-    playbackLoopRange: store.playbackLoopRange,
-    mutedTrackIds,
-    soloTrackId,
-    onAudioError: setAudioError,
-    onToast: setToast,
-  });
   const saveWarningRef = useRef<string | null>(null);
   const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>([]);
   const [copiedNoteIds, setCopiedNoteIds] = useState<string[]>([]);
@@ -266,11 +250,15 @@ export default function App() {
 
   const {
     aiJob,
+    harmonyModel,
+    preferredDevice,
+    setPreferredDevice,
     regenerationTarget,
     setRegenerationTarget,
     regenerationStrength,
     setRegenerationStrength,
     regenerate: handleRegenerate,
+    retryOnCpu,
     cancel: cancelAiJob,
   } = useCandidateGeneration({
     selectedBarRange: store.selectedBarRange,
@@ -283,7 +271,31 @@ export default function App() {
     setServerScores,
     setRankingRuntime,
     setLastRankInfo,
+    setNeuralPreviewMetadata,
     onGenerated: clearSelection,
+    onToast: setToast,
+  });
+
+  const {
+    browserCapabilities,
+    diagnosticsOpen,
+    setDiagnosticsOpen,
+    audioError,
+    setAudioError,
+    backendDiagnostics,
+    retryDiagnostics,
+  } = useDiagnostics(backend, lastRankInfo, refreshBackend, aiJob);
+
+  const {
+    play: handlePlay,
+    pause: handlePause,
+    stop: handleStop,
+  } = usePlaybackController({
+    playbackComposition: store.committedComposition,
+    playbackLoopRange: store.playbackLoopRange,
+    mutedTrackIds,
+    soloTrackId,
+    onAudioError: setAudioError,
     onToast: setToast,
   });
 
@@ -366,6 +378,7 @@ export default function App() {
     backend.state === "connected" ? backend.models.activeRuntime : "cpu",
     rankingRuntime,
     aiJob.state,
+    aiJob,
   );
   const diagnosticProjectStorageMode = store.projectSaveStatus === "recovery"
     ? store.projectRecoveryReason === "unsupported"
@@ -441,6 +454,7 @@ export default function App() {
               ? "Local server connected"
               : "Local server connected · access required"}
         onCancelAi={cancelAiJob}
+        onRetryAiOnCpu={() => void retryOnCpu()}
         onOpenDiagnostics={() => setDiagnosticsOpen(true)}
       />
 
@@ -632,9 +646,12 @@ export default function App() {
             lockedCount={store.lockedBars.length}
             target={regenerationTarget}
             strength={regenerationStrength}
-            processing={aiJob.state === "running"}
+            processing={aiJob.state === "running" || aiJob.state === "cancelling"}
+            harmonyModel={harmonyModel}
+            preferredDevice={preferredDevice}
             onTargetChange={setRegenerationTarget}
             onStrengthChange={setRegenerationStrength}
+            onPreferredDeviceChange={setPreferredDevice}
             onRegenerate={() => void handleRegenerate()}
             onSelectAll={() => store.setSelectedRange({ startBar: 0, endBar: composition.bars.length })}
           />

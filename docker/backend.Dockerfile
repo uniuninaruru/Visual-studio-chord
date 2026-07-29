@@ -7,12 +7,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY backend/requirements.runtime.lock /tmp/requirements.runtime.lock
+COPY backend/requirements-acceleration-cpu.lock /tmp/requirements-acceleration-cpu.lock
 RUN python -m pip install --no-cache-dir --disable-pip-version-check \
       "pip==25.0.1" "setuptools==83.0.0" \
     && python -m pip install --no-cache-dir --disable-pip-version-check \
-      --requirement /tmp/requirements.runtime.lock
+      --requirement /tmp/requirements.runtime.lock \
+    && python -m pip install --no-cache-dir --disable-pip-version-check \
+      --requirement /tmp/requirements-acceleration-cpu.lock
 
 COPY backend /app/backend
+COPY configs /app/configs
 RUN python -m pip install --no-cache-dir --disable-pip-version-check \
       --no-deps --no-build-isolation /app/backend \
     && useradd --create-home --uid 10001 harmony

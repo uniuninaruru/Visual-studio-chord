@@ -119,6 +119,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/harmony/cancel/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Harmony */
+        post: operations["cancelHarmonyGeneration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/harmony/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate Harmony */
+        post: operations["startHarmonyGeneration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/jobs/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Harmony Job */
+        get: operations["getHarmonyJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/models/{model_id}/manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Harmony Manifest */
+        get: operations["getHarmonyModelManifest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -205,6 +273,372 @@ export interface components {
              * @constant
              */
             readonly success: false;
+        };
+        /** ErrorResponseV2 */
+        ErrorResponseV2: {
+            /**
+             * Apiversion
+             * @description Expose the harmony-preview contract version.
+             * @constant
+             */
+            readonly apiVersion: "2";
+            error: components["schemas"]["ErrorInfo"];
+            /** Requestid */
+            requestId: string;
+            /**
+             * Success
+             * @constant
+             */
+            readonly success: false;
+        };
+        /** HarmonyCancelRequest */
+        HarmonyCancelRequest: {
+            /**
+             * Apiversion
+             * @constant
+             */
+            apiVersion: "2";
+            /** Requestid */
+            requestId: string;
+        };
+        /** HarmonyCandidate */
+        HarmonyCandidate: {
+            /**
+             * Adoptable
+             * @default false
+             * @constant
+             */
+            adoptable: false;
+            /** Candidateid */
+            candidateId: string;
+            /** Events */
+            events: components["schemas"]["HarmonyFactorEvent"][];
+            /**
+             * Hardrulevalidation
+             * @default pendingClient
+             * @constant
+             */
+            hardRuleValidation: "pendingClient";
+            /** Hardrulevector */
+            hardRuleVector?: {
+                [key: string]: number;
+            };
+            /** Neuralmeanlogprobability */
+            neuralMeanLogProbability: number | null;
+            /**
+             * Requiresclientvalidation
+             * @default true
+             * @constant
+             */
+            requiresClientValidation: true;
+        };
+        /** HarmonyCondition */
+        HarmonyCondition: {
+            /**
+             * Bassoffsetfromroot
+             * @default 0
+             */
+            bassOffsetFromRoot: number;
+            /** Durationtick */
+            durationTick: number;
+            /** Extensions */
+            extensions?: ("6" | "9" | "b9" | "#9" | "11" | "#11" | "13" | "b13")[];
+            /**
+             * Inversion
+             * @default 0
+             */
+            inversion: number;
+            /**
+             * Locked
+             * @default false
+             */
+            locked: boolean;
+            /**
+             * Quality
+             * @enum {string}
+             */
+            quality: "major" | "minor" | "diminished" | "augmented" | "dominant7" | "major7" | "minor7" | "halfDiminished7" | "diminished7" | "minorMajor7" | "augmentedMajor7" | "sus2" | "sus4" | "add9" | "minorAdd9";
+            /** Rootoffsetfromkey */
+            rootOffsetFromKey: number;
+            /** Starttick */
+            startTick: number;
+        };
+        /** HarmonyControls */
+        HarmonyControls: {
+            /** Endtick */
+            endTick: number;
+            /**
+             * Ppq
+             * @default 480
+             */
+            ppq: number;
+            /** Starttick */
+            startTick: number;
+            /** Ticksperbar */
+            ticksPerBar: number;
+            /**
+             * Timesignature
+             * @enum {string}
+             */
+            timeSignature: "4/4" | "3/4" | "6/8";
+        };
+        /** HarmonyEditSpan */
+        HarmonyEditSpan: {
+            /** Endtick */
+            endTick: number;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "generate" | "preserve" | "conditionOnly";
+            /** Starttick */
+            startTick: number;
+        };
+        /** HarmonyFactorEvent */
+        HarmonyFactorEvent: {
+            /** Bassoffsetfromroot */
+            bassOffsetFromRoot: number;
+            /** Confidence */
+            confidence: number;
+            /** Durationtick */
+            durationTick: number;
+            /** Extensions */
+            extensions: ("6" | "9" | "b9" | "#9" | "11" | "#11" | "13" | "b13")[];
+            /** Inversion */
+            inversion: number;
+            /**
+             * Maskmode
+             * @enum {string}
+             */
+            maskMode: "generated" | "preserved" | "conditionOnly";
+            /**
+             * Quality
+             * @enum {string}
+             */
+            quality: "major" | "minor" | "diminished" | "augmented" | "dominant7" | "major7" | "minor7" | "halfDiminished7" | "diminished7" | "minorMajor7" | "augmentedMajor7" | "sus2" | "sus4" | "add9" | "minorAdd9";
+            /** Rootoffsetfromkey */
+            rootOffsetFromKey: number;
+            /** Starttick */
+            startTick: number;
+        };
+        /** HarmonyGenerateRequest */
+        HarmonyGenerateRequest: {
+            /**
+             * Allowcpufallback
+             * @default true
+             */
+            allowCpuFallback: boolean;
+            /**
+             * Apiversion
+             * @constant
+             */
+            apiVersion: "2";
+            /**
+             * Candidatecount
+             * @default 32
+             */
+            candidateCount: number;
+            controls: components["schemas"]["HarmonyControls"];
+            /** Existingharmony */
+            existingHarmony?: components["schemas"]["HarmonyCondition"][];
+            /** Generationmask */
+            generationMask: components["schemas"]["HarmonyEditSpan"][];
+            /** Melody */
+            melody: components["schemas"]["HarmonyMelodyNote"][];
+            /**
+             * Modelid
+             * @default harmonyforge-bimask-base-v1
+             * @enum {string}
+             */
+            modelId: "harmonyforge-bimask-base-v1" | "mock-harmonyforge-bimask-v1";
+            /**
+             * Preferreddevice
+             * @default auto
+             * @enum {string}
+             */
+            preferredDevice: "auto" | "cpu" | "cuda" | "mps";
+            /** Requestid */
+            requestId: string;
+            /** Seed */
+            seed: string;
+            /** Tonalities */
+            tonalities: components["schemas"]["HarmonyTonalitySpan"][];
+        };
+        /** HarmonyJobError */
+        HarmonyJobError: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "MODEL_UNAVAILABLE" | "CHECKPOINT_INVALID" | "INFERENCE_FAILED" | "CANCELLED";
+            /**
+             * Compositionsafe
+             * @default true
+             * @constant
+             */
+            compositionSafe: true;
+            /**
+             * Fallbackavailable
+             * @default true
+             * @constant
+             */
+            fallbackAvailable: true;
+            /** Message */
+            message: string;
+        };
+        /** HarmonyJobResponse */
+        HarmonyJobResponse: {
+            /**
+             * Apiversion
+             * @description Expose the harmony-preview contract version.
+             * @constant
+             */
+            readonly apiVersion: "2";
+            /**
+             * Backend
+             * @enum {string}
+             */
+            backend: "pytorch" | "mock";
+            /**
+             * Batchsize
+             * @default 1
+             */
+            batchSize: number;
+            /** Candidatecount */
+            candidateCount: number;
+            /** Candidates */
+            candidates?: components["schemas"]["HarmonyCandidate"][];
+            /** Checkpointsha256 */
+            checkpointSha256?: string | null;
+            /**
+             * Cpufallbackused
+             * @default false
+             */
+            cpuFallbackUsed: boolean;
+            /**
+             * Deterministic
+             * @default true
+             */
+            deterministic: boolean;
+            /** Device */
+            device: ("cpu" | "cuda" | "mps" | "coreml" | "directml") | null;
+            /** Dtype */
+            dtype: ("float32" | "float16" | "bfloat16") | null;
+            /** Elapsedms */
+            elapsedMs: number;
+            error?: components["schemas"]["HarmonyJobError"] | null;
+            /** Fallbackreason */
+            fallbackReason?: string | null;
+            /** Mock */
+            mock: boolean;
+            /**
+             * Modelid
+             * @enum {string}
+             */
+            modelId: "harmonyforge-bimask-base-v1" | "mock-harmonyforge-bimask-v1";
+            /**
+             * Partialcandidatestored
+             * @default false
+             * @constant
+             */
+            partialCandidateStored: false;
+            /** Progress */
+            progress: number;
+            /** Requestid */
+            requestId: string;
+            /** Sourcecommit */
+            sourceCommit?: string | null;
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "Queued" | "Loading checkpoint" | "Encoding" | "Neural proposal" | "Decoding" | "Schema validation" | "Client theory validation" | "Complete" | "Cancel requested" | "Cancelled" | "Failed";
+            /** Stagetimingsms */
+            stageTimingsMs?: {
+                [key: string]: number;
+            };
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "running" | "cancelRequested" | "completed" | "cancelled" | "failed";
+            /** Tokenizersha256 */
+            tokenizerSha256: string;
+            /** Trained */
+            trained: boolean;
+        };
+        /** HarmonyMelodyNote */
+        HarmonyMelodyNote: {
+            /** Durationtick */
+            durationTick: number;
+            /** Midi */
+            midi: number;
+            /**
+             * Role
+             * @default unknown
+             * @enum {string}
+             */
+            role: "chordTone" | "scaleTone" | "passing" | "neighbor" | "approach" | "unknown";
+            /** Starttick */
+            startTick: number;
+            /**
+             * Velocity
+             * @default 96
+             */
+            velocity: number;
+        };
+        /** HarmonyModelManifestResponse */
+        HarmonyModelManifestResponse: {
+            /**
+             * Apiversion
+             * @description Expose the harmony-preview contract version.
+             * @constant
+             */
+            readonly apiVersion: "2";
+            /** Architecture */
+            architecture: {
+                [key: string]: number | string | boolean;
+            };
+            /** Available */
+            available: boolean;
+            /** Checkpointsha256 */
+            checkpointSha256: string | null;
+            /**
+             * Evaluationstatus
+             * @enum {string}
+             */
+            evaluationStatus: "notEvaluated" | "researchOnly" | "validated";
+            /** Mock */
+            mock: boolean;
+            /**
+             * Modelid
+             * @enum {string}
+             */
+            modelId: "harmonyforge-bimask-base-v1" | "mock-harmonyforge-bimask-v1";
+            /** Requestid */
+            requestId: string;
+            /** Supporteddevices */
+            supportedDevices: ("cpu" | "cuda" | "mps")[];
+            /** Tokenizersha256 */
+            tokenizerSha256: string;
+            /** Trained */
+            trained: boolean;
+            /** Unavailablereason */
+            unavailableReason?: string | null;
+        };
+        /** HarmonyTonalitySpan */
+        HarmonyTonalitySpan: {
+            /** Endtick */
+            endTick: number;
+            /** Keyroot */
+            keyRoot: number;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "major" | "naturalMinor" | "harmonicMinor" | "dorian" | "mixolydian";
+            /** Starttick */
+            startTick: number;
         };
         /** HealthResponse */
         HealthResponse: {
@@ -310,7 +744,7 @@ export interface components {
              */
             backend: "linear" | "corpus" | "pytorch" | "onnx" | "browser" | "mock";
             /** Capabilities */
-            capabilities: "rank"[];
+            capabilities: ("rank" | "generateHarmony")[];
             /** Id */
             id: string;
             /** Loaded */
@@ -319,11 +753,8 @@ export interface components {
             mock: boolean;
             /** Name */
             name: string;
-            /**
-             * Runtime
-             * @enum {string}
-             */
-            runtime: "browser" | "cpu" | "cuda" | "mps" | "coreml" | "directml";
+            /** Runtime */
+            runtime: ("browser" | "cpu" | "cuda" | "mps" | "coreml" | "directml") | null;
         };
         /** ModelsResponse */
         ModelsResponse: {
@@ -859,6 +1290,280 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    cancelHarmonyGeneration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HarmonyCancelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HarmonyJobResponse"];
+                };
+            };
+            /** @description Authentication is required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
+                };
+            };
+            /** @description Authentication token is invalid. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
+                };
+            };
+            /** @description The request conflicts with the current server state. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
+                };
+            };
+            /** @description Request validation failed. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
+                };
+            };
+            /** @description An internal server error occurred. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
+                };
+            };
+        };
+    };
+    startHarmonyGeneration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HarmonyGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HarmonyJobResponse"];
+                };
+            };
+            /** @description Authentication is required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
+                };
+            };
+            /** @description Authentication token is invalid. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
+                };
+            };
+            /** @description The request conflicts with the current server state. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
+                };
+            };
+            /** @description Request validation failed. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
+                };
+            };
+            /** @description An internal server error occurred. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
+                };
+            };
+            /** @description The requested service is unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
+                };
+            };
+        };
+    };
+    getHarmonyJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HarmonyJobResponse"];
+                };
+            };
+            /** @description Authentication is required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
+                };
+            };
+            /** @description Authentication token is invalid. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
+                };
+            };
+            /** @description Request validation failed. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
+                };
+            };
+            /** @description An internal server error occurred. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
+                };
+            };
+        };
+    };
+    getHarmonyModelManifest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                model_id: "harmonyforge-bimask-base-v1" | "mock-harmonyforge-bimask-v1";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HarmonyModelManifestResponse"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
+                };
+            };
+            /** @description Request validation failed. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
+                };
+            };
+            /** @description An internal server error occurred. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseV2"];
                 };
             };
         };

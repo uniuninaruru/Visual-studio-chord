@@ -27,6 +27,7 @@ ONNX_PROVIDER_PRIORITY = (
 def _probe_torch() -> dict[str, Any]:
     result: dict[str, Any] = {
         "installed": False,
+        "cpu": False,
         "cuda": False,
         "mps": False,
         "cudaDevice": None,
@@ -39,6 +40,12 @@ def _probe_torch() -> dict[str, Any]:
         return result
 
     result["installed"] = True
+    try:
+        tensor = torch.ones(1, device="cpu") + 1
+        result["cpu"] = float(tensor.item()) == 2.0
+    except Exception as exc:
+        result["errors"].append(f"PyTorch CPU probe failed: {type(exc).__name__}")
+
     try:
         if torch.cuda.is_available():
             # An actual tensor operation catches a visible driver/runtime mismatch.
@@ -156,6 +163,13 @@ def _select_runtime(torch_info: dict[str, Any], ort_info: dict[str, Any]) -> str
     return "deterministic-cpu"
 
 
+def _torch_device_passed(
+    torch_info: dict[str, Any],
+    required_device: str | None,
+) -> bool:
+    return required_device is None or bool(torch_info.get(required_device, False))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
@@ -163,6 +177,14 @@ def main() -> int:
         "--require-gpu",
         action="store_true",
         help="return a non-zero status when no GPU runtime passes the probe",
+    )
+    parser.add_argument(
+        "--require-torch-device",
+        choices=("cpu", "cuda", "mps"),
+        help=(
+            "return a non-zero status unless PyTorch completes a tensor "
+            "operation on this exact device"
+        ),
     )
     args = parser.parse_args()
 
@@ -175,6 +197,7 @@ def main() -> int:
         "selectedRuntime": selected,
         "gpuAvailable": accelerated,
         "cpuFallbackAvailable": True,
+        "requiredTorchDevice": args.require_torch_device,
         "torch": torch_info,
         "onnxRuntime": ort_info,
     }
@@ -196,7 +219,16 @@ def main() -> int:
         if not accelerated:
             print("The application will continue with its CPU fallback.")
 
-    return 2 if args.require_gpu and not accelerated else 0
+    required_torch_failed = not _torch_device_passed(
+        torch_info,
+        args.require_torch_device,
+    )
+    if required_torch_failed and not args.json:
+        print(
+            "Required PyTorch device probe failed: "
+            f"{args.require_torch_device}."
+        )
+    return 2 if (args.require_gpu and not accelerated) or required_torch_failed else 0
 
 
 if __name__ == "__main__":

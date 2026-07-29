@@ -1,6 +1,85 @@
 # Changelog
 
+[**日本語**](CHANGELOG.md) | [English](CHANGELOG.en.md)
+
 すべての注目すべき変更をここに記録します。日付は `Asia/Tokyo`。
+
+## 0.4.0 — 大規模アップデート: HarmonyForge ニューラル和声研究プレビュー（2026-07-28）
+
+この大規模アップデートは、研究計画を実行可能なモデル・artifact・API・
+UI安全境界へ落とし込む基盤更新です。
+**学習済みcheckpointや音楽品質評価結果は同梱しません。**
+通常ユーザーは引き続き経験コーパスと決定的理論エンジンを利用できます。
+
+### 追加 — HarmonyForge-BiMask
+
+- 旋律、拍子、曲構造、編集mask、ロック済み和声を16分frameへ整列する
+  決定的tokenizerを追加しました。
+- 12層、hidden 768、12 attention heads、FFN 4096、pre-norm、GELUの
+  single-encoder Transformerと、event / root / quality / inversion / bass /
+  extensions / function / cadenceのfactorized headsを実装しました。
+- 実装moduleは**104,567,874 parameters**です。v0.4はlearned window-position、
+  bar・拍位置embedding、既存extension multi-hotのbiasなし8→768 projectionを
+  使用し、rotary／relative attentionは将来の比較実験です。
+- 1回のforwardは1 tokenizer window（batch size 1）を処理し、1〜32候補を
+  同じlogitsからseed付きsamplingします。候補数は実行batch sizeではありません。
+- 同一checkpointをCUDA、Apple Metal/MPS、CPUで使用します。実tensor probe、
+  dtype選択、device provenance、acceleratorからCPUへの明示fallbackを追加しました。
+  v0.4はOOM時のbatch縮小を行いません。
+
+### 追加 — 厳格なartifactとAPI v2
+
+- `manifest.json`、`data-manifest.json`、
+  `harmonyforge-bimask-base-v1.safetensors`を固定配置からだけ読みます。
+  architecture、config/checkpoint/data-manifest実fileのSHA-256、固定tokenizer
+  digest、training/evaluation status、PyTorch/app/API version、precisionを
+  読み込み前に検証します。compilerはexport前にledgerとsplit / vocabulary /
+  statistics artifact hashも検証し、dataset権利・leakage評価は別のtraining gateです。
+- `POST /api/v2/harmony/generate`、`GET /api/v2/jobs/{requestId}`、
+  `POST /api/v2/harmony/cancel/{requestId}`、
+  `GET /api/v2/models/{modelId}/manifest`を追加しました。
+- jobは候補をまとめて公開し、cancel、timeout、checkpoint拒否、推論失敗では
+  partial candidateを残しません。request ID、seed、model/checkpoint/deviceを
+  provenanceとして返します。
+- research-only checkpointは`MTC_ENABLE_RESEARCH_CHECKPOINT=1`を要求します。
+  開発用fixtureは`MTC_ENABLE_NEURAL_MOCK=1`でのみ有効になり、UI/APIの両方で
+  `MOCK`、`trained: false`、`notEvaluated`として区別します。
+
+### ユーザーワークフローと安全性
+
+- ChordLaneで範囲を選び、部分再生成の「コードのみ」とAuto / MPS / CUDA / CPUを
+  選ぶと、A/B/C用の3候補をbackground jobで要求します。推論中も再生と手動編集を
+  継続でき、状態バーから進捗、経過時間、実device、fallback理由を確認し、
+  Cancelできます。accelerator失敗後は同じ範囲を「CPUで再試行」できます。
+- server候補は`hardRuleValidation: pendingClient`、
+  `adoptable: false`で届きます。既存のschema、理論、voicing、88鍵・左右手、
+  全track validatorをclientで通過した候補だけをpreviewできます。
+- previewを試聴して明示的にApplyしたときだけ正式projectへ反映し、Undoできます。
+  互換editへrebase・再検証した候補は`Rebased`と表示し、文脈が変わったstale結果、
+  Cancel、失敗は編集中の曲を変更しません。
+- 学習済みHarmonyForgeがない場合は、経験コーパス、ブラウザ軽量ranking、
+  決定的理論生成へ安全にfallbackします。
+
+### 配布・CI・既知の限界
+
+- 標準backend lockとCI laneはPyTorch / SafeTensorsを含まないtorch-free構成を
+  維持しました。別のneural CPU laneが固定依存でモデル構築、checkpoint拒否、
+  API/cancel/mock/preview契約を検査します。
+- CPU / CUDA / macOS acceleration lockへPyTorch 2.13.0とSafeTensors 0.8.0を
+  固定しました。DirectMLはv0.4 HarmonyForge deviceではなくONNX ranker用です。
+- 通常の`setup.sh` / `setup.ps1`からも固定済みPyTorchを導入し、macOS MPS、
+  NVIDIA CUDA、CPUを実tensor probeで自動選択します。CUDA/MPS失敗はCPUへ
+  fallbackし、Browser / Theory-only起動は常に残します。
+- CPU Dockerはneural runtimeを含みますが、validな学習済みcheckpointを
+  read-only mountした場合だけHarmonyForgeを利用できます。CUDA Compose overlayは
+  NVIDIA driverとNVIDIA Container Toolkitを別途必要とします。
+- 学習data compiler、closed test、ablation、CUDA/MPS/CPU同等性試験、
+  聴取実験は今後の研究gateです。mockやparameter数は音楽品質の証拠ではありません。
+- 主要参照はAutoHarmonizer、ReaLchords、Stochastic Control Guidance、
+  full-to-full curriculum maskingです。アーキテクチャ図、採用した考え方、
+  独自integration、完全な一次資料一覧を
+  [日本語](docs/neural-harmony-architecture.ja.md) /
+  [English](docs/neural-harmony-architecture.en.md) に分離しました。
 
 ## 0.3.0 — 大規模アップデート: Research-grounded Engine / Empirical Harmony（2026-07-27）
 

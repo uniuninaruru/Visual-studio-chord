@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from app.schemas.api import RankCandidate
 from app.services import models
 from app.services.device import DeviceInfo
@@ -73,6 +75,28 @@ def _device(**overrides) -> DeviceInfo:
     return DeviceInfo(**values)
 
 
+@pytest.fixture
+def empty_models(tmp_path):
+    """A model directory with nothing in it.
+
+    ``ModelManager`` resolves its default directory from ``./models`` relative to
+    the process working directory. Tests that never passed one were therefore
+    asserting against whatever happened to be on disk beside the runner: from
+    ``backend/`` there is no ``models`` directory and ``auto`` falls through to
+    the accelerator search, while from the repository root the checked-in corpus
+    is found and ``auto`` returns before that search ever runs. The suite passed
+    in CI and failed in a normal checkout for that reason alone.
+
+    Passing this directory states the precondition these tests actually have —
+    no corpus available — so the result no longer depends on where pytest was
+    started.
+    """
+
+    directory = tmp_path / "empty-models"
+    directory.mkdir()
+    return directory
+
+
 def _write_corpus_model(model_directory) -> None:
     model_directory.mkdir()
     (model_directory / "harmony-corpus-v1.json").write_text(
@@ -108,7 +132,7 @@ def test_missing_explicit_corpus_model_falls_back_to_theory(tmp_path) -> None:
     assert manager.fallback_reason == "corpusUnavailableTheoryFallback"
 
 
-def test_auto_prefers_gpu_onnx_and_caches_it(monkeypatch) -> None:
+def test_auto_prefers_gpu_onnx_and_caches_it(monkeypatch, empty_models) -> None:
     calls: list[str] = []
     coreml_device = _device(
         selectedDevice="coreml",
@@ -125,7 +149,7 @@ def test_auto_prefers_gpu_onnx_and_caches_it(monkeypatch) -> None:
 
     monkeypatch.setattr(models.ModelManager, "_load_optional_runtime", load_runtime)
 
-    manager = models.ModelManager("auto")
+    manager = models.ModelManager("auto", model_directory=empty_models)
     manager.load(models.ONNX_MODEL_ID)
 
     assert manager.active_model == models.ONNX_MODEL_ID
@@ -133,7 +157,7 @@ def test_auto_prefers_gpu_onnx_and_caches_it(monkeypatch) -> None:
     assert calls == [models.ONNX_MODEL_ID]
 
 
-def test_auto_prefers_mps_over_coreml(monkeypatch) -> None:
+def test_auto_prefers_mps_over_coreml(monkeypatch, empty_models) -> None:
     accelerated = _device(
         selectedDevice="mps",
         torchAvailable=True,
@@ -150,14 +174,16 @@ def test_auto_prefers_mps_over_coreml(monkeypatch) -> None:
 
     monkeypatch.setattr(models.ModelManager, "_load_optional_runtime", load_runtime)
 
-    manager = models.ModelManager("auto")
+    manager = models.ModelManager("auto", model_directory=empty_models)
 
     assert manager.active_model == models.MLP_MODEL_ID
     assert manager.model_info(models.MLP_MODEL_ID, accelerated).runtime == "mps"
     assert manager.fallback_reason is None
 
 
-def test_auto_rejects_onnx_provider_that_silently_fell_back_to_cpu(monkeypatch) -> None:
+def test_auto_rejects_onnx_provider_that_silently_fell_back_to_cpu(
+    monkeypatch, empty_models
+) -> None:
     accelerated = _device(
         selectedDevice="cuda",
         torchAvailable=True,
@@ -177,25 +203,25 @@ def test_auto_rejects_onnx_provider_that_silently_fell_back_to_cpu(monkeypatch) 
 
     monkeypatch.setattr(models.ModelManager, "_load_optional_runtime", load_runtime)
 
-    manager = models.ModelManager("auto")
+    manager = models.ModelManager("auto", model_directory=empty_models)
 
     assert calls == [models.ONNX_MODEL_ID, models.MLP_MODEL_ID]
     assert manager.active_model == models.MLP_MODEL_ID
     assert manager.fallback_reason == "OnnxAutoLoadFailedMlpFallback"
 
 
-def test_auto_uses_linear_when_only_cpu_is_available(monkeypatch) -> None:
+def test_auto_uses_linear_when_only_cpu_is_available(monkeypatch, empty_models) -> None:
     monkeypatch.setattr(models, "detect_device", lambda: _device())
     monkeypatch.setattr(models, "_module_available", lambda name: False)
 
-    manager = models.ModelManager("auto")
+    manager = models.ModelManager("auto", model_directory=empty_models)
 
     assert manager.active_model == models.LOCAL_MODEL_ID
     assert manager.cache_size == 0
     assert manager.fallback_reason is None
 
 
-def test_windows_cuda_has_priority_over_directml(monkeypatch) -> None:
+def test_windows_cuda_has_priority_over_directml(monkeypatch, empty_models) -> None:
     windows_device = _device(
         selectedDevice="cuda",
         torchAvailable=True,
@@ -217,7 +243,7 @@ def test_windows_cuda_has_priority_over_directml(monkeypatch) -> None:
 
     monkeypatch.setattr(models.ModelManager, "_load_optional_runtime", load_runtime)
 
-    manager = models.ModelManager("auto")
+    manager = models.ModelManager("auto", model_directory=empty_models)
 
     assert calls == [models.MLP_MODEL_ID]
     assert manager.active_model == models.MLP_MODEL_ID

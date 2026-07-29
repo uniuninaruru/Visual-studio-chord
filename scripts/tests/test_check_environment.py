@@ -55,6 +55,12 @@ class EnvironmentDiagnosticsTests(unittest.TestCase):
         ]
         self.assertEqual(diagnostics.summarize(checks), ("ready-with-fallback", 0))
 
+    def test_setup_acceleration_modes_are_explicit(self) -> None:
+        self.assertEqual(
+            diagnostics.VALID_ACCELERATION_MODES,
+            {"auto", "cuda", "mps", "directml", "cpu", "none"},
+        )
+
     def test_required_error_blocks_startup(self) -> None:
         checks = [diagnostics.make_check("node", "error", "missing")]
         self.assertEqual(diagnostics.summarize(checks), ("blocked", 1))

@@ -1,3 +1,8 @@
+param(
+  [ValidateSet("cpu", "cuda")]
+  [string]$Backend = "cpu"
+)
+
 $ErrorActionPreference = "Stop"
 
 $ProjectDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
@@ -32,4 +37,10 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
   throw "Docker was not found. Install Docker Desktop or Docker Engine first."
 }
 
-docker compose up --build
+if ($Backend -eq "cuda") {
+  Write-Host "Docker backend: NVIDIA CUDA (NVIDIA Container Toolkit required)"
+  docker compose -f compose.yaml -f compose.cuda.yaml up --build
+} else {
+  Write-Host "Docker backend: CPU"
+  docker compose up --build
+}

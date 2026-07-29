@@ -34,11 +34,24 @@ export interface BackendModelDiagnostic {
   detail?: string;
 }
 
+export interface HarmonyJobDiagnostic {
+  modelId: string;
+  stage: string;
+  device: string;
+  backend: string;
+  checkpoint: string;
+  candidateSummary?: string;
+  mock: boolean;
+  trained: boolean;
+  fallback?: string | null;
+}
+
 export interface BackendDiagnostics {
   connection: BackendConnectionStatus;
   device: string | null;
   inferenceBackend: string;
   models: readonly BackendModelDiagnostic[];
+  lastHarmonyJob?: HarmonyJobDiagnostic;
   apiCompatibility: ApiCompatibilityStatus;
   serverApiVersion?: string;
   expectedApiVersion?: string;
@@ -270,6 +283,30 @@ export function DiagnosticsPanel({
                 <dt>デバイス</dt>
                 <dd>{backend.device ?? "未検出"}</dd>
               </div>
+              {backend.lastHarmonyJob && (
+                <>
+                  <div>
+                    <dt>Last Harmony job</dt>
+                    <dd>
+                      {backend.lastHarmonyJob.mock ? "Mock / untrained" : "Neural / trained"}
+                      {" · "}{backend.lastHarmonyJob.stage}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Harmony provenance</dt>
+                    <dd title={backend.lastHarmonyJob.modelId}>
+                      {backend.lastHarmonyJob.device} · {backend.lastHarmonyJob.backend}
+                      {" · "}{backend.lastHarmonyJob.checkpoint}
+                      {backend.lastHarmonyJob.candidateSummary
+                        ? ` · ${backend.lastHarmonyJob.candidateSummary}`
+                        : ""}
+                      {backend.lastHarmonyJob.fallback
+                        ? ` · fallback: ${backend.lastHarmonyJob.fallback}`
+                        : ""}
+                    </dd>
+                  </div>
+                </>
+              )}
               <div>
                 <dt>API互換性</dt>
                 <dd><StatusBadge status={backend.apiCompatibility} label={API_STATUS_LABELS[backend.apiCompatibility]} /></dd>

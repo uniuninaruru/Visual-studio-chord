@@ -4,17 +4,27 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "music-theory-composer-backend"
-version = "0.3.0"
+version = "0.4.0"
 description = "Local FastAPI service for Visual studio chord"
 license = "MIT"
 requires-python = ">=3.11,<3.15"
 dependencies = [
   "fastapi==0.139.2",
+  "pyyaml==6.0.3",
   "uvicorn[standard]==0.51.0",
 ]
 
+[project.scripts]
+harmonyforge-compile = "app.ml.cli:compile_main"
+harmonyforge-train = "app.ml.cli:train_main"
+harmonyforge-evaluate = "app.ml.cli:evaluate_main"
+
 [project.optional-dependencies]
 torch = [
+  "torch==2.13.0; (platform_system == 'Darwin' and platform_machine == 'arm64') or (platform_system == 'Linux' and platform_machine == 'x86_64') or (platform_system == 'Linux' and platform_machine == 'aarch64') or (platform_system == 'Windows' and platform_machine == 'AMD64')",
+]
+neural = [
+  "safetensors==0.8.0",
   "torch==2.13.0; (platform_system == 'Darwin' and platform_machine == 'arm64') or (platform_system == 'Linux' and platform_machine == 'x86_64') or (platform_system == 'Linux' and platform_machine == 'aarch64') or (platform_system == 'Windows' and platform_machine == 'AMD64')",
 ]
 onnx = [
@@ -45,3 +55,6 @@ include = ["app*"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+markers = [
+  "optional_torch: tests that require the optional PyTorch runtime",
+]
