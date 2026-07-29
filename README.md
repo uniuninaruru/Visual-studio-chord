@@ -1,7 +1,9 @@
 # Visual studio chord
 
+[**日本語**](README.md) | [English](README.en.md)
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version: 0.3.0](https://img.shields.io/badge/version-0.3.0-6f42c1.svg)](CHANGELOG.md)
+[![Version: 0.4.0](https://img.shields.io/badge/version-0.4.0-6f42c1.svg)](CHANGELOG.md)
 
 **コード進行とメロディを自動で作ってくれる、作曲の練習・アイデア出し用のアプリです。**
 
@@ -9,9 +11,15 @@
 
 楽譜が読めなくても、音楽理論を知らなくても使えます。作った曲はMIDIファイルとして書き出せるので、GarageBandやCubaseなどのDAWに読み込んで続きを作れます。
 
-v0.3.0では、909曲のコード注釈から学習した経験則モデルと、論文に基づく
-制約探索を既存エンジンへ統合しました。理論的に無効な候補を先に除外し、
-残った候補を実曲コーパスで順位付けします。
+v0.4.0では、論文と実装計画に基づく**ニューラル和声プレビュー基盤**を追加しました。
+旋律、選択範囲、ロック済みコードを条件にする104,567,874 parameterの
+`HarmonyForge-BiMask`、非同期API v2、cancel、checkpoint検証、
+CUDA / Apple Metal（MPS）/ CPU adapterを実装しています。
+
+ただし、**学習済みcheckpointはまだ同梱していません**。通常の利用では、909曲の
+コード注釈から学習した経験則モデルと、論文に基づく制約探索を引き続き使います。
+開発用mockは明示的に有効化した場合だけ使用でき、画面とAPIの両方で
+「MOCK・未学習」と表示されます。
 
 ### こんなことができます
 
@@ -27,6 +35,8 @@ v0.3.0では、909曲のコード注釈から学習した経験則モデルと�
 ### 安心して使える設計
 
 - **勝手に曲が書き換わりません。** AIが出した候補は「採用」を押すまで反映されません
+- ニューラル候補も既存の理論・schema・全トラック検証を通るまで採用できません
+- Cancelや推論失敗では中間候補を保存せず、編集中の曲をそのまま維持します
 - **同じ設定なら必ず同じ曲になります。** 気に入った曲は設定を控えておけば再現できます
 - **曲データはあなたのPCの中だけ**にあります。インターネットに送信されません
 - 保存状態は画面上部に常に表示されます（保存済み／このセッションのみ など）
@@ -192,7 +202,7 @@ Advanced画面の「コードの彩り」は、理論用語を理解していな
 
 | 領域 | 使用技術 |
 | --- | --- |
-| フロントエンド | React 19 / TypeScript / Vite / Python3|
+| フロントエンド | React 19 / TypeScript / Vite |
 | 状態管理 | Zustand（Draft / Committed / History） |
 | 音声 | Tone.js、`@tonejs/midi`、`@tonaljs/tonal` |
 | バックエンド | FastAPI / Uvicorn（Python 3.12.10） |
@@ -279,6 +289,23 @@ Windows 11 PowerShell:
 .\scripts\dev.ps1
 ```
 
+通常のセットアップは、固定済みPyTorch 2.13.0とSafeTensors 0.8.0も導入します。
+`auto`はApple siliconではMPS、NVIDIA環境ではCUDAを実tensor演算で確認し、
+利用できなければPyTorch CPUへ安全に切り替えます。明示する場合は次の通りです。
+固定PyTorchの対象はApple silicon、Windows x64、Linux x86_64／aarch64です。
+Intel MacやWindows ARM64では`none`でPyTorchの追加導入をskipし、
+Browser / Theory-only機能を利用できます。`none`は既存runtimeを削除しません。
+
+```bash
+./scripts/setup.sh cpu       # macOS / Linux CPU
+./scripts/setup.sh cuda      # Linux NVIDIA
+./scripts/setup.sh mps       # Apple silicon MPSを必須にする
+```
+
+```powershell
+.\scripts\setup.ps1 -Acceleration cpu
+.\scripts\setup.ps1 -Acceleration cuda
+```
 
 セットアップは依存関係、Python仮想環境、`.env`、モデル、利用可能な実行環境を確認します。既存の `.env` やプロジェクトデータを削除・上書きしません。バックエンドを起動できない場合もフロントエンドは終了せず、Browser / Theory-only mode で起動します。
 
@@ -342,7 +369,8 @@ $env:MTC_FRONTEND_PORT = "5174"
 
 ## GPU高速化（任意）
 
-基本セットアップにGPUランタイムは含まれません。先に通常起動ができることを確認してから追加してください。
+nativeの通常セットアップにはPyTorch CPU/MPS/CUDAの自動選択が含まれます。
+後からdevice profileを変更したい場合は次を実行してください。
 
 ```bash
 # macOS / Linux
@@ -354,9 +382,103 @@ $env:MTC_FRONTEND_PORT = "5174"
 .\scripts\setup-acceleration.ps1 auto
 ```
 
-スクリプトは固定済み依存関係をインストールし、GPUが「存在する」だけでなく、小さな実推論が成功することまで確認します。失敗してもCPU / Browser機能は残ります。Windows では `cuda`、`directml`、`cpu` を明示でき、macOS では MPS / Core ML、Linux では CUDA または CPU を選択できます。
+スクリプトは固定済み依存関係をインストールし、GPUが「存在する」だけでなく、小さな実推論が成功することまで確認します。失敗してもCPU / Browser機能は残ります。Windows では `cuda`、`directml`、`cpu` を明示でき、macOS では MPS / Core ML、Linux では CUDA または CPU を選択できます。DirectMLは既存ONNX ranker用で、v0.4 HarmonyForgeはWindows上でCUDAまたはCPUを使います。
 
-CUDA や外部モデルは必須ではありません。Docker標準構成は移植性を優先したCPU版です。GPU版Dockerは任意構成で、CUDA利用にはホスト側ドライバーと NVIDIA Container Toolkit が必要です。
+スクリプト／CI／Dockerが使う固定依存の等価なinstall commandは次です。
+
+```bash
+python -m pip install --requirement backend/requirements-acceleration-cpu.lock
+python -m pip install --requirement backend/requirements-acceleration-cuda.lock
+python -m pip install --requirement backend/requirements-acceleration-macos.lock
+python -m pip install --requirement backend/requirements-acceleration-directml.lock
+```
+
+先頭3つは用途に応じてPyTorch 2.13.0とSafeTensors 0.8.0を含みます。
+DirectML lockはONNX ranker専用なので両方を含みません。現在のPyPI版PyTorchは
+LinuxのCPU実行でもCUDA 13依存を配布bundleへ含めるため、CPU lockとDocker imageの
+download／保存容量は大きくなります。実行deviceがCPUであることは変わりません。
+未検証の別indexや手書きhashへ差し替えず、今後公式CPU wheel sourceを
+lock設定へ安全に固定できた時点で分離します。
+
+CUDA や外部モデルは必須ではありません。Docker標準構成は移植性を優先したCPU版で、固定済みニューラルruntimeも含みますが、validな学習済みcheckpointをread-only mountしない限りHarmonyForgeはavailableになりません。GPU版Dockerは任意構成で、CUDA利用にはホスト側ドライバーと NVIDIA Container Toolkit が必要です。
+
+CUDA Dockerを明示して起動する場合:
+
+```bash
+# macOS / Linux（CUDA hostはLinux）
+./scripts/start-local.sh cuda
+```
+
+```powershell
+# Windows PowerShell
+.\scripts\start-local.ps1 -Backend cuda
+```
+
+この起動は`compose.cuda.yaml`を重ね、backendへ`gpus: all`を要求します。
+導入方法はNVIDIA公式の
+[Container Toolkit install guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+を参照してください。
+
+### ニューラル和声プレビュー（v0.4研究プレビュー）
+
+nativeの標準backend lockにはPyTorch、SafeTensors、学習済みHarmonyForge
+checkpointを含めません。CPU Docker imageは任意ニューラルruntimeを含みますが、
+checkpointは同梱しません。既存の決定的生成、経験コーパス、編集、再生、保存には
+いずれも不要です。
+
+任意のニューラルruntimeを入れる場合は、上記
+`setup-acceleration`を実行します。`auto`は実tensor演算まで確認し、
+NVIDIA環境ではCUDA、対応Apple SiliconではMetal/MPS、それ以外ではCPUを選びます。
+accelerator probeまたはOOM後のCPU fallbackはjob結果とDiagnosticsへ理由を残します。
+
+実checkpointは、次のallowlist済み配置だけを読み込みます。
+
+```text
+models/
+  harmonyforge-bimask-base-v1/
+    current.json
+    versions/<manifest-sha256>/
+      manifest.json
+      data-manifest.json
+      training-run.json
+      harmonyforge-bimask-base-v1.safetensors
+```
+
+manifestはarchitecture、config/checkpoint/`data-manifest.json`/
+`training-run.json`実fileのSHA-256、
+固定tokenizer digest、学習・評価状態、PyTorch version、最低app/API version、
+対応precisionを宣言します。loaderは固定file名、実file hash、tokenizer、
+architectureを照合します。compilerはledgerのsource checksumをcompiler入力
+JSONLの実bytesと照合し、export前にdata manifestのledgerと
+split / vocabulary / statistics artifactのhashを別途検証します。データ権利と
+leakage評価はその上にあるtraining release gateです。未学習、未評価、破損、
+checksum不一致のartifactは利用不可です。
+exporterは完全なversion directoryをstageして全hashを再検証した後、
+`current.json`だけをatomicに切り替えるため、失敗時は直前のversionを維持します。
+`researchOnly`のcheckpointは、内容を確認した上で
+`MTC_ENABLE_RESEARCH_CHECKPOINT=1`を明示した場合だけ読み込めます。
+
+開発者がUI/APIの接続だけを試す場合は
+`MTC_ENABLE_NEURAL_MOCK=1`を使えます。mockは決定的なfixtureで、
+`mock: true`、`trained: false`として扱われ、学習済みAIの品質を示しません。
+アーキテクチャ、処理境界、研究由来部分との区別は
+[日本語](docs/neural-harmony-architecture.ja.md) /
+[English](docs/neural-harmony-architecture.en.md) を参照してください。
+
+#### 画面からニューラル候補を使う
+
+1. ChordLaneで小節を選択し、下部の部分再生成で「コードのみ」を選びます。
+2. 「推論デバイス」をAuto / Apple MPS / CUDA / CPUから選び、
+   「選択範囲を再生成」を押します。画面はA/B/C用に3候補を要求します。
+3. 状態バーでstage、進捗、経過時間、実deviceを確認できます。probe完了前は
+   CPUと決めつけず`Detecting device…`と表示します。Cancelしても再生、手動編集、
+   draftは維持されます。
+4. clientのschema・理論・全track gateを通った候補だけを試聴できます。
+   「この候補を採用」で初めて履歴へ入り、Undoできます。job中の互換editへ
+   rebase・再検証した候補は`Rebased`と表示し、key/mode/sectionなど文脈が変わった
+   stale結果は破棄します。
+5. accelerator失敗後は「CPUで再試行」で同じ範囲をCPU指定できます。それも
+   失敗した場合は決定的理論生成、local rank、browser rankの順にfallbackします。
 
 ## 基本操作
 
@@ -386,6 +508,7 @@ CUDA や外部モデルは必須ではありません。Docker標準構成は移
 | --- | --- |
 | 制約付き生成 | 決定的な音楽理論エンジン（終止・適用和音の実根音解決・スケール・ボイスリーディング・モチーフ） |
 | 経験則モデル | POP909の909曲、1,131調性区間、93,904コードトークンから学習した1〜5次の調和言語モデル |
+| ニューラル和声preview | HarmonyForge-BiMask。学習済み・checksum検証済みcheckpointを別途配置した場合だけ利用可能 |
 | 好み調整 | 候補を特徴量化し、Like / Dislike / Favorite / A-B選択から更新した重みでランキング |
 | 実行環境 | ローカル推論バックエンドを任意選択（`MTC_INFERENCE_MODEL` = `auto` / `corpus` / `linear` / `mlp` / `onnx` / `mock-deterministic`） |
 
@@ -394,18 +517,21 @@ CUDA や外部モデルは必須ではありません。Docker標準構成は移
 これにより、頻出するという理由だけで未解決ドミナントや声部交差を採用することを
 防ぎます。
 
-推論のフォールバックは次のとおりです。
+推論の安全なフォールバックは次のとおりです。
 
 ```text
-経験則コーパスモデル（デスクトップCPU）
-  → 任意のローカルCPU / GPUモデル
-    → ブラウザ軽量ランキング
-      → 音楽理論だけの決定的生成
+学習済みHarmonyForge: CUDA
+  → 対応Apple SiliconではMetal/MPS、その他ではCPU
+    → 経験則コーパスランキング
+      → ブラウザ軽量ランキング
+        → 音楽理論だけの決定的生成
 ```
 
-`auto` は、学習済みのコーパスモデルが存在する場合、学習されていない開発用
-MLP / ONNX rankerより先に選びます。GPUが存在するだけで音楽品質が上がったとは
-判定しません。
+これは全deviceを1台で順番に実行するという意味ではありません。各platformで
+利用可能なnative deviceを実演算で検証し、失敗時は許可されたCPUまたは既存経路へ
+移ります。`auto` は、学習済みのコーパスモデルが存在する場合、学習されていない
+開発用MLP / ONNX rankerより先に選びます。GPUが存在するだけで音楽品質が上がった
+とは判定しません。
 
 ### 経験則モデルを再学習する
 
@@ -441,24 +567,30 @@ python3 scripts/train-harmony-corpus.py \
 
 ## アーキテクチャ
 
-```text
-React / TypeScript
-  ├─ 決定的な音楽理論・生成エンジン
-  ├─ ZustandのDraft / Committed / History
-  ├─ Tone.jsのtick基準スケジューラー
-  ├─ Versioned JSON / MIDI / 保存フォールバック
-  └─ Versioned local inference client
-                 │ same-origin HTTP + session token
-                 ▼
-FastAPI local server
-  ├─ health / device / models / rank / preferences
-  ├─ Corpus n-gram / Mock / Linear / PyTorch / ONNX backend interface
-  ├─ POP909由来の集計モデルとローカル再学習
-  ├─ OOM時のbatch縮小とCPUフォールバック
-  └─ CUDA / MPS / Core ML / DirectML / CPU
+```mermaid
+flowchart TD
+    UI["React / TypeScript<br/>Draft・Committed・History"] --> V1["API v1<br/>health / rank / preferences"]
+    UI --> V2["API v2<br/>Harmony preview jobs / cancel / manifest"]
+    V1 --> CORPUS["POP909 n-gram / deterministic rankers"]
+    V2 --> REGISTRY{"allowlist済みmodel registry"}
+    REGISTRY -->|trained + checksum valid| MODEL["HarmonyForge-BiMask<br/>104,567,874 parameters"]
+    REGISTRY -->|explicit development mode| MOCK["MOCK / untrained fixture"]
+    MODEL --> DEVICE["CUDA / Metal-MPS / CPU"]
+    DEVICE --> CANDIDATE["typed candidate<br/>adoptable=false"]
+    MOCK --> CANDIDATE
+    CANDIDATE --> VALIDATOR["既存の理論・voicing・全track検証"]
+    VALIDATOR --> PREVIEW["preview"]
+    PREVIEW -->|明示Apply| PROJECT["正式project + Undo"]
 ```
 
 曲データが唯一の正しい状態で、音声ノードと推論候補は派生データです。AI処理と再生処理は独立しており、推論中も再生と手動編集を続けられます。
+
+HarmonyForgeは12層、hidden 768、12 attention heads、FFN 4096の
+single-encoder Transformerです。v0.4の実装はrotary／relative attentionではなく、
+learned window positionとbar・16分位置embedding、既存extension multi-hotの
+biasなし8→768 projectionを使います。詳細図、
+checkpoint gate、引用した研究とこのリポジトリ独自のintegrationの区別は
+[ニューラル和声アーキテクチャ](docs/neural-harmony-architecture.ja.md)にあります。
 
 ## 状態表示とエラー時の動作
 
@@ -512,7 +644,15 @@ pnpm test:e2e
 pnpm test:e2e:lan
 ```
 
-単体、API統合、任意GPU、ブラウザE2Eを分離し、GPUがない環境ではGPUテストを明示的にSkipします。E2E は Chromium と WebKit で、初回導線、サーバー停止、オフライン、API不一致、狭い画面、モーダルのキーボード操作、重大な自動WCAG違反を検査します。LAN E2E は実FastAPIとVite proxyを起動し、390px幅で認証、生成、再生、保護APIを検査します。NVIDIA GPU実機は GitHub Actions の `CUDA integration (self-hosted)` を Windows または Linux の CUDA ランナーで手動実行できます。
+通常backend CIは意図的にtorch-freeとし、tokenizer、manifest拒否、API v2、
+cancel、fallback契約を検査します。別の`Backend neural CPU` laneだけが固定済み
+PyTorch / SafeTensorsを導入し、model shape、parameter count、CPU forwardを検査します。
+実CUDA/MPS、外部dataset、学習品質は別gateで、対象hardware/dataがない場合だけ
+明示的にSkipします。E2E は Chromium と WebKit で、初回導線、サーバー停止、
+オフライン、API不一致、狭い画面、モーダルのキーボード操作、重大な自動WCAG違反を
+検査します。LAN E2E は実FastAPIとVite proxyを起動し、390px幅で認証、生成、再生、
+保護APIを検査します。NVIDIA GPU実機は GitHub Actions の
+`CUDA integration (self-hosted)` をWindowsまたはLinuxのCUDA runnerで手動実行できます。
 
 対応状況は [互換性マトリクス](docs/compatibility.md)、完成判定に必要な証跡は [リリース検証チェックリスト](docs/release-checklist.md)、名前付きコード進行・拡張和音・ジャンル別和声の調査根拠は [docs/research/](docs/research/) を参照してください。
 
@@ -534,6 +674,9 @@ MTC_FRONTEND_HOST=127.0.0.1
 MTC_FRONTEND_PORT=5173
 MTC_INFERENCE_MODEL=auto
 MODEL_DIRECTORY=./models
+NEURAL_MODEL_CONFIG=./configs/models/harmonyforge-bimask-base-v1.yaml
+MTC_ENABLE_RESEARCH_CHECKPOINT=0
+MTC_ENABLE_NEURAL_MOCK=0
 LOG_LEVEL=INFO
 ```
 
@@ -541,7 +684,19 @@ LOG_LEVEL=INFO
 
 ## APIとデータ契約
 
-FastAPI の OpenAPI は `/openapi.json` で確認できます。API はバージョン `1` と request ID を返し、モデルIDは許可リストからのみ選択できます。フロントエンド型は OpenAPI から生成し、CIで差分を検査します。
+FastAPI の OpenAPI は `/openapi.json` で確認できます。既存のrank・diagnosticsは
+API v1、ニューラルpreview jobはAPI v2です。どちらもbodyと
+`X-API-Version` headerに版とrequest IDを返し、モデルIDは許可リストからのみ
+選択できます。フロントエンド型はOpenAPIから生成し、CIで差分を検査します。
+
+API v2:
+
+```text
+POST /api/v2/harmony/generate
+POST /api/v2/harmony/cancel/{requestId}
+GET  /api/v2/jobs/{requestId}
+GET  /api/v2/models/{modelId}/manifest
+```
 
 プロジェクトJSONには `schemaVersion` と `appVersion` が含まれます。旧v1形式は安全に移行し、未知の将来バージョンは現在の曲を変更せず拒否します。読込時はサイズ、MIME / 拡張子の手掛かり、JSON構造、数値範囲、tick、MIDI値を検証します。モデルは曲データと別schemaで検証し、未知形式を無理に読み込みません。
 
@@ -555,6 +710,7 @@ frontend/src/storage/     project localStorage / preference IndexedDB / memory f
 frontend/src/features/    UI、診断、JSON / MIDI
 frontend/src/api/         OpenAPI由来のローカル推論クライアント
 backend/app/              FastAPIと推論バックエンド
+backend/app/ml/           tokenizer、Transformer、decode、checkpoint、device adapter
 backend/tests/            Unit / integration / optional GPU tests
 models/                   追跡可能な集計モデル、model card、外部モデル配置先
 scripts/                  全OSのsetup / dev / test / diagnostics
@@ -563,17 +719,22 @@ docs/                     互換性マトリクスとリリース検証チェッ
 
 ## ロードマップ
 
+- v0.4実装と安全境界:
+  [日本語](docs/neural-harmony-architecture.ja.md) /
+  [English](docs/neural-harmony-architecture.en.md)
 - ニューラルコード生成の先行研究・最先端比較:
   [日本語](docs/research/neural-harmonization-sota.ja.md) /
   [English](docs/research/neural-harmonization-sota.en.md)
-- CUDA / Apple Metal（MPS）/ CPUで同一checkpointを使う実装計画:
+- CUDA / Apple Metal（MPS）/ CPUで同一checkpointを使う実験・評価計画:
   [日本語](docs/research/neural-chord-model-plan.ja.md) /
   [English](docs/research/neural-chord-model-plan.en.md)
 - 名前付き進行・曲構造（セクション/転調）をBasic/Advanced設定UIから選択可能にする（現状はAPI/設定オブジェクト経由）
 - POP909以外の許諾済みコーパスを使ったスタイル別・階層型モデル
 - AutoHarmonizer等の公開学習済みモデルを共通backendへ移植し、旋律条件付き候補生成
 - A/B選択データを使ったpairwise ranking学習
-- GPUを活かしたTransformer / diffusion候補生成とバッチ評価
+- 許諾済みdataでのHarmonyForge学習、locked test、ablation、聴取実験
+- CUDA / MPSのcross-device non-inferiority測定
+- SCG型stepwise guidance、relative/rotary attention、causal studentの比較実験
 - 楽器の数を増やす
 - UI/UX面での快適性向上
 - VSTプラグイン化も視野に
@@ -583,6 +744,23 @@ docs/                     互換性マトリクスとリリース検証チェッ
 ## 参考にした音楽理論資料
 
 生成規則は特定サイトの文章や譜例を複製せず、複数の公開資料に共通する原則をテスト可能な制約として実装しています。
+
+ニューラル和声の一次論文、公式repository、採用した考え方と独自実装の境界は
+[ニューラル和声アーキテクチャの参考文献](docs/neural-harmony-architecture.ja.md)
+に分離しています。
+
+v0.4で直接参照した主要資料:
+
+- [AutoHarmonizer paper](https://arxiv.org/abs/2112.11122) /
+  [official repository](https://github.com/sander-wood/autoharmonizer) —
+  16分frameと可変ハーモニックリズム
+- [ReaLchords](https://proceedings.mlr.press/v235/wu24c.html) —
+  offline teacherと将来の低遅延student
+- [Stochastic Control Guidance paper](https://proceedings.mlr.press/v235/huang24g.html) /
+  [official repository](https://github.com/yjhuangcd/rule-guided-music) —
+  非微分可能ruleをforward評価する考え方
+- [Full-to-full curriculum masking](https://arxiv.org/abs/2601.16150) —
+  旋律を無視する近道を抑える学習計画（学習結果は未報告）
 
 - [Open Music Theory: Species Counterpoint](https://viva.pressbooks.pub/openmusictheorycopy/chapter/species-counterpoint/) — 旋律の音域、頂点、大跳躍後の反対方向への順次進行、協和・不協和の扱い
 - [Open Music Theory: Jazz Voicings](https://viva.pressbooks.pub/openmusictheory/chapter/jazz-voicings/) — 低音域ほど広く、上声ほど密にする配置、ガイドトーンと滑らかな声部進行

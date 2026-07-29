@@ -33,6 +33,7 @@ VALID_INFERENCE_MODES = {
     "mock-deterministic",
 }
 VALID_PACKAGE_MANAGERS = {"auto", "npm", "pnpm"}
+VALID_ACCELERATION_MODES = {"auto", "cuda", "mps", "directml", "cpu", "none"}
 MODEL_EXTENSIONS = {".json", ".onnx", ".pt", ".pth", ".safetensors"}
 
 
@@ -412,6 +413,11 @@ def check_environment_file(
     manager = environment.get("MTC_PACKAGE_MANAGER", "auto")
     if manager not in VALID_PACKAGE_MANAGERS:
         problems.append("MTC_PACKAGE_MANAGER must be auto, npm, or pnpm")
+    acceleration = environment.get("MTC_ACCELERATION", "auto")
+    if acceleration not in VALID_ACCELERATION_MODES:
+        problems.append(
+            "MTC_ACCELERATION must be auto, cuda, mps, directml, cpu, or none"
+        )
     shared_token = environment.get("MTC_SHARED_TOKEN", "")
     if shared_token and not re.fullmatch(r"[A-Za-z0-9_-]{16,512}", shared_token):
         problems.append("MTC_SHARED_TOKEN must be 16-512 base64url-safe characters")

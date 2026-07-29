@@ -8,7 +8,7 @@ from app import __version__
 from app.core.auth import is_valid_shared_token
 from app.core.errors import documented_errors
 from app.core.request_id import resolve_request_id
-from app.schemas.api import HealthResponse, ModelsResponse
+from app.schemas.api import HealthResponse, ModelInfo, ModelsResponse
 from app.services.device import DeviceResponse, detect_device
 from app.services.models import ModelManager, get_models
 
@@ -69,8 +69,28 @@ def device(request: Request) -> DeviceResponse:
 )
 def models(request: Request) -> ModelsResponse:
     manager: ModelManager = request.app.state.model_manager
-    return get_models(
+    response = get_models(
         detect_device(),
         manager,
         request_id=resolve_request_id(request),
     )
+    harmony_manager = request.app.state.harmony_model_manager
+    for manifest in harmony_manager.discovery_models():
+        mock = bool(manifest["mock"])
+        response.models.append(
+            ModelInfo(
+                id=str(manifest["modelId"]),
+                name=(
+                    "MOCK HarmonyForge development generator"
+                    if mock
+                    else "HarmonyForge BiMask neural harmonizer"
+                ),
+                runtime=manifest["runtime"],
+                available=bool(manifest["available"]),
+                loaded=bool(manifest["loaded"]),
+                capabilities=["generateHarmony"],
+                backend="mock" if mock else "pytorch",
+                mock=mock,
+            )
+        )
+    return response

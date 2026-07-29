@@ -4,10 +4,19 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV_DIR="$PROJECT_DIR/.venv"
 VENV_PYTHON="$VENV_DIR/bin/python"
+REQUESTED_ACCELERATION="${1:-}"
 
 # shellcheck source=runtime.sh
 source "$PROJECT_DIR/scripts/runtime.sh"
 load_project_env "$PROJECT_DIR"
+ACCELERATION_MODE="${REQUESTED_ACCELERATION:-${MTC_ACCELERATION:-auto}}"
+case "$ACCELERATION_MODE" in
+  auto|cuda|mps|cpu|none) ;;
+  *)
+    printf 'Usage: ./scripts/setup.sh [auto|cuda|mps|cpu|none]\n' >&2
+    exit 2
+    ;;
+esac
 ensure_node_runtime
 PACKAGE_MANAGER="$(select_package_manager "$PROJECT_DIR")"
 
@@ -62,6 +71,12 @@ fi
 if [[ ! -f "$PROJECT_DIR/.env" ]]; then
   cp "$PROJECT_DIR/.env.example" "$PROJECT_DIR/.env"
   printf 'Created .env from .env.example. Existing environment files are never overwritten.\n'
+fi
+
+if [[ "$ACCELERATION_MODE" == "none" ]]; then
+  printf 'PyTorch installation skipped by explicit setup profile "none".\n'
+else
+  "$PROJECT_DIR/scripts/setup-acceleration.sh" "$ACCELERATION_MODE"
 fi
 
 "$VENV_PYTHON" "$PROJECT_DIR/scripts/check-environment.py" --require-installed

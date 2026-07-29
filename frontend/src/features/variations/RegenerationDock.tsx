@@ -1,5 +1,9 @@
 import { Icon } from "../../components/Icon";
 import type {
+  HarmonyPreferredDevice,
+  ModelInfo,
+} from "../../api/inferenceTypes";
+import type {
   BarRange,
   RegenerationStrength,
   RegenerationTarget,
@@ -11,8 +15,11 @@ interface RegenerationDockProps {
   target: RegenerationTarget;
   strength: RegenerationStrength;
   processing: boolean;
+  harmonyModel: ModelInfo | null;
+  preferredDevice: HarmonyPreferredDevice;
   onTargetChange: (target: RegenerationTarget) => void;
   onStrengthChange: (strength: RegenerationStrength) => void;
+  onPreferredDeviceChange: (device: HarmonyPreferredDevice) => void;
   onRegenerate: () => void;
   onSelectAll: () => void;
 }
@@ -31,8 +38,11 @@ export function RegenerationDock({
   target,
   strength,
   processing,
+  harmonyModel,
+  preferredDevice,
   onTargetChange,
   onStrengthChange,
+  onPreferredDeviceChange,
   onRegenerate,
   onSelectAll,
 }: RegenerationDockProps) {
@@ -60,8 +70,29 @@ export function RegenerationDock({
       </div>
 
       <div className="regeneration-actions">
+        {target === "chords" && (
+          <label className="strength-control neural-device-control">
+            <span>推論デバイス</span>
+            <select
+              aria-label="ニューラルハーモニーの推論デバイス"
+              value={preferredDevice}
+              onChange={(event) =>
+                onPreferredDeviceChange(event.target.value as HarmonyPreferredDevice)}
+              title="Autoは利用可能なアクセラレータを検出します。未確定中はCPUと表示しません。"
+            >
+              <option value="auto">Auto</option>
+              <option value="mps">Apple MPS</option>
+              <option value="cuda">CUDA</option>
+              <option value="cpu">CPU</option>
+            </select>
+          </label>
+        )}
         <label className="strength-control">
-          <span>変化量</span>
+          <span>
+            {target === "chords" && harmonyModel
+              ? "変化量（Theory fallback）"
+              : "変化量"}
+          </span>
           <select
             aria-label="再生成の変化量"
             value={strength}
@@ -72,6 +103,28 @@ export function RegenerationDock({
             <option value="strong">Strong</option>
           </select>
         </label>
+        <span
+          id="regeneration-engine-note"
+          className={`regeneration-engine-note${harmonyModel?.mock ? " is-mock" : ""}`}
+          role="status"
+        >
+          {target !== "chords"
+            ? "Theory generator"
+            : harmonyModel
+              ? harmonyModel.mock
+                ? "Explicit Mock · untrained"
+                : "Neural Harmony · trained checkpoint"
+              : "Neural unavailable · Theory fallback"}
+        </span>
+        {target === "chords" && harmonyModel && (
+          <span
+            id="neural-conditioning-note"
+            className="neural-conditioning-note"
+          >
+            Neural条件はメロディ・調性・固定コードのみ。スタイル・Mood・密度・
+            複雑度・変化量はTheory fallbackとクライアント検証にのみ使われます。
+          </span>
+        )}
         {selectedRange ? (
           <button
             className="primary-button regenerate-button"
@@ -79,7 +132,14 @@ export function RegenerationDock({
             onClick={onRegenerate}
             disabled={processing}
             aria-busy={processing}
-            title={processing ? "候補を生成しています。再生と編集は継続できます。" : undefined}
+            aria-describedby={target === "chords" && harmonyModel
+              ? "regeneration-engine-note neural-conditioning-note"
+              : "regeneration-engine-note"}
+            title={processing
+              ? "候補を生成しています。再生と編集は継続できます。"
+              : target === "chords" && !harmonyModel
+                ? "学習済みcheckpointまたは明示的Mockが利用できないため、理論生成へ安全にフォールバックします。"
+                : "採用するまで編集中の曲は変更されません。"}
           >
             <Icon name="sparkles" />
             {processing ? "候補を生成中…" : "選択範囲を再生成"}

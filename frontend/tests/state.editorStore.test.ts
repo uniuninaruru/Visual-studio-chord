@@ -247,6 +247,39 @@ describe("useComposerStore", () => {
       .toBe(note.midi + 1);
   });
 
+  it("publishes validated external previews without mutating draft, playback, or history", async () => {
+    useComposerStore.getState().setSelectedRange({ startBar: 0, endBar: 1 });
+    expect(await useComposerStore.getState().generatePreviewVariations({
+      target: "chords",
+    })).toBeGreaterThan(0);
+    const source = useComposerStore.getState().draftComposition;
+    const candidate = structuredClone(source);
+    candidate.id = `${source.id}-external-preview`;
+    useComposerStore.setState({ previewVariations: [] });
+    const before = useComposerStore.getState();
+
+    expect(before.publishPreviewVariations(source.id, [candidate])).toBe(1);
+    const after = useComposerStore.getState();
+    expect(after.previewVariations).toHaveLength(1);
+    expect(after.draftComposition).toEqual(before.draftComposition);
+    expect(after.committedComposition).toEqual(before.committedComposition);
+    expect(after.history).toEqual(before.history);
+    expect(after.historyIndex).toBe(before.historyIndex);
+  });
+
+  it("does not publish an external preview for a superseded composition", async () => {
+    useComposerStore.getState().setSelectedRange({ startBar: 0, endBar: 1 });
+    await useComposerStore.getState().generatePreviewVariations({ target: "chords" });
+    const candidate = structuredClone(useComposerStore.getState().previewVariations[0]!);
+    useComposerStore.setState({ previewVariations: [] });
+
+    expect(useComposerStore.getState().publishPreviewVariations(
+      "superseded-source",
+      [candidate],
+    )).toBe(0);
+    expect(useComposerStore.getState().previewVariations).toEqual([]);
+  });
+
   it("maps the selected half-open bar range to the loop range", () => {
     const ticksPerBar = useComposerStore.getState().draftComposition.ticksPerBar;
     useComposerStore.getState().setSelectedRange({ startBar: 1, endBar: 3 });

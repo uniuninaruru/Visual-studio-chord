@@ -9,6 +9,9 @@ services:
       MTC_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       MTC_SHARED_TOKEN: "${MTC_SHARED_TOKEN:?Run scripts/start-local.sh or scripts/start-local.ps1 first}"
       MODEL_DIRECTORY: /app/models
+      NEURAL_MODEL_CONFIG: /app/configs/models/harmonyforge-bimask-base-v1.yaml
+      MTC_ENABLE_NEURAL_MOCK: "${MTC_ENABLE_NEURAL_MOCK:-false}"
+      MTC_ENABLE_RESEARCH_CHECKPOINT: "${MTC_ENABLE_RESEARCH_CHECKPOINT:-false}"
     volumes:
       - ./models:/app/models:ro
     expose:

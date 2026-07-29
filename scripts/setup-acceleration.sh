@@ -42,23 +42,23 @@ case "$SYSTEM" in
     case "$MODE" in
       auto)
         install_macos
-        if "$VENV_PYTHON" "$PROBE_SCRIPT" --require-gpu; then
+        if "$VENV_PYTHON" "$PROBE_SCRIPT" --require-torch-device mps; then
           finish
           exit 0
         fi
-        printf 'Apple acceleration did not pass a real inference probe. Continuing with CPU fallback.\n' >&2
-        "$VENV_PYTHON" "$PROBE_SCRIPT"
+        printf 'Apple MPS did not pass the PyTorch tensor probe. Continuing with CPU fallback.\n' >&2
+        "$VENV_PYTHON" "$PROBE_SCRIPT" --require-torch-device cpu
         ;;
       mps)
         install_macos
-        if ! "$VENV_PYTHON" "$PROBE_SCRIPT" --require-gpu; then
-          printf 'MPS/Core ML did not pass a real inference probe. The basic app remains available on CPU.\n' >&2
+        if ! "$VENV_PYTHON" "$PROBE_SCRIPT" --require-torch-device mps; then
+          printf 'MPS did not pass the PyTorch tensor probe. The basic app remains available on CPU.\n' >&2
           exit 2
         fi
         ;;
       cpu)
         install_cpu
-        "$VENV_PYTHON" "$PROBE_SCRIPT"
+        "$VENV_PYTHON" "$PROBE_SCRIPT" --require-torch-device cpu
         ;;
       *)
         printf 'Usage on macOS: ./scripts/setup-acceleration.sh [auto|mps|cpu]\n' >&2
@@ -71,25 +71,25 @@ case "$SYSTEM" in
       auto)
         if command -v nvidia-smi >/dev/null 2>&1; then
           printf 'NVIDIA driver detected; attempting pinned CUDA runtimes.\n'
-          if install_cuda && "$VENV_PYTHON" "$PROBE_SCRIPT" --require-gpu; then
+          if install_cuda && "$VENV_PYTHON" "$PROBE_SCRIPT" --require-torch-device cuda; then
             finish
             exit 0
           fi
-          printf 'CUDA did not pass a real inference probe. Switching to pinned ONNX CPU.\n' >&2
+          printf 'CUDA did not pass the PyTorch tensor probe. Switching to pinned PyTorch CPU.\n' >&2
         fi
         install_cpu
-        "$VENV_PYTHON" "$PROBE_SCRIPT"
+        "$VENV_PYTHON" "$PROBE_SCRIPT" --require-torch-device cpu
         ;;
       cuda)
         install_cuda
-        if ! "$VENV_PYTHON" "$PROBE_SCRIPT" --require-gpu; then
-          printf 'CUDA did not pass a real inference probe. The basic app remains available on CPU.\n' >&2
+        if ! "$VENV_PYTHON" "$PROBE_SCRIPT" --require-torch-device cuda; then
+          printf 'CUDA did not pass the PyTorch tensor probe. The basic app remains available on CPU.\n' >&2
           exit 2
         fi
         ;;
       cpu)
         install_cpu
-        "$VENV_PYTHON" "$PROBE_SCRIPT"
+        "$VENV_PYTHON" "$PROBE_SCRIPT" --require-torch-device cpu
         ;;
       *)
         printf 'Usage on Linux: ./scripts/setup-acceleration.sh [auto|cuda|cpu]\n' >&2

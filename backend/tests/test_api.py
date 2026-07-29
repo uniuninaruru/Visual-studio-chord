@@ -33,7 +33,7 @@ def test_health() -> None:
     assert len(payload["requestId"]) == 32
     assert payload["status"] == "ok"
     assert payload["service"] == "visual-studio-chord-api"
-    assert payload["version"] == "0.3.0"
+    assert payload["version"] == "0.4.0"
     assert payload["pythonVersion"]
     assert payload["platformSystem"]
     assert payload["platformMachine"]
@@ -81,7 +81,7 @@ def test_openapi_contract_is_deterministic_and_has_stable_operation_ids() -> Non
     second = create_app(Settings(inference_model="linear")).openapi()
 
     assert first == second
-    assert first["info"]["version"] == "0.3.0"
+    assert first["info"]["version"] == "0.4.0"
     assert first["paths"]["/api/health"]["get"]["operationId"] == "getHealth"
     assert first["paths"]["/api/device"]["get"]["operationId"] == "getDevice"
     assert first["paths"]["/api/models"]["get"]["operationId"] == "listModels"
@@ -155,10 +155,15 @@ def test_models_have_tolerant_camel_case_contract(monkeypatch) -> None:
         "harmony-corpus-ngram-v1",
         "local-mlp-v1",
         "local-onnx-v1",
-        "mock-deterministic-v1",
-        "browser-linear-v1",
-    ]
+            "mock-deterministic-v1",
+            "browser-linear-v1",
+            "harmonyforge-bimask-base-v1",
+            "mock-harmonyforge-bimask-v1",
+        ]
     assert payload["models"][0]["runtime"] == "cpu"
+    assert payload["models"][-2]["capabilities"] == ["generateHarmony"]
+    assert payload["models"][-2]["available"] is False
+    assert payload["models"][-1]["mock"] is True
 
 
 def test_rank_is_linear_deterministic_and_uses_id_for_ties() -> None:

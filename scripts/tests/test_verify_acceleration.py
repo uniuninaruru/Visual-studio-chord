@@ -80,7 +80,7 @@ class AccelerationProbeTests(unittest.TestCase):
         self.assertEqual(result["providerErrors"]["CUDAExecutionProvider"], "RuntimeError")
 
     def test_runtime_priority_matches_backend(self) -> None:
-        torch_info = {"installed": True, "cuda": True, "mps": True}
+        torch_info = {"installed": True, "cpu": True, "cuda": True, "mps": True}
         ort_info = {
             "providers": ["CUDAExecutionProvider"],
             "verifiedProviders": ["CUDAExecutionProvider", "CoreMLExecutionProvider"],
@@ -93,12 +93,34 @@ class AccelerationProbeTests(unittest.TestCase):
         self.assertEqual(probe._select_runtime(torch_info, ort_info), "pytorch-mps")
 
     def test_unverified_provider_is_never_reported_as_gpu(self) -> None:
-        torch_info = {"installed": False, "cuda": False, "mps": False}
+        torch_info = {
+            "installed": False,
+            "cpu": False,
+            "cuda": False,
+            "mps": False,
+        }
         ort_info = {
             "providers": ["CUDAExecutionProvider", "CPUExecutionProvider"],
             "verifiedProviders": ["CPUExecutionProvider"],
         }
         self.assertEqual(probe._select_runtime(torch_info, ort_info), "onnx-cpu")
+
+    def test_requested_torch_device_is_independent_from_onnx_gpu(self) -> None:
+        torch_info = {
+            "installed": True,
+            "cpu": True,
+            "cuda": False,
+            "mps": False,
+        }
+        ort_info = {
+            "providers": ["CUDAExecutionProvider"],
+            "verifiedProviders": ["CUDAExecutionProvider"],
+        }
+
+        self.assertEqual(probe._select_runtime(torch_info, ort_info), "onnx-cuda")
+        self.assertFalse(probe._torch_device_passed(torch_info, "cuda"))
+        self.assertTrue(probe._torch_device_passed(torch_info, "cpu"))
+        self.assertTrue(probe._torch_device_passed(torch_info, None))
 
 
 if __name__ == "__main__":
