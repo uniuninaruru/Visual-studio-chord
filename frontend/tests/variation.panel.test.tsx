@@ -143,8 +143,14 @@ describe("VariationPanel ranked candidates", () => {
     expect(
       host.querySelector(".variation-neural-badge")?.getAttribute("aria-label"),
     ).toContain("未学習Mock");
-    expect(
-      host.querySelector(".variation-adopt-button")?.getAttribute("aria-label"),
-    ).toContain("プレビューを採用して履歴へ保存");
+    const adopt = host.querySelector(".variation-adopt-button");
+    // The label must add context without discarding the words on the button.
+    // Asserting a paraphrase instead is what let the accessible name drift away
+    // from the visible text: this assertion previously pinned the wording, the
+    // wording changed to one that no longer contained "この候補を採用", and the
+    // only thing that noticed was a browser end-to-end test looking the button
+    // up by what it says.
+    expect(adopt?.getAttribute("aria-label")).toContain(adopt?.textContent);
+    expect(adopt?.getAttribute("aria-label")).toContain("履歴へ保存");
   });
 });
