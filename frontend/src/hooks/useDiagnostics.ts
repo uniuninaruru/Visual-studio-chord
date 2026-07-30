@@ -125,12 +125,18 @@ export function useDiagnostics(
         .filter((model) => model.id !== "browser-linear-v1")
         .map((model) => {
           const harmony = model.capabilities.includes("generateHarmony");
+          const pretraining = model.task === "harmony_only_pretraining";
+          const validPretraining = pretraining
+            && model.trained === true
+            && typeof model.checkpointSha256 === "string";
           const modelKind = model.mock
             ? model.available
               ? "explicit Mock · untrained"
               : "explicit Mock disabled"
-            : model.task === "harmony_only_pretraining"
-              ? "pretraining manifest detected · inference blocked"
+            : validPretraining
+              ? "installed pretraining checkpoint · inference disabled"
+            : pretraining
+              ? "invalid pretraining artifact · inference blocked"
             : harmony
               ? model.available
                 ? "trained checkpoint ready"
@@ -146,7 +152,13 @@ export function useDiagnostics(
           return {
             id: model.id,
             name: model.name,
-            status: model.available ? "ready" as const : "missing" as const,
+            status: model.available
+              ? "ready" as const
+              : validPretraining
+                ? "blocked" as const
+                : pretraining
+                  ? "error" as const
+                  : "missing" as const,
             detail: [
               model.loaded
                 ? model.runtime ?? "runtime not reported"
@@ -157,6 +169,12 @@ export function useDiagnostics(
               `capability: ${model.capabilities.join(", ")}`,
               modelKind,
               task,
+              model.evaluationStatus
+                ? `evaluation: ${model.evaluationStatus}`
+                : null,
+              model.checkpointSha256
+                ? `ckpt ${model.checkpointSha256.slice(0, 12)}`
+                : null,
               model.id === backend.models.activeModel
                 ? fallbackLabel(backend.models.fallbackReason)
                 : null,

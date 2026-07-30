@@ -133,6 +133,11 @@ const HARMONY_TASKS = new Set([
   "melody_conditioned_variable_rhythm_harmonization",
   "harmony_only_pretraining",
 ]);
+const HARMONY_EVALUATION_STATUSES = new Set([
+  "notEvaluated",
+  "researchOnly",
+  "validated",
+]);
 const HARMONY_JOB_STATES = new Set([
   "queued",
   "running",
@@ -220,27 +225,58 @@ function isDeviceResponse(value: unknown): value is DeviceResponse {
 
 function isModelsResponse(value: unknown): value is ModelsResponse {
   if (!hasApiEnvelope(value) || !Array.isArray(value.models)) return false;
-  const validModels = value.models.every((model) =>
-    isRecord(model)
-    && typeof model.id === "string"
-    && typeof model.name === "string"
-    && (model.runtime === null || MODEL_RUNTIMES.has(String(model.runtime)))
-    && typeof model.available === "boolean"
-    && typeof model.loaded === "boolean"
-    && Array.isArray(model.capabilities)
-    && model.capabilities.every((capability) => MODEL_CAPABILITIES.has(String(capability)))
-    && BACKENDS.has(String(model.backend))
-    && typeof model.mock === "boolean"
-    && (
-      model.task === undefined
-      || model.task === null
-      || HARMONY_TASKS.has(String(model.task))
-    )
-    && (
-      model.task !== "harmony_only_pretraining"
-      || model.available === false
-    )
-  );
+  const validModels = value.models.every((model) => {
+    if (
+      !isRecord(model)
+      || typeof model.id !== "string"
+      || typeof model.name !== "string"
+      || (model.runtime !== null && !MODEL_RUNTIMES.has(String(model.runtime)))
+      || typeof model.available !== "boolean"
+      || typeof model.loaded !== "boolean"
+      || !Array.isArray(model.capabilities)
+      || !model.capabilities.every(
+        (capability) => MODEL_CAPABILITIES.has(String(capability)),
+      )
+      || !BACKENDS.has(String(model.backend))
+      || typeof model.mock !== "boolean"
+      || !(
+        model.task === undefined
+        || model.task === null
+        || HARMONY_TASKS.has(String(model.task))
+      )
+      || !(
+        model.trained === undefined
+        || model.trained === null
+        || typeof model.trained === "boolean"
+      )
+      || !(
+        model.evaluationStatus === undefined
+        || model.evaluationStatus === null
+        || HARMONY_EVALUATION_STATUSES.has(String(model.evaluationStatus))
+      )
+      || !(
+        model.checkpointSha256 === undefined
+        || isNullableString(model.checkpointSha256)
+      )
+      || !(
+        model.unavailableReason === undefined
+        || isNullableString(model.unavailableReason)
+      )
+    ) {
+      return false;
+    }
+    const realHarmony = model.mock === false
+      && model.capabilities.includes("generateHarmony");
+    if (
+      realHarmony
+      && model.available
+      && model.task !== "melody_conditioned_variable_rhythm_harmonization"
+    ) {
+      return false;
+    }
+    return model.task !== "harmony_only_pretraining"
+      || model.available === false;
+  });
   return validModels
     && typeof value.activeModel === "string"
     && RUNTIMES.has(String(value.activeRuntime))

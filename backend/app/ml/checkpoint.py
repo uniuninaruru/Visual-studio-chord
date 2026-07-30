@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app import __version__ as APP_VERSION
 from app.ml.contracts import MODEL_ID, HarmonyForgeConfig
-from app.ml.dataset import DATA_MANIFEST_FILE, load_data_manifest
+from app.ml.dataset import DATA_MANIFEST_FILE, load_data_manifest_bytes
 from app.ml.tokenizer import TOKENIZER_SHA256
 
 MANIFEST_FILE = "manifest.json"
@@ -109,10 +109,14 @@ class CheckpointInvalidError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class ValidatedHarmonyCheckpoint:
-    """A manifest bound to the exact immutable directory that was validated."""
+    """One immutable in-memory snapshot of every hash-bound artifact input."""
 
     manifest: HarmonyCheckpointManifest
     artifact_directory: Path
+    manifest_sha256: str
+    checkpoint_bytes: bytes
+    data_manifest: dict[str, Any]
+    training_run: dict[str, Any]
 
 
 def model_artifact_directory(model_directory: Path) -> Path:
@@ -169,16 +173,12 @@ def load_validated_checkpoint(
     """Resolve the active pointer once and bind all later reads to that version."""
 
     artifact_directory = model_artifact_directory(model_directory)
-    manifest = load_manifest_from_artifact_directory(
+    return _load_validated_artifact_directory(
         artifact_directory,
         config,
         config_path=config_path,
         allow_research=allow_research,
         permit_pretraining_task=permit_pretraining_task,
-    )
-    return ValidatedHarmonyCheckpoint(
-        manifest=manifest,
-        artifact_directory=artifact_directory.resolve(),
     )
 
 
@@ -192,11 +192,31 @@ def load_manifest_from_artifact_directory(
 ) -> HarmonyCheckpointManifest:
     """Validate one direct artifact directory, including staging versions."""
 
+    return _load_validated_artifact_directory(
+        artifact_directory,
+        config,
+        config_path=config_path,
+        allow_research=allow_research,
+        permit_pretraining_task=permit_pretraining_task,
+    ).manifest
+
+
+def _load_validated_artifact_directory(
+    artifact_directory: Path,
+    config: HarmonyForgeConfig,
+    *,
+    config_path: Path,
+    allow_research: bool,
+    permit_pretraining_task: bool,
+) -> ValidatedHarmonyCheckpoint:
+    """Read every mutable path once, then validate and retain that snapshot."""
+
     manifest_path = artifact_directory / MANIFEST_FILE
     if not manifest_path.is_file():
         raise CheckpointUnavailableError("No trained HarmonyForge checkpoint is installed")
     try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest_bytes = manifest_path.read_bytes()
+        payload = json.loads(manifest_bytes.decode("utf-8"))
         manifest = HarmonyCheckpointManifest.model_validate(payload)
     except (OSError, UnicodeError, json.JSONDecodeError, ValidationError) as exc:
         raise CheckpointInvalidError("HarmonyForge manifest is invalid") from exc
@@ -236,7 +256,13 @@ def load_manifest_from_artifact_directory(
     checkpoint_path = _safe_checkpoint_path(artifact_directory, manifest.checkpoint_file)
     if not checkpoint_path.is_file():
         raise CheckpointUnavailableError("HarmonyForge checkpoint file is missing")
-    if _sha256(checkpoint_path) != manifest.checkpoint_sha256:
+    try:
+        checkpoint_bytes = checkpoint_path.read_bytes()
+    except OSError as exc:
+        raise CheckpointUnavailableError(
+            "HarmonyForge checkpoint file could not be read"
+        ) from exc
+    if _sha256_bytes(checkpoint_bytes) != manifest.checkpoint_sha256:
         raise CheckpointInvalidError("HarmonyForge checkpoint checksum does not match")
     data_manifest_path = _safe_data_manifest_path(
         artifact_directory,
@@ -244,7 +270,13 @@ def load_manifest_from_artifact_directory(
     )
     if not data_manifest_path.is_file():
         raise CheckpointUnavailableError("HarmonyForge data manifest is missing")
-    if _sha256(data_manifest_path) != manifest.data_manifest_sha256:
+    try:
+        data_manifest_bytes = data_manifest_path.read_bytes()
+    except OSError as exc:
+        raise CheckpointUnavailableError(
+            "HarmonyForge data manifest could not be read"
+        ) from exc
+    if _sha256_bytes(data_manifest_bytes) != manifest.data_manifest_sha256:
         raise CheckpointInvalidError(
             "HarmonyForge data manifest checksum does not match"
         )
@@ -254,16 +286,19 @@ def load_manifest_from_artifact_directory(
     )
     if not training_run_path.is_file():
         raise CheckpointUnavailableError("HarmonyForge training run is missing")
-    if _sha256(training_run_path) != manifest.training_run_sha256:
+    try:
+        training_run_bytes = training_run_path.read_bytes()
+    except OSError as exc:
+        raise CheckpointUnavailableError(
+            "HarmonyForge training run could not be read"
+        ) from exc
+    if _sha256_bytes(training_run_bytes) != manifest.training_run_sha256:
         raise CheckpointInvalidError(
             "HarmonyForge training run checksum does not match"
         )
     try:
-        data_contract = load_data_manifest(
-            data_manifest_path,
-            verify_files=False,
-        )
-        training_run = load_training_run_contract(training_run_path)
+        data_contract = load_data_manifest_bytes(data_manifest_bytes)
+        training_run = load_training_run_contract_bytes(training_run_bytes)
     except Exception as exc:
         raise CheckpointInvalidError(
             "HarmonyForge artifact provenance contract is invalid"
@@ -293,15 +328,32 @@ def load_manifest_from_artifact_directory(
         raise CheckpointInvalidError(
             "HarmonyForge training run PyTorch version does not match"
         )
-    return manifest
+    return ValidatedHarmonyCheckpoint(
+        manifest=manifest,
+        artifact_directory=artifact_directory.resolve(),
+        manifest_sha256=_sha256_bytes(manifest_bytes),
+        checkpoint_bytes=checkpoint_bytes,
+        data_manifest=data_contract,
+        training_run=training_run,
+    )
 
 
 def load_training_run_contract(path: Path) -> dict[str, Any]:
     """Load v2 provenance or normalize one legacy inference-only v1 run."""
 
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise CheckpointInvalidError("training run could not be read") from exc
+    return load_training_run_contract_bytes(data)
+
+
+def load_training_run_contract_bytes(data: bytes) -> dict[str, Any]:
+    """Validate one in-memory training-run snapshot."""
+
+    try:
+        payload = json.loads(data.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
         raise CheckpointInvalidError("training run is not valid UTF-8 JSON") from exc
     common = {
         "schemaVersion",
@@ -459,11 +511,6 @@ def load_weights(
 ) -> None:
     """Load on CPU from safetensors, validate strictly, then move once."""
 
-    manifest = checkpoint.manifest
-    checkpoint_path = _safe_checkpoint_path(
-        checkpoint.artifact_directory,
-        manifest.checkpoint_file,
-    )
     try:
         safetensors = importlib.import_module("safetensors.torch")
     except Exception as exc:
@@ -471,7 +518,7 @@ def load_weights(
             "The safetensors runtime is not installed"
         ) from exc
     try:
-        state = safetensors.load_file(str(checkpoint_path), device="cpu")
+        state = safetensors.load(checkpoint.checkpoint_bytes)
         model.load_state_dict(state, strict=True)  # type: ignore[attr-defined]
         model.to(device)  # type: ignore[attr-defined]
         model.eval()  # type: ignore[attr-defined]
@@ -526,6 +573,10 @@ def _sha256(path: Path) -> str:
     except OSError as exc:
         raise CheckpointInvalidError("HarmonyForge artifact could not be read") from exc
     return digest.hexdigest()
+
+
+def _sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 def _semantic_version(value: str) -> tuple[int, int, int]:

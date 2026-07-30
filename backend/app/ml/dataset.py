@@ -348,6 +348,30 @@ def load_data_manifest(
         _read_bytes(manifest_path, "data manifest"),
         "data manifest",
     )
+    return _validate_data_manifest_payload(
+        payload,
+        manifest_path=manifest_path,
+        verify_files=verify_files,
+    )
+
+
+def load_data_manifest_bytes(data: bytes) -> dict[str, Any]:
+    """Validate one in-memory manifest snapshot without reopening its path."""
+
+    payload = _parse_json_object(data, "data manifest")
+    return _validate_data_manifest_payload(
+        payload,
+        manifest_path=None,
+        verify_files=False,
+    )
+
+
+def _validate_data_manifest_payload(
+    payload: dict[str, Any],
+    *,
+    manifest_path: Path | None,
+    verify_files: bool,
+) -> dict[str, Any]:
     legacy_required = {
         "schemaVersion",
         "compilerVersion",
@@ -422,6 +446,10 @@ def load_data_manifest(
             raise DatasetCompileError("one split group crosses dataset splits")
 
     if verify_files:
+        if manifest_path is None:
+            raise DatasetCompileError(
+                "data manifest artifact verification requires a source path"
+            )
         directory = manifest_path.resolve().parent
         artifacts = [
             payload["vocabulary"],

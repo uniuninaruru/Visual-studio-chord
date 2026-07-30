@@ -122,8 +122,8 @@ describe("DiagnosticsPanel", () => {
               {
                 id: "harmonyforge-bimask-base-v1",
                 name: "HarmonyForge BiMask",
-                status: "missing",
-                detail: "mps · capability: generateHarmony · pretraining manifest detected · inference blocked · task: harmony-only pretraining（推論利用不可）",
+                status: "blocked",
+                detail: "mps · capability: generateHarmony · installed pretraining checkpoint · inference disabled · task: harmony-only pretraining（推論利用不可）",
               },
               {
                 id: "mock-harmonyforge-bimask-v1",
@@ -153,8 +153,10 @@ describe("DiagnosticsPanel", () => {
       );
     });
 
-    expect(host.textContent).toContain("pretraining manifest detected · inference blocked");
+    expect(host.textContent).toContain("配置済み（推論対象外）");
+    expect(host.textContent).toContain("installed pretraining checkpoint · inference disabled");
     expect(host.textContent).toContain("task: harmony-only pretraining（推論利用不可）");
+    expect(host.textContent).toContain("メロディ条件付きデータでfine-tuning");
     expect(host.textContent).toContain("explicit Mock · untrained");
     expect(host.textContent).toContain("Last Harmony jobMock / untrained · Complete");
     expect(host.textContent).toContain("CPU · mock / float32 · checkpointなし · 3候補 · batch 1");

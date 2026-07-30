@@ -214,6 +214,7 @@ describe("v2 harmony inference client", () => {
   });
 
   it("accepts generateHarmony discovery rows without changing the v1 health envelope", async () => {
+    let emitImpossibleAvailableModel = false;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
       const shared = { apiVersion: "1", requestId: path };
@@ -261,12 +262,18 @@ describe("v2 harmony inference client", () => {
               id: "harmonyforge-bimask-base-v1",
               name: "HarmonyForge BiMask",
               runtime: null,
-              available: false,
+              available: emitImpossibleAvailableModel,
                 loaded: false,
                 capabilities: ["generateHarmony"],
                 backend: "pytorch",
                 mock: false,
-                task: "harmony_only_pretraining",
+                task: emitImpossibleAvailableModel
+                  ? null
+                  : "harmony_only_pretraining",
+                trained: true,
+                evaluationStatus: "researchOnly",
+                checkpointSha256: "c".repeat(64),
+                unavailableReason: "Pretraining only.",
               }],
             };
       return { ok: true, json: async () => payload } as Response;
@@ -279,8 +286,15 @@ describe("v2 harmony inference client", () => {
           runtime: null,
           capabilities: ["generateHarmony"],
           task: "harmony_only_pretraining",
+          trained: true,
         }],
       },
+    });
+
+    emitImpossibleAvailableModel = true;
+    await expect(detectLocalBackend()).resolves.toMatchObject({
+      state: "browser",
+      reason: "api-mismatch",
     });
   });
 

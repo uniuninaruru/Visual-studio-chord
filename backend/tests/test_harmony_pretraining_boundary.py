@@ -32,6 +32,7 @@ from app.ml.contracts import MODEL_ID, load_model_config
 from app.ml.dataset import DATA_MANIFEST_FILE
 from app.ml.training_runtime import (
     TrainingRuntimeError,
+    evaluate_checkpoint,
     load_initial_checkpoint_for_training,
 )
 from tests.test_harmony_checkpoint import _config_path, _sha256, _write_manifest
@@ -275,6 +276,75 @@ def test_inference_weights_cannot_be_relabelled_as_pretraining(
         )
 
 
+def test_evaluation_receipt_preserves_warm_start_lineage(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _write_manifest(tmp_path, task=INFERENCE_TASK)
+    artifact = tmp_path / MODEL_ID
+    training_run_path = artifact / "training-run.json"
+    training_run = json.loads(training_run_path.read_text(encoding="utf-8"))
+    initial_checkpoint = {
+        "modelId": MODEL_ID,
+        "task": PRETRAINING_TASK,
+        "manifestSha256": "c" * 64,
+        "checkpointSha256": "d" * 64,
+    }
+    training_run["initialCheckpoint"] = initial_checkpoint
+    training_run_path.write_text(json.dumps(training_run), encoding="utf-8")
+    manifest_path = artifact / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["trainingRunSha256"] = _sha256(training_run_path)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    data_manifest_path = artifact / DATA_MANIFEST_FILE
+
+    class FakeTorch:
+        __version__ = "2.13.0"
+
+    monkeypatch.setattr(
+        "app.ml.training_runtime.load_data_manifest",
+        lambda _path: {},
+    )
+    monkeypatch.setattr(
+        "app.ml.training_runtime.iter_compiled_split",
+        lambda _path, _split: iter([{}]),
+    )
+    monkeypatch.setattr(
+        "app.ml.training_runtime.validate_compiled_rows",
+        lambda _rows, _config: None,
+    )
+    monkeypatch.setattr(
+        "app.ml.training_runtime._import_torch",
+        lambda: FakeTorch(),
+    )
+    monkeypatch.setattr(
+        "app.ml.training_runtime._select_device",
+        lambda _torch, _choice: ("cpu", None),
+    )
+    monkeypatch.setattr(
+        "app.ml.training_runtime.build_harmony_forge_model",
+        lambda _config, *, torch_module: object(),
+    )
+    monkeypatch.setattr(
+        "app.ml.training_runtime.load_weights",
+        lambda _model, _checkpoint, *, device: None,
+    )
+    monkeypatch.setattr(
+        "app.ml.training_runtime.evaluate_model_rows",
+        lambda *_args, **_kwargs: {"primaryMeanNormalizedNll": 0.5},
+    )
+
+    receipt = evaluate_checkpoint(
+        config_path=_config_path(),
+        data_manifest_path=data_manifest_path,
+        model_directory=tmp_path,
+        split="validation",
+    )
+
+    assert receipt["task"] == INFERENCE_TASK
+    assert receipt["initialCheckpoint"] == initial_checkpoint
+
+
 def test_melody_conditioned_checkpoints_still_load(tmp_path) -> None:
     _write_manifest(tmp_path, task=INFERENCE_TASK)
     config = load_model_config(_config_path())
@@ -314,10 +384,11 @@ def test_serving_backend_reports_a_pretraining_artifact_as_unavailable(
 
     assert manifest["available"] is False
     assert manifest["task"] == PRETRAINING_TASK
-    assert manifest["trained"] is False
-    assert manifest["evaluationStatus"] == "notEvaluated"
-    assert manifest["checkpointSha256"] is None
-    assert PRETRAINING_TASK in str(manifest["unavailableReason"])
+    assert manifest["trained"] is True
+    assert manifest["evaluationStatus"] == "validated"
+    assert isinstance(manifest["checkpointSha256"], str)
+    assert "installed and valid" in str(manifest["unavailableReason"])
+    assert backend._cached_validated_checkpoint is None
 
 
 def test_serving_does_not_claim_a_tampered_pretraining_checkpoint_is_valid(
@@ -343,6 +414,7 @@ def test_serving_does_not_claim_a_tampered_pretraining_checkpoint_is_valid(
     assert manifest["trained"] is False
     assert manifest["evaluationStatus"] == "notEvaluated"
     assert manifest["checkpointSha256"] is None
+    assert "checksum" in str(manifest["unavailableReason"])
 
 
 def test_serving_backend_accepts_the_inference_task_from_the_same_fixture(
