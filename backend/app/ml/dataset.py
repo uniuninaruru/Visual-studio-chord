@@ -1,9 +1,11 @@
-"""Deterministic, license-gated dataset compiler for HarmonyForge.
+"""Deterministic, provenance-gated dataset compiler for HarmonyForge.
 
 The compiler accepts normalized source records rather than downloading or
 bundling copyrighted corpora. It assigns work and duplicate groups to a split
 before creating windows, then records every content hash needed to reproduce
-the processed dataset.
+the processed dataset. Schema v2 adds a strict harmony-only/private-local
+profile for reproducible pretraining without accepting melody, MIDI, audio,
+lyrics, titles, arrangement, voicing, or performance data.
 """
 
 from __future__ import annotations
@@ -12,8 +14,10 @@ import hashlib
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from app.ml.contracts import (
     EVENT_VOCABULARY,
@@ -24,11 +28,14 @@ from app.ml.contracts import (
 )
 from app.ml.tokenizer import TOKENIZER_SHA256
 
-DATASET_SCHEMA_VERSION = 1
-COMPILER_VERSION = "1.0.0"
+LEGACY_DATASET_SCHEMA_VERSION = 1
+DATASET_SCHEMA_VERSION = 2
+COMPILER_VERSION = "1.1.0"
+SUPPORTED_COMPILER_VERSIONS = {"1.0.0", COMPILER_VERSION}
 DATA_MANIFEST_FILE = "data-manifest.json"
 VOCABULARY_FILE = "vocabulary.json"
 STATISTICS_FILE = "statistics.json"
+PROVENANCE_FILE = "provenance.json"
 SPLIT_FILES = {
     "train": "train.index.jsonl",
     "validation": "validation.index.jsonl",
@@ -40,8 +47,25 @@ SUPPORTED_TIME_SIGNATURES = {
     "6/8": 3,
 }
 TRAINING_PURPOSE = "researchTraining"
+PRIVATE_HARMONY_TRAINING_PURPOSE = "privateLocalHarmonyOnlyTraining"
+PRIVATE_HARMONY_POLICY_ID = "harmony-only-private-v1"
+PRIVATE_LOCAL_DISTRIBUTION_SCOPE = "privateLocalOnly"
+HARMONY_ONLY_FORBIDDEN_FIELDS = {
+    "artist",
+    "audio",
+    "lyrics",
+    "melody",
+    "midi",
+    "notes",
+    "performance",
+    "rawMidi",
+    "title",
+    "track",
+    "voicing",
+}
 UnsupportedQualityPolicy = Literal["excludeRecord", "mapOther"]
 HarmonyGapPolicy = Literal["excludeRecord", "allowNoChord"]
+ContentProfile = Literal["melodyHarmonyV1", "harmonyOnlyV1"]
 
 
 class DatasetCompileError(ValueError):
@@ -65,6 +89,7 @@ class CompileOptions:
     unsupported_quality_policy: UnsupportedQualityPolicy = "excludeRecord"
     harmony_gap_policy: HarmonyGapPolicy = "excludeRecord"
     purpose: str = TRAINING_PURPOSE
+    content_profile: ContentProfile = "melodyHarmonyV1"
 
     @property
     def test_basis_points(self) -> int:
@@ -97,6 +122,15 @@ class CompileOptions:
             raise DatasetCompileError("unsupported quality policy")
         if self.harmony_gap_policy not in {"excludeRecord", "allowNoChord"}:
             raise DatasetCompileError("unsupported harmony gap policy")
+        if self.content_profile not in {"melodyHarmonyV1", "harmonyOnlyV1"}:
+            raise DatasetCompileError("unsupported content profile")
+        if (
+            self.content_profile == "harmonyOnlyV1"
+            and self.purpose != PRIVATE_HARMONY_TRAINING_PURPOSE
+        ):
+            raise DatasetCompileError(
+                "harmonyOnlyV1 requires privateLocalHarmonyOnlyTraining purpose"
+            )
 
 
 def compile_dataset(
@@ -113,12 +147,19 @@ def compile_dataset(
     ledger_bytes = _read_bytes(ledger_path, "dataset ledger")
     ledger = _parse_json_object(ledger_bytes, "dataset ledger")
     input_sha256 = _sha256_bytes(source_bytes)
+    raw_records = _parse_jsonl(source_bytes)
     allowed_sources = _validate_ledger(
         ledger,
         purpose=options.purpose,
         input_sha256=input_sha256,
+        raw_records=raw_records,
+        content_profile=options.content_profile,
     )
-    raw_records = _parse_jsonl(source_bytes)
+    schema_version = (
+        DATASET_SCHEMA_VERSION
+        if options.content_profile == "harmonyOnlyV1"
+        else LEGACY_DATASET_SCHEMA_VERSION
+    )
 
     normalized: list[dict[str, Any]] = []
     excluded: dict[str, int] = {}
@@ -159,13 +200,25 @@ def compile_dataset(
                 record,
                 split_group_id=split_group_id,
                 maximum_frames=options.maximum_frames_per_window,
+                schema_version=schema_version,
+                content_profile=options.content_profile,
             )
         )
 
     output_directory.mkdir(parents=True, exist_ok=True)
-    vocabulary = _vocabulary_payload()
+    vocabulary = _vocabulary_payload(schema_version=schema_version)
     vocabulary_bytes = _canonical_json_bytes(vocabulary)
     _write_bytes(output_directory / VOCABULARY_FILE, vocabulary_bytes)
+
+    provenance_descriptor: dict[str, Any] | None = None
+    if schema_version == DATASET_SCHEMA_VERSION:
+        provenance = _provenance_payload(ledger)
+        provenance_bytes = _canonical_json_bytes(provenance)
+        _write_bytes(output_directory / PROVENANCE_FILE, provenance_bytes)
+        provenance_descriptor = {
+            "file": PROVENANCE_FILE,
+            "sha256": _sha256_bytes(provenance_bytes),
+        }
 
     split_manifests: dict[str, dict[str, Any]] = {}
     for split, file_name in SPLIT_FILES.items():
@@ -191,7 +244,8 @@ def compile_dataset(
         fingerprint_counts[fingerprint] = fingerprint_counts.get(fingerprint, 0) + 1
     collision_groups = sum(count > 1 for count in fingerprint_counts.values())
     statistics = {
-        "schemaVersion": DATASET_SCHEMA_VERSION,
+        "schemaVersion": schema_version,
+        "contentProfile": options.content_profile,
         "eligibleRecordCount": len(normalized),
         "excludedRecordCount": sum(excluded.values()),
         "excludedByReason": dict(sorted(excluded.items())),
@@ -219,7 +273,7 @@ def compile_dataset(
         for record in sorted(normalized, key=lambda item: item["recordId"])
     ]
     manifest = {
-        "schemaVersion": DATASET_SCHEMA_VERSION,
+        "schemaVersion": schema_version,
         "compilerVersion": COMPILER_VERSION,
         "datasetId": options.dataset_id,
         "datasetVersion": options.dataset_version,
@@ -239,7 +293,11 @@ def compile_dataset(
         "ledger": {
             "sha256": _sha256_bytes(ledger_bytes),
             "sourceIds": sorted(allowed_sources),
-            "sourceChecksumScope": "completeCompilerInputJsonlBytes",
+            "sourceChecksumScope": (
+                "perSourceCanonicalNormalizedRecords"
+                if schema_version == DATASET_SCHEMA_VERSION
+                else "completeCompilerInputJsonlBytes"
+            ),
         },
         "tokenizerSha256": TOKENIZER_SHA256,
         "vocabulary": {
@@ -257,11 +315,23 @@ def compile_dataset(
             "bassEncoding": "rootRelativePitchClass",
             "unsupportedQualityPolicy": options.unsupported_quality_policy,
             "harmonyGapPolicy": options.harmony_gap_policy,
-            "normalizedFingerprint": "sha256-relative-melody-harmony-v1",
+            "normalizedFingerprint": (
+                "sha256-relative-harmony-key-meter-v1"
+                if options.content_profile == "harmonyOnlyV1"
+                else "sha256-relative-melody-harmony-v1"
+            ),
         },
         "splits": split_manifests,
         "assignments": assignments,
     }
+    if schema_version == DATASET_SCHEMA_VERSION:
+        manifest.update(
+            {
+                "contentProfile": options.content_profile,
+                "distributionScope": PRIVATE_LOCAL_DISTRIBUTION_SCOPE,
+                "provenance": provenance_descriptor,
+            }
+        )
     manifest_bytes = _canonical_json_bytes(manifest)
     _write_bytes(output_directory / DATA_MANIFEST_FILE, manifest_bytes)
     return manifest
@@ -278,7 +348,7 @@ def load_data_manifest(
         _read_bytes(manifest_path, "data manifest"),
         "data manifest",
     )
-    required = {
+    legacy_required = {
         "schemaVersion",
         "compilerVersion",
         "datasetId",
@@ -297,11 +367,22 @@ def load_data_manifest(
         "splits",
         "assignments",
     }
-    if set(payload) != required:
-        raise DatasetCompileError("data manifest fields do not match schema v1")
-    if payload["schemaVersion"] != DATASET_SCHEMA_VERSION:
+    schema_version = payload.get("schemaVersion")
+    if schema_version == LEGACY_DATASET_SCHEMA_VERSION:
+        required = legacy_required
+    elif schema_version == DATASET_SCHEMA_VERSION:
+        required = legacy_required | {
+            "contentProfile",
+            "distributionScope",
+            "provenance",
+        }
+    else:
         raise DatasetCompileError("unsupported data manifest schema version")
-    if payload["compilerVersion"] != COMPILER_VERSION:
+    if set(payload) != required:
+        raise DatasetCompileError(
+            f"data manifest fields do not match schema v{schema_version}"
+        )
+    if payload["compilerVersion"] not in SUPPORTED_COMPILER_VERSIONS:
         raise DatasetCompileError("unsupported data compiler version")
     if payload["deterministic"] is not True:
         raise DatasetCompileError("dataset must declare deterministic compilation")
@@ -309,6 +390,18 @@ def load_data_manifest(
         raise DatasetCompileError("dataset must split records before windowing")
     if payload["tokenizerSha256"] != TOKENIZER_SHA256:
         raise DatasetCompileError("dataset tokenizer hash does not match runtime")
+    if schema_version == DATASET_SCHEMA_VERSION:
+        if payload["contentProfile"] != "harmonyOnlyV1":
+            raise DatasetCompileError("schema v2 requires harmonyOnlyV1 content")
+        if payload["distributionScope"] != PRIVATE_LOCAL_DISTRIBUTION_SCOPE:
+            raise DatasetCompileError("schema v2 dataset must stay private and local")
+        normalization = payload.get("normalization")
+        if (
+            not isinstance(normalization, dict)
+            or normalization.get("normalizedFingerprint")
+            != "sha256-relative-harmony-key-meter-v1"
+        ):
+            raise DatasetCompileError("schema v2 normalization profile is invalid")
 
     splits = payload["splits"]
     if not isinstance(splits, dict) or set(splits) != set(SPLIT_FILES):
@@ -335,6 +428,8 @@ def load_data_manifest(
             payload["statistics"],
             *splits.values(),
         ]
+        if schema_version == DATASET_SCHEMA_VERSION:
+            artifacts.append(payload["provenance"])
         for artifact in artifacts:
             _verify_manifest_artifact(directory, artifact)
     return payload
@@ -367,11 +462,42 @@ def _validate_ledger(
     *,
     purpose: str,
     input_sha256: str,
+    raw_records: Sequence[dict[str, Any]],
+    content_profile: ContentProfile,
+) -> dict[str, dict[str, Any]]:
+    schema_version = ledger.get("schemaVersion")
+    if content_profile == "melodyHarmonyV1":
+        if schema_version != LEGACY_DATASET_SCHEMA_VERSION:
+            raise DatasetCompileError(
+                "melodyHarmonyV1 requires dataset ledger schema v1"
+            )
+        return _validate_legacy_ledger(
+            ledger,
+            purpose=purpose,
+            input_sha256=input_sha256,
+        )
+    if schema_version != DATASET_SCHEMA_VERSION:
+        raise DatasetCompileError(
+            "harmonyOnlyV1 requires dataset ledger schema v2"
+        )
+    return _validate_harmony_only_ledger(
+        ledger,
+        purpose=purpose,
+        input_sha256=input_sha256,
+        raw_records=raw_records,
+    )
+
+
+def _validate_legacy_ledger(
+    ledger: dict[str, Any],
+    *,
+    purpose: str,
+    input_sha256: str,
 ) -> dict[str, dict[str, Any]]:
     expected = {"schemaVersion", "rawDataInGit", "sources"}
     if set(ledger) != expected:
         raise DatasetCompileError("dataset ledger fields do not match schema v1")
-    if ledger["schemaVersion"] != DATASET_SCHEMA_VERSION:
+    if ledger["schemaVersion"] != LEGACY_DATASET_SCHEMA_VERSION:
         raise DatasetCompileError("unsupported dataset ledger schema version")
     if ledger["rawDataInGit"] is not False:
         raise DatasetCompileError("raw source data must stay outside Git")
@@ -418,13 +544,165 @@ def _validate_ledger(
     return allowed
 
 
+def _validate_harmony_only_ledger(
+    ledger: dict[str, Any],
+    *,
+    purpose: str,
+    input_sha256: str,
+    raw_records: Sequence[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    expected = {
+        "schemaVersion",
+        "policyId",
+        "purpose",
+        "distributionScope",
+        "rawDataInGit",
+        "normalizedInputSha256",
+        "sources",
+    }
+    if set(ledger) != expected:
+        raise DatasetCompileError("dataset ledger fields do not match schema v2")
+    if ledger["schemaVersion"] != DATASET_SCHEMA_VERSION:
+        raise DatasetCompileError("unsupported dataset ledger schema version")
+    if ledger["policyId"] != PRIVATE_HARMONY_POLICY_ID:
+        raise DatasetCompileError("dataset ledger policy is not approved")
+    if ledger["purpose"] != purpose or purpose != PRIVATE_HARMONY_TRAINING_PURPOSE:
+        raise DatasetCompileError("dataset ledger purpose is not approved")
+    if ledger["distributionScope"] != PRIVATE_LOCAL_DISTRIBUTION_SCOPE:
+        raise DatasetCompileError("harmony-only dataset must stay private and local")
+    if ledger["rawDataInGit"] is not False:
+        raise DatasetCompileError("raw source data must stay outside Git")
+    normalized_input_sha256 = ledger["normalizedInputSha256"]
+    if not _is_sha256(normalized_input_sha256):
+        raise DatasetCompileError("normalized input checksum is invalid")
+    if normalized_input_sha256 != input_sha256:
+        raise DatasetCompileError(
+            "normalized input checksum does not match input JSONL bytes"
+        )
+
+    sources = ledger["sources"]
+    if not isinstance(sources, list) or not sources:
+        raise DatasetCompileError("dataset ledger requires at least one source")
+    records_by_source: dict[str, list[dict[str, Any]]] = {}
+    for record in raw_records:
+        source_id = _required_string(record, "sourceId")
+        records_by_source.setdefault(source_id, []).append(record)
+
+    allowed: dict[str, dict[str, Any]] = {}
+    required_source_fields = {
+        "sourceId",
+        "version",
+        "canonicalUrl",
+        "citation",
+        "retrievedAt",
+        "sourceMaterialSha256",
+        "normalizedRecordsSha256",
+        "review",
+        "attribution",
+        "removalProcedure",
+    }
+    required_review_fields = {
+        "status",
+        "basis",
+        "licenseId",
+        "allowedContent",
+        "reviewedAt",
+    }
+    allowed_bases = {
+        "license",
+        "publicDomain",
+        "contract",
+        "ownerProvided",
+        "statutoryException",
+    }
+    required_content = {"harmony", "key", "meter"}
+    for source in sources:
+        if not isinstance(source, dict) or set(source) != required_source_fields:
+            raise DatasetCompileError("dataset source fields do not match schema v2")
+        source_id = _required_string(source, "sourceId")
+        if source_id in allowed:
+            raise DatasetCompileError(f"duplicate sourceId in ledger: {source_id}")
+        _required_string(source, "version")
+        _validate_https_url(_required_string(source, "canonicalUrl"))
+        _required_string(source, "citation")
+        _validate_utc_timestamp(_required_string(source, "retrievedAt"))
+        source_material_sha256 = _required_string(source, "sourceMaterialSha256")
+        if not _is_sha256(source_material_sha256):
+            raise DatasetCompileError(
+                f"source {source_id} material checksum is invalid"
+            )
+        normalized_records_sha256 = _required_string(
+            source,
+            "normalizedRecordsSha256",
+        )
+        if not _is_sha256(normalized_records_sha256):
+            raise DatasetCompileError(
+                f"source {source_id} normalized record checksum is invalid"
+            )
+        source_records = records_by_source.get(source_id)
+        if not source_records:
+            raise DatasetCompileError(
+                f"source {source_id} has no normalized input records"
+            )
+        actual_records_sha256 = _source_records_sha256(source_records)
+        if normalized_records_sha256 != actual_records_sha256:
+            raise DatasetCompileError(
+                f"source {source_id} normalized record checksum does not match"
+            )
+        review = source["review"]
+        if not isinstance(review, dict) or set(review) != required_review_fields:
+            raise DatasetCompileError("dataset source review does not match schema v2")
+        if review["status"] != "approved":
+            raise DatasetCompileError(
+                f"source {source_id} review status is not approved"
+            )
+        if review["basis"] not in allowed_bases:
+            raise DatasetCompileError(
+                f"source {source_id} review basis is not supported"
+            )
+        license_id = review["licenseId"]
+        if license_id is not None and (
+            not isinstance(license_id, str)
+            or not license_id
+            or len(license_id) > 128
+        ):
+            raise DatasetCompileError(
+                f"source {source_id} licenseId is invalid"
+            )
+        if review["basis"] == "license" and license_id is None:
+            raise DatasetCompileError(
+                f"source {source_id} license review requires licenseId"
+            )
+        allowed_content = review["allowedContent"]
+        if (
+            not isinstance(allowed_content, list)
+            or not all(isinstance(item, str) for item in allowed_content)
+            or set(allowed_content) != required_content
+        ):
+            raise DatasetCompileError(
+                f"source {source_id} must allow only harmony, key, and meter"
+            )
+        _validate_utc_timestamp(_required_string(review, "reviewedAt"))
+        _required_string(source, "attribution")
+        _required_string(source, "removalProcedure")
+        allowed[source_id] = source
+
+    unknown_sources = set(records_by_source) - set(allowed)
+    if unknown_sources:
+        raise DatasetCompileError(
+            "normalized records reference sources absent from the ledger: "
+            + ", ".join(sorted(unknown_sources))
+        )
+    return allowed
+
+
 def _normalize_record(
     raw: dict[str, Any],
     *,
     allowed_sources: Mapping[str, dict[str, Any]],
     options: CompileOptions,
 ) -> dict[str, Any]:
-    allowed_fields = {
+    legacy_allowed_fields = {
         "recordId",
         "workId",
         "duplicateGroupId",
@@ -441,6 +719,17 @@ def _normalize_record(
         "style",
         "synthetic",
     }
+    harmony_only_allowed_fields = legacy_allowed_fields - {"melody", "style"}
+    if options.content_profile == "harmonyOnlyV1":
+        forbidden = set(raw) & HARMONY_ONLY_FORBIDDEN_FIELDS
+        if forbidden:
+            raise DatasetCompileError(
+                "harmonyOnlyV1 forbids source content fields: "
+                + ", ".join(sorted(forbidden))
+            )
+        allowed_fields = harmony_only_allowed_fields
+    else:
+        allowed_fields = legacy_allowed_fields
     unknown = set(raw) - allowed_fields
     if unknown:
         raise DatasetCompileError(
@@ -491,7 +780,11 @@ def _normalize_record(
         end_tick=end_tick,
         frame_ticks=frame_ticks,
     )
-    melody = _normalize_melody(raw.get("melody"), start_tick, end_tick)
+    melody = (
+        []
+        if options.content_profile == "harmonyOnlyV1"
+        else _normalize_melody(raw.get("melody"), start_tick, end_tick)
+    )
     harmony = _normalize_harmony(
         raw.get("harmony"),
         start_tick=start_tick,
@@ -500,7 +793,11 @@ def _normalize_record(
         gap_policy=options.harmony_gap_policy,
         frame_ticks=frame_ticks,
     )
-    style = raw.get("style", "unknown")
+    style = (
+        "harmonyOnly"
+        if options.content_profile == "harmonyOnlyV1"
+        else raw.get("style", "unknown")
+    )
     if not isinstance(style, str) or not style or len(style) > 64:
         raise DatasetCompileError("style must contain between 1 and 64 characters")
     synthetic = raw.get("synthetic", False)
@@ -522,6 +819,7 @@ def _normalize_record(
         tonalities=tonalities,
         start_tick=start_tick,
         frame_ticks=frame_ticks,
+        content_profile=options.content_profile,
     )
     return {
         "recordId": record_id,
@@ -822,6 +1120,7 @@ def _normalized_fingerprint(
     tonalities: Sequence[dict[str, Any]],
     start_tick: int,
     frame_ticks: int,
+    content_profile: ContentProfile,
 ) -> str:
     relative_melody = []
     for note in melody:
@@ -849,14 +1148,19 @@ def _normalized_fingerprint(
         ]
         for chord in harmony
     ]
-    return _sha256_bytes(
-        _canonical_json_bytes(
-            {
-                "melody": relative_melody,
-                "harmony": relative_harmony,
-            }
-        )
-    )
+    payload: dict[str, Any] = {"harmony": relative_harmony}
+    if content_profile == "harmonyOnlyV1":
+        payload["tonalities"] = [
+            [
+                (span["startTick"] - start_tick) // frame_ticks,
+                max(1, round((span["endTick"] - span["startTick"]) / frame_ticks)),
+                span["mode"],
+            ]
+            for span in tonalities
+        ]
+    else:
+        payload["melody"] = relative_melody
+    return _sha256_bytes(_canonical_json_bytes(payload))
 
 
 def _split_group_keys(records: Sequence[dict[str, Any]]) -> dict[str, str]:
@@ -926,6 +1230,8 @@ def _window_record(
     *,
     split_group_id: str,
     maximum_frames: int,
+    schema_version: int,
+    content_profile: ContentProfile,
 ) -> list[dict[str, Any]]:
     frames = record["frames"]
     frame_count = len(frames["event"])
@@ -933,9 +1239,8 @@ def _window_record(
     for window_index, first in enumerate(range(0, frame_count, maximum_frames)):
         last = min(frame_count, first + maximum_frames)
         start_tick = record["startTick"] + first * (record["ppq"] // 4)
-        rows.append(
-            {
-                "schemaVersion": DATASET_SCHEMA_VERSION,
+        row = {
+                "schemaVersion": schema_version,
                 "recordId": record["recordId"],
                 "windowId": f"{record['recordId']}:{window_index:04d}",
                 "windowIndex": window_index,
@@ -972,13 +1277,15 @@ def _window_record(
                     )
                 },
             }
-        )
+        if schema_version == DATASET_SCHEMA_VERSION:
+            row["contentProfile"] = content_profile
+        rows.append(row)
     return rows
 
 
-def _vocabulary_payload() -> dict[str, Any]:
+def _vocabulary_payload(*, schema_version: int) -> dict[str, Any]:
     return {
-        "schemaVersion": DATASET_SCHEMA_VERSION,
+        "schemaVersion": schema_version,
         "tokenizerSha256": TOKENIZER_SHA256,
         "events": list(EVENT_VOCABULARY),
         "qualities": list(QUALITY_VOCABULARY),
@@ -998,6 +1305,63 @@ def _vocabulary_payload() -> dict[str, Any]:
             "analysisOnlyClass": 4,
         },
     }
+
+
+def _provenance_payload(ledger: Mapping[str, Any]) -> dict[str, Any]:
+    """Return dataset-level provenance without song or record identifiers."""
+
+    return {
+        "schemaVersion": DATASET_SCHEMA_VERSION,
+        "policyId": ledger["policyId"],
+        "purpose": ledger["purpose"],
+        "distributionScope": ledger["distributionScope"],
+        "rawDataInGit": False,
+        "sources": [
+            {
+                key: source[key]
+                for key in (
+                    "sourceId",
+                    "version",
+                    "canonicalUrl",
+                    "citation",
+                    "retrievedAt",
+                    "sourceMaterialSha256",
+                    "normalizedRecordsSha256",
+                    "review",
+                    "attribution",
+                    "removalProcedure",
+                )
+            }
+            for source in sorted(
+                ledger["sources"],
+                key=lambda item: item["sourceId"],
+            )
+        ],
+    }
+
+
+def _source_records_sha256(records: Sequence[dict[str, Any]]) -> str:
+    ordered = sorted(records, key=lambda item: _required_string(item, "recordId"))
+    return _sha256_bytes(
+        b"".join(_canonical_json_bytes(record) for record in ordered)
+    )
+
+
+def _validate_https_url(value: str) -> None:
+    parsed = urlparse(value)
+    if parsed.scheme != "https" or not parsed.netloc or parsed.username is not None:
+        raise DatasetCompileError("source canonicalUrl must be an HTTPS URL")
+
+
+def _validate_utc_timestamp(value: str) -> None:
+    if not value.endswith("Z"):
+        raise DatasetCompileError("provenance timestamps must use UTC with Z")
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError as exc:
+        raise DatasetCompileError("provenance timestamp is invalid") from exc
+    if parsed.tzinfo != timezone.utc:
+        raise DatasetCompileError("provenance timestamp must use UTC")
 
 
 def _verify_manifest_artifact(
