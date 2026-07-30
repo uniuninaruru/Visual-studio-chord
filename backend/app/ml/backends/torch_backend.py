@@ -16,6 +16,7 @@ from app.ml.checkpoint import (
     ARTIFACT_POINTER_FILE,
     CHECKPOINT_FILE,
     MANIFEST_FILE,
+    PRETRAINING_TASK,
     TRAINING_RUN_FILE,
     CheckpointInvalidError,
     CheckpointUnavailableError,
@@ -97,6 +98,43 @@ class TorchHarmonyBackend:
                     allow_research=self._allow_research,
                 )
             except (CheckpointUnavailableError, CheckpointInvalidError) as exc:
+                if (
+                    isinstance(exc, CheckpointUnavailableError)
+                    and exc.declared_task == PRETRAINING_TASK
+                ):
+                    try:
+                        inspected = load_validated_checkpoint(
+                            self._model_directory,
+                            config,
+                            config_path=self._config_path,
+                            # Inspection never serves or promotes the artifact.
+                            # Research status is therefore reported as metadata,
+                            # independently from the serving release gate.
+                            allow_research=True,
+                            permit_pretraining_task=True,
+                        )
+                    except (
+                        CheckpointUnavailableError,
+                        CheckpointInvalidError,
+                    ) as inspection_error:
+                        response = _unavailable_manifest_response(
+                            architecture=config.architecture_dict(),
+                            reason=str(inspection_error),
+                            task=PRETRAINING_TASK,
+                        )
+                    else:
+                        response = _pretraining_manifest_response(
+                            inspected.manifest
+                        )
+                    self._cache_manifest_validation(
+                        signature,
+                        response,
+                        config=config,
+                        # A fully inspected pretraining snapshot is never
+                        # retained by the generation cache.
+                        checkpoint=None,
+                    )
+                    return dict(response)
                 response = _unavailable_manifest_response(
                     architecture=config.architecture_dict(),
                     reason=str(exc),
@@ -534,6 +572,31 @@ def _available_manifest_response(
         "architecture": manifest.architecture,
         "supportedDevices": ["cpu", "cuda", "mps"],
         "unavailableReason": None,
+    }
+
+
+def _pretraining_manifest_response(
+    manifest: HarmonyCheckpointManifest,
+) -> dict[str, object]:
+    if manifest.task != PRETRAINING_TASK:
+        raise CheckpointInvalidError(
+            "pretraining inspection received a different task"
+        )
+    return {
+        "modelId": MODEL_ID,
+        "available": False,
+        "mock": False,
+        "trained": manifest.trained,
+        "task": manifest.task,
+        "evaluationStatus": manifest.evaluation_status,
+        "checkpointSha256": manifest.checkpoint_sha256,
+        "tokenizerSha256": manifest.tokenizer_sha256,
+        "architecture": manifest.architecture,
+        "supportedDevices": ["cpu", "cuda", "mps"],
+        "unavailableReason": (
+            "Harmony-only pretraining checkpoint is installed and valid, "
+            "but cannot serve melody-conditioned inference"
+        ),
     }
 
 

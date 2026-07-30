@@ -21,7 +21,6 @@ from app.ml.artifacts import (
 )
 from app.ml.checkpoint import (
     INFERENCE_TASK,
-    MANIFEST_FILE,
     TRAINING_RUN_SCHEMA_VERSION,
     is_allowed_task_transition,
     load_validated_checkpoint,
@@ -315,11 +314,10 @@ def load_initial_checkpoint_for_training(
         )
     validate_pytorch_compatibility(checkpoint.manifest, pytorch_version)
     load_weights(model, checkpoint, device=device)
-    manifest_path = checkpoint.artifact_directory / MANIFEST_FILE
     return {
         "modelId": checkpoint.manifest.model_id,
         "task": initial_task,
-        "manifestSha256": _sha256_file(manifest_path),
+        "manifestSha256": checkpoint.manifest_sha256,
         "checkpointSha256": checkpoint.manifest.checkpoint_sha256,
     }
 
@@ -377,6 +375,7 @@ def evaluate_checkpoint(
         "schemaVersion": 1,
         "modelId": config.model_id,
         "task": manifest.task,
+        "initialCheckpoint": checkpoint.training_run["initialCheckpoint"],
         "split": split,
         "device": device,
         "fallbackReason": device_fallback,

@@ -248,13 +248,21 @@ def test_pointer_switch_after_validation_cannot_change_loaded_checkpoint(
         json.dumps({"schemaVersion": 1, "artifactVersion": version_b}),
         encoding="utf-8",
     )
-    loaded_paths: list[Path] = []
+    (versions / version_a / "harmonyforge-bimask-base-v1.safetensors").write_bytes(
+        b"replaced-after-validation"
+    )
+    (versions / version_a / "data-manifest.json").write_bytes(
+        b'{"replaced":true}'
+    )
+    (versions / version_a / "training-run.json").write_bytes(
+        b'{"task":"harmony_only_pretraining"}'
+    )
+    loaded_payloads: list[bytes] = []
 
     class FakeSafetensors:
         @staticmethod
-        def load_file(path, *, device):
-            assert device == "cpu"
-            loaded_paths.append(Path(path))
+        def load(data):
+            loaded_payloads.append(data)
             return {}
 
     class FakeModel:
@@ -276,7 +284,9 @@ def test_pointer_switch_after_validation_cannot_change_loaded_checkpoint(
     load_weights(FakeModel(), validated, device="cpu")
 
     assert validated.artifact_directory == (versions / version_a).resolve()
-    assert loaded_paths[0].parent == (versions / version_a).resolve()
+    assert loaded_payloads == [b"safe-test-fixture"]
+    assert validated.data_manifest["schemaVersion"] == 1
+    assert validated.training_run["task"] == INFERENCE_TASK
 
 
 def test_manifest_rejects_checksum_and_unknown_fields(tmp_path) -> None:

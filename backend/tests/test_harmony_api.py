@@ -204,11 +204,9 @@ def test_pretraining_task_is_visible_but_never_available_to_inference(
     assert manifest.status_code == 200
     assert manifest.json()["available"] is False
     assert manifest.json()["task"] == PRETRAINING_TASK
-    # The serving path reads the declared task before any checkpoint hashes.
-    # It must not expose the rest of that unverified manifest as trustworthy.
-    assert manifest.json()["trained"] is False
-    assert manifest.json()["evaluationStatus"] == "notEvaluated"
-    assert manifest.json()["checkpointSha256"] is None
+    assert manifest.json()["trained"] is True
+    assert manifest.json()["evaluationStatus"] == "validated"
+    assert isinstance(manifest.json()["checkpointSha256"], str)
     model = next(
         item
         for item in discovery.json()["models"]
@@ -216,6 +214,9 @@ def test_pretraining_task_is_visible_but_never_available_to_inference(
     )
     assert model["available"] is False
     assert model["task"] == PRETRAINING_TASK
+    assert model["trained"] is True
+    assert model["evaluationStatus"] == "validated"
+    assert model["checkpointSha256"] == manifest.json()["checkpointSha256"]
 
 
 def test_missing_neural_config_keeps_model_discovery_healthy(tmp_path) -> None:

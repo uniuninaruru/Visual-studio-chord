@@ -136,6 +136,10 @@ class ModelInfo(ApiModel):
     backend: BackendKind
     mock: bool
     task: HarmonyCheckpointTask | None = None
+    trained: bool | None = None
+    evaluation_status: Literal["notEvaluated", "researchOnly", "validated"] | None = None
+    checkpoint_sha256: str | None = None
+    unavailable_reason: str | None = None
 
 
 class ModelsResponse(ApiResponse):
