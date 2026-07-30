@@ -5,6 +5,8 @@ from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.main import create_app
+from app.ml.checkpoint import PRETRAINING_TASK
+from tests.test_harmony_checkpoint import _write_manifest
 
 
 def _body(
@@ -185,6 +187,35 @@ def test_missing_real_checkpoint_fails_without_fake_candidate(tmp_path) -> None:
     assert manifest.status_code == 200
     assert manifest.json()["available"] is False
     assert manifest.json()["trained"] is False
+    assert manifest.json()["task"] is None
+
+
+def test_pretraining_task_is_visible_but_never_available_to_inference(
+    tmp_path,
+) -> None:
+    _write_manifest(tmp_path / "models", task=PRETRAINING_TASK)
+
+    with _client(tmp_path) as client:
+        manifest = client.get(
+            "/api/v2/models/harmonyforge-bimask-base-v1/manifest"
+        )
+        discovery = client.get("/api/models")
+
+    assert manifest.status_code == 200
+    assert manifest.json()["available"] is False
+    assert manifest.json()["task"] == PRETRAINING_TASK
+    # The serving path reads the declared task before any checkpoint hashes.
+    # It must not expose the rest of that unverified manifest as trustworthy.
+    assert manifest.json()["trained"] is False
+    assert manifest.json()["evaluationStatus"] == "notEvaluated"
+    assert manifest.json()["checkpointSha256"] is None
+    model = next(
+        item
+        for item in discovery.json()["models"]
+        if item["id"] == "harmonyforge-bimask-base-v1"
+    )
+    assert model["available"] is False
+    assert model["task"] == PRETRAINING_TASK
 
 
 def test_missing_neural_config_keeps_model_discovery_healthy(tmp_path) -> None:

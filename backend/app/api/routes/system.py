@@ -91,6 +91,7 @@ def models(request: Request) -> ModelsResponse:
                 capabilities=["generateHarmony"],
                 backend="mock" if mock else "pytorch",
                 mock=mock,
+                task=manifest.get("task"),  # type: ignore[arg-type]
             )
         )
     return response

@@ -7,6 +7,7 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
+from app.ml.checkpoint import INFERENCE_TASK, PRETRAINING_TASK
 from app.ml.dataset import (
     PRIVATE_HARMONY_TRAINING_PURPOSE,
     TRAINING_PURPOSE,
@@ -99,6 +100,26 @@ def build_train_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-manifest", type=Path, required=True)
     parser.add_argument("--model-directory", type=Path, required=True)
     parser.add_argument("--source-commit", required=True)
+    parser.add_argument(
+        "--task",
+        choices=(INFERENCE_TASK, PRETRAINING_TASK),
+        required=True,
+        help=(
+            "Declare the objective actually represented by the compiled data. "
+            "harmonyOnlyV1 requires harmony_only_pretraining and cannot be "
+            "served as melody-conditioned inference."
+        ),
+    )
+    parser.add_argument(
+        "--initial-model-directory",
+        type=Path,
+        help=(
+            "Optional local HarmonyForge model root to warm-start. A "
+            "harmony_only_pretraining checkpoint may initialize the inference "
+            "task, but remains non-servable until a new inference-task artifact "
+            "is trained and exported."
+        ),
+    )
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--learning-rate", type=float, default=3e-4)
@@ -121,6 +142,8 @@ def train_main(argv: Sequence[str] | None = None) -> int:
         data_manifest_path=arguments.data_manifest,
         model_directory=arguments.model_directory,
         source_commit=arguments.source_commit,
+        task=arguments.task,
+        initial_model_directory=arguments.initial_model_directory,
         options=TrainOptions(
             epochs=arguments.epochs,
             batch_size=arguments.batch_size,

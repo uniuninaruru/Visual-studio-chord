@@ -9,6 +9,8 @@ from app.ml.backends.torch_backend import _select_dtype
 from app.ml.checkpoint import (
     ARTIFACT_POINTER_FILE,
     ARTIFACT_VERSIONS_DIRECTORY,
+    INFERENCE_TASK,
+    PRETRAINING_TASK,
     CheckpointInvalidError,
     CheckpointUnavailableError,
     load_manifest,
@@ -38,15 +40,111 @@ def _write_manifest(model_directory: Path, **overrides) -> Path:
     artifact.mkdir(parents=True, exist_ok=True)
     checkpoint = artifact / "harmonyforge-bimask-base-v1.safetensors"
     checkpoint.write_bytes(b"safe-test-fixture")
-    data_manifest = artifact / "data-manifest.json"
-    data_manifest.write_bytes(b'{"fixture":true}\n')
-    training_run = artifact / "training-run.json"
-    training_run.write_bytes(b'{"fixture":true}\n')
     config = load_model_config(_config_path())
+    task = overrides.get("task", INFERENCE_TASK)
+    harmony_only = task == PRETRAINING_TASK
+    data_manifest = artifact / "data-manifest.json"
+    data_payload = {
+        "schemaVersion": 2 if harmony_only else 1,
+        "compilerVersion": "1.1.0",
+        "datasetId": "fixture",
+        "datasetVersion": "v1",
+        "purpose": (
+            "privateLocalHarmonyOnlyTraining"
+            if harmony_only
+            else "researchTraining"
+        ),
+        "deterministic": True,
+        "splitBeforeWindowing": True,
+        "splitSeed": "1729",
+        "splitBasisPoints": {
+            "train": 8000,
+            "validation": 1000,
+            "test": 1000,
+        },
+        "input": {"sha256": "1" * 64, "recordCount": 0},
+        "ledger": {
+            "sha256": "2" * 64,
+            "sourceIds": ["fixture"],
+            "sourceChecksumScope": (
+                "perSourceCanonicalNormalizedRecords"
+                if harmony_only
+                else "completeCompilerInputJsonlBytes"
+            ),
+        },
+        "tokenizerSha256": TOKENIZER_SHA256,
+        "vocabulary": {"file": "vocabulary.json", "sha256": "3" * 64},
+        "statistics": {"file": "statistics.json", "sha256": "4" * 64},
+        "normalization": {
+            "ppq": 480,
+            "frame": "sixteenth",
+            "rootEncoding": "keyRelativePitchClass",
+            "bassEncoding": "rootRelativePitchClass",
+            "unsupportedQualityPolicy": "excludeRecord",
+            "harmonyGapPolicy": "excludeRecord",
+            "normalizedFingerprint": (
+                "sha256-relative-harmony-key-meter-v1"
+                if harmony_only
+                else "sha256-relative-melody-harmony-v1"
+            ),
+        },
+        "splits": {
+            name: {
+                "file": f"{name}.index.jsonl",
+                "sha256": str(index) * 64,
+                "windowCount": 0,
+                "recordCount": 0,
+                "splitGroupCount": 0,
+            }
+            for index, name in enumerate(
+                ("train", "validation", "test"),
+                start=5,
+            )
+        },
+        "assignments": [],
+    }
+    if harmony_only:
+        data_payload.update(
+            {
+                "contentProfile": "harmonyOnlyV1",
+                "distributionScope": "privateLocalOnly",
+                "provenance": {
+                    "file": "provenance.json",
+                    "sha256": "8" * 64,
+                },
+            }
+        )
+    data_manifest.write_text(json.dumps(data_payload), encoding="utf-8")
+    training_run = artifact / "training-run.json"
+    training_run.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 2,
+                "deterministic": True,
+                "task": task,
+                "initialCheckpoint": None,
+                "sourceCommit": "b" * 40,
+                "configSha256": _sha256(_config_path()),
+                "dataManifestSha256": _sha256(data_manifest),
+                "pytorchVersion": "2.13.0",
+                "cublasWorkspaceConfig": ":4096:8",
+                "seed": "1729",
+                "optimizer": {"name": "AdamW"},
+                "epochs": 1,
+                "steps": 1,
+                "actualDevice": "cpu",
+                "dtype": "float32",
+                "fallbackReason": None,
+                "meanTrainingLoss": 1.0,
+                "metrics": {"validation": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
     payload = {
         "schemaVersion": 1,
         "modelId": MODEL_ID,
-        "task": "melody_conditioned_variable_rhythm_harmonization",
+        "task": task,
         "trained": True,
         "evaluationStatus": "validated",
         "architecture": config.architecture_dict(),
@@ -90,6 +188,30 @@ def test_manifest_requires_trained_hash_matched_artifact(tmp_path) -> None:
     assert manifest.model_id == MODEL_ID
     assert manifest.trained is True
     assert manifest.tokenizer_sha256 == TOKENIZER_SHA256
+
+
+def test_legacy_v1_training_run_is_migrated_as_inference_only(tmp_path) -> None:
+    _write_manifest(tmp_path, task=INFERENCE_TASK)
+    artifact = tmp_path / MODEL_ID
+    training_run_path = artifact / "training-run.json"
+    training_run = json.loads(training_run_path.read_text(encoding="utf-8"))
+    training_run["schemaVersion"] = 1
+    training_run.pop("task")
+    training_run.pop("initialCheckpoint")
+    training_run_path.write_text(json.dumps(training_run), encoding="utf-8")
+    manifest_path = artifact / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["trainingRunSha256"] = _sha256(training_run_path)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    loaded = load_manifest(
+        tmp_path,
+        load_model_config(_config_path()),
+        config_path=_config_path(),
+        allow_research=False,
+    )
+
+    assert loaded.task == INFERENCE_TASK
 
 
 def test_pointer_switch_after_validation_cannot_change_loaded_checkpoint(

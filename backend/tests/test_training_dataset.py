@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from app.ml import training_runtime
 from app.ml.artifacts import (
     ArtifactExportError,
     publish_checkpoint_manifest,
@@ -15,6 +16,7 @@ from app.ml.artifacts import (
 from app.ml.checkpoint import (
     ARTIFACT_POINTER_FILE,
     CHECKPOINT_FILE,
+    INFERENCE_TASK,
     CheckpointInvalidError,
     load_manifest,
     model_artifact_directory,
@@ -274,12 +276,16 @@ def _compile(
 def _write_training_run(
     path: Path,
     data_manifest_path: Path,
+    *,
+    task: str = INFERENCE_TASK,
 ) -> Path:
     path.write_text(
         json.dumps(
             {
-                "schemaVersion": 1,
+                "schemaVersion": 2,
                 "deterministic": True,
+                "task": task,
+                "initialCheckpoint": None,
                 "sourceCommit": "b" * 40,
                 "configSha256": hashlib.sha256(
                     _config_path().read_bytes()
@@ -638,6 +644,29 @@ def test_artifact_manifest_verifies_real_data_manifest_without_torch(
         )
 
 
+def test_artifact_writer_rejects_training_run_task_mismatch(tmp_path) -> None:
+    compiled, _ = _compile(tmp_path, [_record("task-mismatch")], "compiled")
+    artifact = tmp_path / "models" / MODEL_ID
+    artifact.mkdir(parents=True)
+    _write_minimal_safetensors(artifact / CHECKPOINT_FILE)
+    training_run_path = _write_training_run(
+        artifact / "source-training-run.json",
+        compiled / DATA_MANIFEST_FILE,
+        task="harmony_only_pretraining",
+    )
+
+    with pytest.raises(ArtifactExportError, match="training run task"):
+        publish_checkpoint_manifest(
+            artifact,
+            config=load_model_config(_config_path()),
+            config_path=_config_path(),
+            data_manifest_path=compiled / DATA_MANIFEST_FILE,
+            training_run_path=training_run_path,
+            source_commit="b" * 40,
+            pytorch_version="2.13.0",
+        )
+
+
 def test_artifact_writer_rejects_non_safetensors_bytes(tmp_path) -> None:
     checkpoint = tmp_path / CHECKPOINT_FILE
     checkpoint.write_bytes(b"not-a-checkpoint")
@@ -729,6 +758,50 @@ def test_atomic_artifact_pointer_preserves_last_known_good_on_failure(
         config_path=_config_path(),
         allow_research=True,
     ).checkpoint_sha256 == first.checkpoint_sha256
+
+
+def test_failed_same_root_export_preserves_legacy_training_run(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    model_directory = tmp_path / "models"
+    legacy_artifact = model_directory / MODEL_ID
+    legacy_artifact.mkdir(parents=True)
+    legacy_training_run = legacy_artifact / "training-run.json"
+    original = b'{"legacy":"still-active"}\n'
+    legacy_training_run.write_bytes(original)
+
+    def fail_export(
+        _model,
+        _model_directory,
+        *,
+        training_run_path,
+        **_kwargs,
+    ):
+        assert training_run_path.parent != legacy_artifact
+        assert json.loads(training_run_path.read_text()) == {"new": "run"}
+        raise ArtifactExportError("staged validation failed")
+
+    monkeypatch.setattr(
+        training_runtime,
+        "save_trained_artifact",
+        fail_export,
+    )
+
+    with pytest.raises(ArtifactExportError, match="staged validation"):
+        training_runtime._save_artifact_with_staged_training_run(
+            object(),
+            model_directory=model_directory,
+            config=load_model_config(_config_path()),
+            config_path=_config_path(),
+            data_manifest_path=tmp_path / "data-manifest.json",
+            training_run={"new": "run"},
+            source_commit="b" * 40,
+            pytorch_version="2.13.0",
+            task=INFERENCE_TASK,
+        )
+
+    assert legacy_training_run.read_bytes() == original
 
 
 def _write_minimal_safetensors(path: Path) -> None:
