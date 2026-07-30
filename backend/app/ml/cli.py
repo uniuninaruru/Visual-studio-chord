@@ -7,7 +7,12 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from app.ml.dataset import CompileOptions, compile_dataset
+from app.ml.dataset import (
+    PRIVATE_HARMONY_TRAINING_PURPOSE,
+    TRAINING_PURPOSE,
+    CompileOptions,
+    compile_dataset,
+)
 from app.ml.training_runtime import (
     TrainOptions,
     evaluate_checkpoint,
@@ -42,6 +47,16 @@ def build_compile_parser() -> argparse.ArgumentParser:
         choices=("excludeRecord", "allowNoChord"),
         default="excludeRecord",
     )
+    parser.add_argument(
+        "--content-profile",
+        choices=("melodyHarmonyV1", "harmonyOnlyV1"),
+        default="melodyHarmonyV1",
+        help=(
+            "Use harmonyOnlyV1 for private/local pretraining data that must "
+            "not contain melody, MIDI, audio, lyrics, titles, voicing, or "
+            "performance content."
+        ),
+    )
     return parser
 
 
@@ -60,6 +75,12 @@ def compile_main(argv: Sequence[str] | None = None) -> int:
             maximum_frames_per_window=arguments.maximum_frames_per_window,
             unsupported_quality_policy=arguments.unsupported_quality_policy,
             harmony_gap_policy=arguments.harmony_gap_policy,
+            purpose=(
+                PRIVATE_HARMONY_TRAINING_PURPOSE
+                if arguments.content_profile == "harmonyOnlyV1"
+                else TRAINING_PURPOSE
+            ),
+            content_profile=arguments.content_profile,
         ),
     )
     print(json.dumps(manifest, ensure_ascii=True, sort_keys=True))

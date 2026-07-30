@@ -27,10 +27,43 @@ models/**/*.pt
 models/**/*.pth
 models/**/*.onnx
 models/**/*.safetensors
-models/harmonyforge-bimask-base-v1/
-datasets/raw/
-datasets/processed/
-training/runs/
+*.ckpt
+*.npy
+*.npz
+*.pkl
+*.pickle
+*.joblib
+*.h5
+*.hdf5
+*.tflite
+*.pb
+*.bin
+*.ggml
+*.gguf
+*.ort
+*.engine
+*.plan
+*.mid
+*.midi
+*.musicxml
+*.mxl
+*.wav
+*.aif
+*.aiff
+*.mp3
+*.flac
+*.ogg
+*.opus
+*.m4a
+*.aac
+
+# Private/local training inputs and artifacts. Keep public model documentation
+# and non-reconstructive aggregate cards as top-level files instead.
+/models/*/
+/local-models/
+/datasets/raw/
+/datasets/processed/
+/training/runs/
 
 # Word/Office lock files
 ~$*

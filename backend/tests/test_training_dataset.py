@@ -19,12 +19,14 @@ from app.ml.checkpoint import (
     load_manifest,
     model_artifact_directory,
 )
-from app.ml.contracts import MODEL_ID, load_model_config
+from app.ml.contracts import MODEL_ID, ROLE_VOCABULARY, load_model_config
 from app.ml.dataset import (
     DATA_MANIFEST_FILE,
+    PRIVATE_HARMONY_TRAINING_PURPOSE,
     CompileOptions,
     DatasetCompileError,
     compile_dataset,
+    iter_compiled_split,
     load_data_manifest,
 )
 from app.ml.masking import MASK_KINDS, curriculum_mask
@@ -144,6 +146,107 @@ def _write_inputs(tmp_path: Path, records: list[dict]) -> tuple[Path, Path]:
         encoding="utf-8",
     )
     return input_path, ledger_path
+
+
+def _write_harmony_only_inputs(
+    tmp_path: Path,
+    records: list[dict],
+    *,
+    review_status: str = "approved",
+) -> tuple[Path, Path]:
+    input_path = tmp_path / "harmony-only-records.jsonl"
+    input_bytes = "".join(
+        json.dumps(record, separators=(",", ":"), sort_keys=True) + "\n"
+        for record in records
+    ).encode()
+    input_path.write_bytes(input_bytes)
+    records_by_source: dict[str, list[dict]] = {}
+    for record in records:
+        records_by_source.setdefault(record["sourceId"], []).append(record)
+    sources = []
+    for source_id, source_records in sorted(records_by_source.items()):
+        canonical_source_bytes = "".join(
+            json.dumps(record, separators=(",", ":"), sort_keys=True) + "\n"
+            for record in sorted(source_records, key=lambda item: item["recordId"])
+        ).encode()
+        sources.append(
+            {
+                "sourceId": source_id,
+                "version": "fixture-v1",
+                "canonicalUrl": f"https://example.test/{source_id}",
+                "citation": f"Fixture source {source_id}.",
+                "retrievedAt": "2026-07-30T00:00:00Z",
+                "sourceMaterialSha256": hashlib.sha256(
+                    f"source:{source_id}".encode()
+                ).hexdigest(),
+                "normalizedRecordsSha256": hashlib.sha256(
+                    canonical_source_bytes
+                ).hexdigest(),
+                "review": {
+                    "status": review_status,
+                    "basis": "license",
+                    "licenseId": "CC0-1.0",
+                    "allowedContent": ["harmony", "key", "meter"],
+                    "reviewedAt": "2026-07-30T00:00:00Z",
+                },
+                "attribution": f"Fixture source {source_id}.",
+                "removalProcedure": f"Remove {source_id} and recompile.",
+            }
+        )
+    ledger_path = tmp_path / "harmony-only-ledger.json"
+    ledger_path.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 2,
+                "policyId": "harmony-only-private-v1",
+                "purpose": PRIVATE_HARMONY_TRAINING_PURPOSE,
+                "distributionScope": "privateLocalOnly",
+                "rawDataInGit": False,
+                "normalizedInputSha256": hashlib.sha256(input_bytes).hexdigest(),
+                "sources": sources,
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    return input_path, ledger_path
+
+
+def _harmony_only_record(record_id: str, *, source_id: str = "fixture-a") -> dict:
+    record = _record(record_id)
+    record["sourceId"] = source_id
+    record["sourceItemId"] = f"{source_id}:{record_id}"
+    record.pop("melody")
+    record.pop("style")
+    return record
+
+
+def _compile_harmony_only(
+    tmp_path: Path,
+    records: list[dict],
+    output_name: str,
+    *,
+    review_status: str = "approved",
+) -> tuple[Path, dict]:
+    input_path, ledger_path = _write_harmony_only_inputs(
+        tmp_path,
+        records,
+        review_status=review_status,
+    )
+    output = tmp_path / output_name
+    manifest = compile_dataset(
+        input_path,
+        ledger_path,
+        output,
+        options=CompileOptions(
+            dataset_id="harmony-only-fixture",
+            dataset_version="v1",
+            purpose=PRIVATE_HARMONY_TRAINING_PURPOSE,
+            content_profile="harmonyOnlyV1",
+        ),
+    )
+    return output, manifest
 
 
 def _compile(
@@ -306,6 +409,108 @@ def test_compiler_records_declared_quality_and_gap_exclusions(tmp_path) -> None:
         "unsupportedQuality": 1,
     }
     assert manifest["normalization"]["harmonyGapPolicy"] == "excludeRecord"
+
+
+def test_harmony_only_profile_compiles_private_provenance_and_sentinels(
+    tmp_path,
+) -> None:
+    records = [
+        _harmony_only_record("first", source_id="fixture-a"),
+        _harmony_only_record("second", source_id="fixture-b"),
+    ]
+    output, manifest = _compile_harmony_only(
+        tmp_path,
+        records,
+        "harmony-only",
+    )
+
+    assert manifest["schemaVersion"] == 2
+    assert manifest["contentProfile"] == "harmonyOnlyV1"
+    assert manifest["distributionScope"] == "privateLocalOnly"
+    assert manifest["ledger"]["sourceChecksumScope"] == (
+        "perSourceCanonicalNormalizedRecords"
+    )
+    loaded = load_data_manifest(output / DATA_MANIFEST_FILE)
+    provenance = json.loads(
+        (output / loaded["provenance"]["file"]).read_text(encoding="utf-8")
+    )
+    assert provenance["policyId"] == "harmony-only-private-v1"
+    assert [source["sourceId"] for source in provenance["sources"]] == [
+        "fixture-a",
+        "fixture-b",
+    ]
+    rows = [
+        row
+        for split in ("train", "validation", "test")
+        for row in iter_compiled_split(output / DATA_MANIFEST_FILE, split)
+    ]
+    assert rows
+    assert all(row["contentProfile"] == "harmonyOnlyV1" for row in rows)
+    assert all(
+        set(row["inputs"]["melodyMidi"]) == {128}
+        and set(row["inputs"]["melodyRole"])
+        == {ROLE_VOCABULARY.index("unknown")}
+        for row in rows
+    )
+    validate_compiled_rows(rows, load_model_config(_config_path()))
+
+
+def test_harmony_only_profile_rejects_forbidden_content_and_unapproved_source(
+    tmp_path,
+) -> None:
+    with_melody = _harmony_only_record("melody")
+    with_melody["melody"] = []
+    input_path, ledger_path = _write_harmony_only_inputs(
+        tmp_path,
+        [with_melody],
+    )
+    with pytest.raises(DatasetCompileError, match="forbids source content"):
+        compile_dataset(
+            input_path,
+            ledger_path,
+            tmp_path / "forbidden",
+            options=CompileOptions(
+                dataset_id="harmony-only-fixture",
+                dataset_version="v1",
+                purpose=PRIVATE_HARMONY_TRAINING_PURPOSE,
+                content_profile="harmonyOnlyV1",
+            ),
+        )
+
+    with pytest.raises(DatasetCompileError, match="review status"):
+        _compile_harmony_only(
+            tmp_path,
+            [_harmony_only_record("pending")],
+            "pending",
+            review_status="pending",
+        )
+
+
+def test_harmony_only_ledger_hashes_each_source_independently(tmp_path) -> None:
+    records = [
+        _harmony_only_record("first", source_id="fixture-a"),
+        _harmony_only_record("second", source_id="fixture-b"),
+    ]
+    input_path, ledger_path = _write_harmony_only_inputs(tmp_path, records)
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    ledger["sources"][0]["normalizedRecordsSha256"] = "0" * 64
+    ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+
+    with pytest.raises(
+        DatasetCompileError,
+        match="fixture-a normalized record checksum does not match",
+    ):
+        compile_dataset(
+            input_path,
+            ledger_path,
+            tmp_path / "source-mismatch",
+            options=CompileOptions(
+                dataset_id="harmony-only-fixture",
+                dataset_version="v1",
+                purpose=PRIVATE_HARMONY_TRAINING_PURPOSE,
+                content_profile="harmonyOnlyV1",
+            ),
+        )
 
 
 def test_compiled_events_preserve_change_and_hold_boundaries(tmp_path) -> None:

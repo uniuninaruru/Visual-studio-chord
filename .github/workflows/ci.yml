@@ -36,6 +36,8 @@ jobs:
           MTC_PACKAGE_MANAGER: npm
           MTC_ACCELERATION: none
         run: .\scripts\setup.ps1
+      - name: Enforce private training artifact boundary
+        run: python scripts/check-private-artifacts.py
       - name: Validate POSIX launchers
         if: runner.os != 'Windows'
         run: |

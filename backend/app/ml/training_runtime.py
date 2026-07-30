@@ -552,8 +552,16 @@ def validate_compiled_rows(
     config: HarmonyForgeConfig,
 ) -> None:
     for row in rows:
-        if row.get("schemaVersion") != 1:
+        schema_version = row.get("schemaVersion")
+        if schema_version not in {1, 2}:
             raise TrainingRuntimeError("compiled row schema version is unsupported")
+        if (
+            schema_version == 2
+            and row.get("contentProfile") != "harmonyOnlyV1"
+        ):
+            raise TrainingRuntimeError(
+                "schema v2 compiled rows require harmonyOnlyV1 content"
+            )
         frame_count = row.get("frameCount")
         if (
             not isinstance(frame_count, int)
@@ -602,6 +610,16 @@ def validate_compiled_rows(
             0,
             len(ROLE_VOCABULARY) - 1,
         )
+        if schema_version == 2 and (
+            any(value != 128 for value in inputs["melodyMidi"])
+            or any(
+                value != ROLE_VOCABULARY.index("unknown")
+                for value in inputs["melodyRole"]
+            )
+        ):
+            raise TrainingRuntimeError(
+                "harmonyOnlyV1 rows must use melody sentinel inputs"
+            )
         _validate_integer_array(inputs["metricalSlot"], "metricalSlot", 0, 15)
         _validate_integer_array(
             inputs["barIndex"],
