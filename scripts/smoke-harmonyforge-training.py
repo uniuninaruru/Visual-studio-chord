@@ -310,7 +310,12 @@ def _atomic_write_checkpoint(
             raise SmokeTrainingError(
                 "reloaded smoke checkpoint does not match the model state"
             )
-        with temporary_path.open("rb") as handle:
+        # Opened read-write rather than read-only, and without truncating what
+        # safetensors just wrote. Windows implements fsync as FlushFileBuffers,
+        # which needs a handle carrying write access and fails with EBADF
+        # without it; POSIX accepts a read-only descriptor, so this only shows
+        # up on Windows.
+        with temporary_path.open("rb+") as handle:
             os.fsync(handle.fileno())
         temporary_path.replace(output_path)
         validate_safetensors_file(output_path)

@@ -330,8 +330,13 @@ class CheckoutValidationTests(unittest.TestCase):
                 )
 
     def test_summary_prints_path_commit_and_all_counts(self) -> None:
+        # Rendered through the same Path the summary is given, because a native
+        # path is what an operator should be shown: on Windows this prints
+        # separators, and pinning the POSIX spelling would assert the platform
+        # rather than the summary.
+        target = Path("/safe/POP909-Dataset")
         stats = MODULE.CheckoutStats(
-            target=Path("/safe/POP909-Dataset"),
+            target=target,
             commit=MODULE.DEFAULT_COMMIT,
             song_directories=909,
             annotation_files=2727,
@@ -342,7 +347,7 @@ class CheckoutValidationTests(unittest.TestCase):
             MODULE.print_summary(stats)
 
         rendered = output.getvalue()
-        self.assertIn("path: /safe/POP909-Dataset", rendered)
+        self.assertIn(f"path: {target}", rendered)
         self.assertIn(f"commit: {MODULE.DEFAULT_COMMIT}", rendered)
         self.assertIn("song_directories: 909", rendered)
         self.assertIn("annotation_files: 2727", rendered)
