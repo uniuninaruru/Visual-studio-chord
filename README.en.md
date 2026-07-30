@@ -10,51 +10,235 @@ edits chord progressions, melodies, voicings, and additional parts. You can
 regenerate only a selected range, audition A/B/C candidates, keep playback
 running while editing, and export separate MIDI tracks for a DAW.
 
-v0.4.0 adds the **HarmonyForge neural-harmony research-preview foundation**:
-a 104,567,874-parameter masked Transformer, asynchronous API v2 jobs,
-cancellation, strict checkpoint validation, and CUDA / Apple Metal (MPS) / CPU
-adapters.
+## How to read this README
 
-It does **not** include a trained HarmonyForge checkpoint. The normal product
-continues to use the deterministic theory engine and an empirical chord
-language model built from aggregate POP909 annotations. The optional mock is an
-integration fixture and is visibly labeled `MOCK`, untrained, and unevaluated.
+This document separates first-time use from implementation details.
 
-## Safety contract
+| Section | Audience | Contents |
+| --- | --- | --- |
+| [Part 1: First-time users](#part-1-first-time-users) | No Docker, terminal, or ML experience required | Which launcher to choose, where to paste commands, and how to generate the first song |
+| [Part 2: Technical reference](#part-2-technical-reference) | Developers, operators, and model researchers | Architecture, GPU runtimes, API/data contracts, security, testing, and research provenance |
 
-- Generated candidates never overwrite the current song automatically.
-- Neural candidates must pass the existing schema, theory, voicing, 88-key,
-  left/right-hand, and all-track checks before they can be adopted.
-- A validated preview changes the project only after explicit Apply and remains
-  undoable.
-- Cancel, timeout, checkpoint rejection, or inference failure does not publish
-  a partial candidate or change the song.
-- Project data and local inference stay on your computer.
-- A missing neural model falls back to the empirical corpus, browser ranking,
-  and deterministic theory workflow.
+You do not need to understand a backend, checkpoint, MPS, or CUDA before using
+the basic composition workflow.
 
-## Quick start
+# Part 1: First-time users
 
-Install and start Docker Desktop, download this repository, and run:
+## 1. What you do in the app
+
+The shortest useful workflow is:
+
+1. choose Key, Scale, Style, BPM, and Bars;
+2. select **Generate**;
+3. select **Play**;
+4. select only the bars you want to change and regenerate chords or melody;
+5. export MIDI for a DAW.
+
+Candidate A/B/C previews do not change the current song until you explicitly
+adopt one. Apply remains undoable.
+
+## 2. Choose one launch method
+
+| Goal | Recommended method |
+| --- | --- |
+| Open the app with the fewest prerequisites | [Docker CPU](#method-a-docker-the-simplest-start) |
+| Use the GPU in an Apple Silicon Mac | [Native macOS with MPS](#method-b-apple-gpu-on-macos-without-docker) |
+| Use an NVIDIA GPU on Windows 11 | [Native Windows with CUDA](#method-c-nvidia-cuda-on-windows-without-docker) |
+| Use an NVIDIA GPU on Linux | [Native Linux with CUDA](#method-d-nvidia-cuda-on-linux-without-docker) |
+| Open the desktop-hosted app on a phone | [Same-LAN phone access](#3-open-it-on-a-phone-or-tablet) |
+
+> Apple GPU and CUDA are different runtimes. Apple Silicon uses Metal/MPS;
+> CUDA requires a compatible NVIDIA GPU.
+
+### Open a terminal in the project folder
+
+Every command below must run inside the downloaded project folder.
+
+- **macOS:** open Terminal, type `cd ` including the space, drag the project
+  folder into the Terminal window, and press Enter.
+- **Windows 11:** open the project folder in File Explorer, type `powershell`
+  into the address bar, and press Enter.
+
+Check the location:
 
 ```bash
 # macOS / Linux
-./scripts/start-local.sh
+pwd
+ls scripts
 ```
 
 ```powershell
 # Windows PowerShell
+Get-Location
+Get-ChildItem .\scripts
+```
+
+If the `scripts` directory is listed, you are in the correct place.
+
+## Method A: Docker, the simplest start
+
+Docker packages the required Node.js and Python environment. The standard
+Docker launcher uses CPU and does not require a host Python installation.
+
+First-time preparation:
+
+1. install [Docker Desktop](https://www.docker.com/products/docker-desktop/);
+2. start Docker Desktop and wait until its engine is running;
+3. download this repository with **Code → Download ZIP** and extract it;
+4. open a terminal in the extracted project folder.
+
+Start on macOS or Linux:
+
+```bash
+./scripts/start-local.sh
+```
+
+Start on Windows PowerShell:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\scripts\start-local.ps1
 ```
 
-Open the printed `Desktop URL`. Choose Key, Scale, Style, BPM, and Bars under
-Basic, then select Generate. Audition the returned variations and use Apply
-only for the one you want. Export JSON for a recoverable project copy or MIDI
-for GarageBand, Cubase, Logic Pro, Ableton Live, or another DAW.
+The first start downloads images and can take several minutes. Keep the
+terminal open. Copy the complete printed address:
 
-The desktop is the local host for storage and CPU/GPU inference. A phone or
-tablet on the same trusted LAN can use the printed authenticated URL as a
-responsive client; it does not need its own model checkpoint.
+```text
+Desktop URL: http://127.0.0.1:5173/#access=...
+```
+
+Press `Control + C` in the terminal to stop the app.
+
+## Method B: Apple GPU on macOS without Docker
+
+This is for Apple Silicon Macs such as M1 through M5. It uses PyTorch MPS and
+ONNX CoreML, not CUDA.
+
+Install Node.js 24 and Python 3.12, then run once:
+
+```bash
+./scripts/setup.sh mps
+./.venv/bin/python scripts/verify_acceleration.py \
+  --require-torch-device mps
+```
+
+If the probe reports MPS or `GPU available: yes`, start the app:
+
+```bash
+./scripts/dev.sh
+```
+
+Open <http://127.0.0.1:5173>.
+
+## Method C: NVIDIA CUDA on Windows without Docker
+
+This requires Windows 11, a CUDA-capable NVIDIA GPU, and a working NVIDIA
+driver. AMD and Intel GPUs are not CUDA devices.
+
+Install Node.js 24 and Python 3.12. Confirm the driver first:
+
+```powershell
+nvidia-smi
+```
+
+Then run once inside the project folder:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\scripts\setup.ps1 -Acceleration cuda
+.\.venv\Scripts\python.exe .\scripts\verify_acceleration.py `
+  --require-torch-device cuda
+```
+
+If the probe prints the CUDA device name, start the app:
+
+```powershell
+.\scripts\dev.ps1
+```
+
+Open <http://127.0.0.1:5173>.
+
+## Method D: NVIDIA CUDA on Linux without Docker
+
+After installing the NVIDIA driver, Node.js 24, and Python 3.12:
+
+```bash
+nvidia-smi
+./scripts/setup.sh cuda
+./.venv/bin/python scripts/verify_acceleration.py \
+  --require-torch-device cuda
+./scripts/dev.sh
+```
+
+Open <http://127.0.0.1:5173>.
+
+## 3. Open it on a phone or tablet
+
+The Mac, Windows PC, or Linux desktop performs generation and storage. The
+phone is only a responsive client. Put both devices on the same trusted Wi-Fi.
+
+```bash
+# macOS / Linux
+./scripts/serve-lan.sh
+```
+
+```powershell
+# Windows
+.\scripts\serve-lan.ps1
+```
+
+Open the complete printed `Phone URL`, including `#access=...`. Do not expose
+this development launcher directly to the public internet or an untrusted
+network.
+
+## 4. First composition
+
+1. start or skip the optional first-use tutorial;
+2. open **Basic**;
+3. leave C / Major / 120 BPM / 8 bars selected for the first run;
+4. select **Generate**, then **Play**;
+5. select one or more bars in the piano roll or Chord Lane;
+6. request a partial regeneration;
+7. audition the candidates and adopt only the one you want;
+8. use **Export** to download MIDI.
+
+## 5. Recognize success and failure
+
+| Message | Meaning | Action |
+| --- | --- | --- |
+| `Web app: http://127.0.0.1:5173` | The browser application started | Open that URL |
+| `Local inference server: http://127.0.0.1:8765` | The local Python backend also started | Continue normally |
+| `continuing in browser/theory mode` | An optional runtime is unavailable | Basic composition remains available; inspect Diagnostics |
+| `ERR_CONNECTION_REFUSED` | The launcher is not running or has stopped | Return to the terminal and start it again |
+| `port 5173 is already in use` | Another process owns the port | Change `MTC_FRONTEND_PORT` as described in the technical section |
+
+## 6. Small glossary
+
+| Term | Plain-language meaning |
+| --- | --- |
+| Terminal / PowerShell | A window for giving the computer text commands |
+| Docker | A packaged application environment |
+| CPU | The compatible default processor available on every supported computer |
+| GPU | Hardware that performs many calculations in parallel |
+| MPS / Metal | The PyTorch path to an Apple GPU |
+| CUDA | NVIDIA's GPU-computing runtime |
+| Backend | The local Python server that performs optional inference |
+| Inference | Asking a trained model to calculate candidates |
+| Checkpoint | A file containing trained model weights |
+| MIDI | Note and performance data that a DAW can import |
+
+## 7. Safety contract
+
+- Generated candidates never overwrite the current song automatically.
+- Neural candidates must pass schema, theory, voicing, 88-key, left/right-hand,
+  and all-track checks before adoption.
+- A validated preview changes the project only after explicit adoption and
+  remains undoable.
+- Cancel, timeout, checkpoint rejection, or inference failure does not publish
+  a partial candidate.
+- Project data and local inference remain on the computer.
+- A missing neural model falls back to the empirical corpus, browser ranking,
+  and deterministic theory workflow.
 
 ## What is included
 
@@ -72,6 +256,33 @@ responsive client; it does not need its own model checkpoint.
   Auto Fix preview, Apply, and Undo;
 - local JSON persistence, offline operation after setup, diagnostics, and
   safe browser/theory fallbacks.
+
+The rest of this document is implementation and operations documentation.
+
+---
+
+# Part 2: Technical reference
+
+## v0.4.0 scope
+
+v0.4.0 adds the **HarmonyForge neural-harmony research-preview foundation**:
+a 104,567,874-parameter masked Transformer, asynchronous API v2 jobs,
+cancellation, strict checkpoint validation, and CUDA / Apple Metal (MPS) / CPU
+adapters.
+
+It does **not** include a trained HarmonyForge checkpoint. The normal product
+continues to use the deterministic theory engine and an empirical chord
+language model built from aggregate POP909 annotations. The optional mock is an
+integration fixture and is visibly labeled `MOCK`, untrained, and unevaluated.
+
+## Technical contents
+
+| Area | Sections |
+| --- | --- |
+| Runtime and devices | [Optional acceleration](#optional-acceleration), [Native development and tests](#native-development-and-tests) |
+| Neural model | [HarmonyForge research preview](#harmonyforge-research-preview), [Implemented model](#implemented-model), [Fallback](#fallback) |
+| Contracts | [API](#api), artifact validation, cancellation, and versioned data described in the HarmonyForge section |
+| Quality and provenance | [Primary v0.4 references](#primary-v04-references), [Current limitations](#current-limitations) |
 
 ## Optional acceleration
 
