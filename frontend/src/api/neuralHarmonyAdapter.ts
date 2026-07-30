@@ -98,6 +98,36 @@ function maskModeAt(spans: readonly HarmonyEditSpan[], tick: number): HarmonyMas
   return spans.find((span) => span.startTick <= tick && tick < span.endTick)?.mode ?? null;
 }
 
+function resultMaskModeFor(
+  mode: HarmonyMaskMode,
+): HarmonyFactorEvent["maskMode"] {
+  return mode === "generate"
+    ? "generated"
+    : mode === "preserve"
+      ? "preserved"
+      : "conditionOnly";
+}
+
+function eventMatchesGenerationMask(
+  event: HarmonyFactorEvent,
+  spans: readonly HarmonyEditSpan[],
+): boolean {
+  const eventEndTick = event.startTick + event.durationTick;
+  const overlapping = spans
+    .filter((span) =>
+      span.startTick < eventEndTick && event.startTick < span.endTick
+    )
+    .sort((left, right) => left.startTick - right.startTick);
+  let cursor = event.startTick;
+  for (const span of overlapping) {
+    if (span.startTick > cursor || span.endTick <= cursor) return false;
+    if (resultMaskModeFor(span.mode) !== event.maskMode) return false;
+    cursor = Math.min(eventEndTick, span.endTick);
+    if (cursor === eventEndTick) return true;
+  }
+  return false;
+}
+
 function tonalityAt(
   spans: readonly HarmonyTonalitySpan[],
   tick: number,
@@ -306,21 +336,18 @@ function validateCandidateTimeline(
       || !Number.isFinite(event.confidence)
       || event.confidence < 0
       || event.confidence > 1
+      || event.startTick < context.request.controls.startTick
+      || event.startTick + event.durationTick > context.request.controls.endTick
     ) return false;
-    const lockedCondition = context.request.existingHarmony.find((condition) =>
+    if (!eventMatchesGenerationMask(event, context.request.generationMask)) {
+      return false;
+    }
+    const overlapsLockedCondition = context.request.existingHarmony.some((condition) =>
       condition.locked
-      && condition.startTick <= event.startTick
+      && condition.startTick < event.startTick + event.durationTick
       && event.startTick < condition.startTick + condition.durationTick
     );
-    const expected = lockedCondition
-      ? "preserve"
-      : maskModeAt(context.request.generationMask, event.startTick);
-    const actual = event.maskMode === "generated"
-      ? "generate"
-      : event.maskMode === "preserved"
-        ? "preserve"
-        : "conditionOnly";
-    if (actual !== expected) return false;
+    if (event.maskMode === "generated" && overlapsLockedCondition) return false;
     cursor = event.startTick + event.durationTick;
   }
   return cursor === context.request.controls.endTick;
@@ -453,6 +480,10 @@ function timelinePieces(
     boundaries.add(span.startTick);
     boundaries.add(span.endTick);
   }
+  for (const span of context.request.generationMask) {
+    boundaries.add(span.startTick);
+    boundaries.add(span.endTick);
+  }
   for (const bar of composition.bars) {
     boundaries.add(bar.startTick);
     boundaries.add(bar.startTick + bar.durationTick);
@@ -472,7 +503,14 @@ function timelinePieces(
     const chord = chordAt(composition, startTick);
     const barIndex = Math.floor(startTick / composition.ticksPerBar);
     if (!factor || !chord) return null;
-    const useGenerated = factor.maskMode === "generated" && !locked.has(barIndex);
+    const requestedMaskMode = maskModeAt(
+      context.request.generationMask,
+      startTick,
+    );
+    if (!requestedMaskMode) return null;
+    const useGenerated = factor.maskMode === "generated"
+      && requestedMaskMode === "generate"
+      && !locked.has(barIndex);
     raw.push(useGenerated
       ? {
           startTick,

@@ -345,4 +345,36 @@ describe("neural harmony request and candidate adapter", () => {
       composition,
     ).previews).toEqual([]);
   });
+
+  it("rejects a generated event that crosses into a preserved mask span", () => {
+    const composition = sourceComposition();
+    const original = structuredClone(composition);
+    const context = buildHarmonyGenerateRequest({
+      composition,
+      selectedRange: { startBar: 0, endBar: 1 },
+      requestId: "request-cross-mask-boundary",
+      modelId: "mock-harmonyforge-bimask-v1",
+    });
+    const candidate = candidateFromContext(context, "cross-mask-boundary");
+    const firstPreservedIndex = candidate.events.findIndex(
+      (event) => event.startTick >= composition.ticksPerBar,
+    );
+    expect(firstPreservedIndex).toBeGreaterThan(0);
+
+    const crossingEvent = candidate.events[firstPreservedIndex - 1];
+    const swallowedEvent = candidate.events[firstPreservedIndex];
+    if (!crossingEvent || !swallowedEvent) {
+      throw new Error("test candidate does not cross the selected range boundary");
+    }
+    crossingEvent.durationTick =
+      swallowedEvent.startTick + swallowedEvent.durationTick - crossingEvent.startTick;
+    candidate.events.splice(firstPreservedIndex, 1);
+
+    expect(materializeHarmonyPreviews(
+      context,
+      completedJob(context, [candidate]),
+      composition,
+    ).previews).toEqual([]);
+    expect(composition).toEqual(original);
+  });
 });
