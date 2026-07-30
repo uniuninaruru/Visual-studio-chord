@@ -113,6 +113,36 @@ What changed:
 Eight tests in `backend/tests/test_harmony_pretraining_boundary.py`. Both
 removing the boundary and folding it into `allow_research` make them fail; the
 latter is caught by the test that exists to hold the two axes apart.
+### Documentation — README split by audience
+
+- Added a first-time-user path that begins by choosing Docker, Apple GPU,
+  Windows CUDA, Linux CUDA, or same-LAN phone access.
+- Explained how to open a terminal in the project directory, recognize
+  successful and failed startup states, generate the first song, and export
+  MIDI without assuming prior infrastructure or ML knowledge.
+- Preserved the GPU, neural-model, API/data-contract, security, testing, and
+  research material in a separately labeled technical reference.
+- Kept the Japanese and English README launch paths aligned.
+
+### Fixed — the adopt button could no longer be reached by its visible text (`browser-e2e` failure)
+
+An `aria-label` added to the "この候補を採用" button on each candidate card replaced
+the visible text rather than adding to it. Because `aria-label` **overrides** the
+accessible name, the button was named `候補 A のプレビューを採用して履歴へ保存` and
+could not be found by the words printed on it.
+
+- This is a **WCAG 2.5.3 "Label in Name"** violation: a voice-control user saying
+  what they can see cannot operate the button they are looking at.
+- `browser-e2e` failed on all three platforms (ubuntu/chromium, macos/webkit,
+  windows/chromium), because the end-to-end test looks the button up by its
+  visible text.
+- The label is now `候補 A: この候補を採用して履歴へ保存`, which keeps the added
+  context while containing the visible words.
+
+**Why the fast test layer missed it**: a unit test asserted that the `aria-label`
+contained `"プレビューを採用して履歴へ保存"` — it pinned the wording, so it moved
+with the wording. It now asserts the contract that matters, that the accessible
+name contains the visible text.
 
 ### Fixed — setup rebuilds a virtual environment whose interpreter has gone (`e8546cc`)
 
