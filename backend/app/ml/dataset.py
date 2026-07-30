@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import tempfile
 from collections.abc import Iterable, Mapping, Sequence
@@ -286,8 +287,15 @@ def compile_dataset(
             record_splits=record_splits,
             options=options,
         )
+        # Flush the staging entries before publishing them under the real name,
+        # then the parent so the rename itself survives. Matches the chain the
+        # preparation step uses: the two halves of one pipeline should give the
+        # same guarantee, and a bundle that appears complete but is not costs an
+        # operator a manual delete before they can retry.
+        _fsync_directory(staging_directory)
         staging_directory.replace(destination)
         installed = True
+        _fsync_directory(destination.parent)
         return manifest
     except OSError as exc:
         raise DatasetCompileError(
@@ -1966,10 +1974,37 @@ def _read_bytes(path: Path, label: str) -> bytes:
         raise DatasetCompileError(f"{label} could not be read") from exc
 
 
+def _fsync_directory(path: Path) -> None:
+    """Make a directory's own entries durable, best effort.
+
+    A rename is not durable until the directory holding it is flushed, so
+    without this a crash can leave a bundle that has been published by name
+    while its contents are still only in the page cache. Windows has no
+    directory descriptor to sync and needs no equivalent, so absence of
+    `O_DIRECTORY` is a supported outcome rather than an error.
+    """
+
+    if not hasattr(os, "O_DIRECTORY"):
+        return
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        os.close(descriptor)
+
+
 def _write_bytes(path: Path, payload: bytes) -> None:
     temporary = path.with_name(f".{path.name}.tmp")
     try:
-        temporary.write_bytes(payload)
+        with open(temporary, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
         temporary.replace(path)
     except OSError as exc:
         raise DatasetCompileError(f"could not write {path.name}") from exc

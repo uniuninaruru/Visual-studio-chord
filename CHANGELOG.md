@@ -6,6 +6,54 @@
 
 ## 未リリース
 
+### 追加 — 和声専用・非公開ローカル学習パイプライン
+
+最初に学習する重みは、公開用のメロディ条件付きモデルではなく、**非公開・ローカル
+限定の和声専用事前学習成果物**です。リポジトリはPOP909 corpus、normalized／processed
+row、split assignment、学習済みweightのいずれも配布しません。利用者が本家から
+自分で取得し、prepare・compile・学習をローカルで実行します。
+
+**取得と抽出** — `scripts/fetch-pop909.py` は認証情報なしで本家GitHubリポジトリから
+blob filter付きcloneとnon-cone sparse checkoutを行い、LICENSEと各曲の
+`beat_audio.txt`／`chord_audio.txt`／`key_audio.txt` だけを実体化します。MIDI、音声、
+アーカイブ、weight、正規化済み派生物は作業ツリーへ要求しません。
+`scripts/prepare-pop909-harmony-only.py` は、調基準に正規化したコードroot・quality・
+転回形・bass・extension、整数tickの和声リズム、key／mode、拍子、小節内位置だけを
+出力します。メロディ、音声、歌詞、raw MIDI、演奏表現、voicing、編成、曲名などの
+識別metadataは、読み込んでから捨てるのではなく**正規化の時点で出力しません**。
+
+**compile** — dataset schema v2に `harmonyOnlyV1` content profileを追加しました。
+`privateLocalHarmonyOnlyTraining` purposeでのみ到達でき、`privateLocalOnly`
+distribution scopeに固定されます。provenanceは曲単位ではなくdataset／source subset
+単位で記録します（安定したsource ID、version、正規URL、UTC取得日、citation、
+source treeとnormalized inputの両方のSHA-256、実際にreviewしたcontent scope、判断根拠）。
+`approved` はプロジェクト内の記録であって法的認定ではなく、`pending`、`blocked`、
+出典不明、checksum不一致のsourceは学習へ入りません。ledgerがpreparation descriptorを
+宣言する場合、`--prepare-run` でhashで束縛された `prepare-run.json` を要求します。
+
+**原子的保存** — prepare・compileとも、途中で失敗しても直前の正常な一式を壊しません。
+全出力をstagingへ書き、ディレクトリのrename1回で公開します。既存の非空ディレクトリは
+そもそも上書き対象にせず、新しいversion付きディレクトリを要求します。renameの前に
+staging、後に親ディレクトリを`fsync`し、ファイル内容も書き込み時に`fsync`するため、
+「最終的な名前で公開されているが中身は page cache にしかない」状態を避けます。
+
+**Docker build contextの監査** — 監査範囲を「Gitに入らない」から「Dockerのbuild送信領域にも
+入らない」へ広げました。リモートDocker daemonではcontextがネットワーク越しに送信され、
+cache layerがregistryへpushされ得るため、`COPY` を慎重に書くだけでは防げません。
+生データ、学習済みweight、MIDI・音声素材を `.dockerignore` でcontext段階から除外し、
+契約テストを追加しました。`scripts/check-private-artifacts.py` がCIと
+`scripts/test.sh` の両方で境界を検査します。
+
+**公開できるもの** — `scripts/export-public-training-receipts.py` は、非公開の
+checkpointとcompile済みdataから、内容アドレス指定の束縛を検証したうえで
+再構成不可能なreceipt JSONのみを書き出します。weight、split assignment、record ID、
+source-item ID、raw content、ローカルpathは含みません。data card
+（[日本語](docs/research/pop909-harmony-only-data-card.ja.md)）にrecipeとcontract、
+固定checkoutに対する集計とhashを記録しました。
+
+**未計測** — full neural trainingの所要時間、コスト、収束、音楽品質は測定していません。
+data cardのsource review状態は、利用者が取得するrunごとに `pending` です。
+
 ### 追加 — 和声事前学習の重みを推論経路から締め出す安全境界
 
 学習器は「メロディ条件付き可変リズム和声付け」に固定されています。和声だけで
