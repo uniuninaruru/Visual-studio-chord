@@ -66,6 +66,33 @@ class PrivateArtifactPolicyTests(unittest.TestCase):
         violations = MODULE.find_violations(MODULE.tracked_paths(repository))
         self.assertEqual(violations, [])
 
+    def test_docker_build_context_excludes_private_training_material(self) -> None:
+        repository = Path(__file__).resolve().parents[2]
+        patterns = {
+            line.strip()
+            for line in (repository / ".dockerignore").read_text(
+                encoding="utf-8"
+            ).splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        required_patterns = {
+            ".env",
+            ".env.*",
+            "models/*/",
+            "local-models/",
+            "datasets/raw/",
+            "datasets/processed/",
+            "training/runs/",
+            "**/*.safetensors",
+            "**/*.mid",
+            "**/*.musicxml",
+            "**/*.wav",
+        }
+        self.assertTrue(
+            required_patterns.issubset(patterns),
+            required_patterns - patterns,
+        )
+
     def test_command_fails_when_git_tracks_a_forbidden_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory)

@@ -10,3 +10,50 @@ coverage
 **/.ruff_cache
 *.log
 .DS_Store
+.env
+.env.*
+!.env.example
+
+# Private/local training inputs and artifacts must not enter the Docker build
+# context. This also protects users of remote Docker daemons and build caches.
+models/*/
+local-models/
+datasets/raw/
+datasets/processed/
+training/runs/
+
+# Checkpoints and source music/audio are local-only even when placed outside
+# the conventional directories above.
+**/*.pt
+**/*.pth
+**/*.onnx
+**/*.safetensors
+**/*.ckpt
+**/*.npy
+**/*.npz
+**/*.pkl
+**/*.pickle
+**/*.joblib
+**/*.h5
+**/*.hdf5
+**/*.tflite
+**/*.pb
+**/*.bin
+**/*.ggml
+**/*.gguf
+**/*.ort
+**/*.engine
+**/*.plan
+**/*.mid
+**/*.midi
+**/*.musicxml
+**/*.mxl
+**/*.wav
+**/*.aif
+**/*.aiff
+**/*.mp3
+**/*.flac
+**/*.ogg
+**/*.opus
+**/*.m4a
+**/*.aac

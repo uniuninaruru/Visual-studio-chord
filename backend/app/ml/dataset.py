@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+import tempfile
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -30,8 +32,8 @@ from app.ml.tokenizer import TOKENIZER_SHA256
 
 LEGACY_DATASET_SCHEMA_VERSION = 1
 DATASET_SCHEMA_VERSION = 2
-COMPILER_VERSION = "1.1.0"
-SUPPORTED_COMPILER_VERSIONS = {"1.0.0", COMPILER_VERSION}
+COMPILER_VERSION = "1.2.0"
+SUPPORTED_COMPILER_VERSIONS = {"1.0.0", "1.1.0", COMPILER_VERSION}
 DATA_MANIFEST_FILE = "data-manifest.json"
 VOCABULARY_FILE = "vocabulary.json"
 STATISTICS_FILE = "statistics.json"
@@ -50,6 +52,11 @@ TRAINING_PURPOSE = "researchTraining"
 PRIVATE_HARMONY_TRAINING_PURPOSE = "privateLocalHarmonyOnlyTraining"
 PRIVATE_HARMONY_POLICY_ID = "harmony-only-private-v1"
 PRIVATE_LOCAL_DISTRIBUTION_SCOPE = "privateLocalOnly"
+PREPARATION_RUN_SCHEMA_VERSION = 1
+REVIEWED_SOURCE_INPUTS = ("harmony", "key", "meter", "beatTiming")
+EMITTED_TRAINING_CONTENT = ("harmony", "key", "meter")
+POP909_SOURCE_ID = "pop909"
+POP909_COMMIT_PATTERN_LENGTH = 40
 HARMONY_ONLY_FORBIDDEN_FIELDS = {
     "artist",
     "audio",
@@ -133,12 +140,40 @@ class CompileOptions:
             )
 
 
+@dataclass(frozen=True, slots=True)
+class CompiledDatasetSnapshot:
+    """One immutable read of a manifest and every hash-bound artifact."""
+
+    manifest: dict[str, Any]
+    manifest_bytes: bytes
+    artifacts: tuple[tuple[str, bytes], ...]
+
+    @property
+    def manifest_sha256(self) -> str:
+        return _sha256_bytes(self.manifest_bytes)
+
+    def rows(
+        self,
+        split: Literal["train", "validation", "test"],
+    ) -> tuple[dict[str, Any], ...]:
+        if split not in SPLIT_FILES:
+            raise DatasetCompileError("compiled dataset split is invalid")
+        file_name = self.manifest["splits"][split]["file"]
+        for artifact_name, payload in self.artifacts:
+            if artifact_name == file_name:
+                return tuple(_parse_compiled_split_bytes(payload))
+        raise DatasetCompileError(
+            f"compiled {split} split is absent from the dataset snapshot"
+        )
+
+
 def compile_dataset(
     input_jsonl: Path,
     ledger_path: Path,
     output_directory: Path,
     *,
     options: CompileOptions,
+    preparation_run_path: Path | None = None,
 ) -> dict[str, Any]:
     """Compile one canonical dataset and return its persisted manifest."""
 
@@ -154,6 +189,21 @@ def compile_dataset(
         input_sha256=input_sha256,
         raw_records=raw_records,
         content_profile=options.content_profile,
+    )
+    pop909_source = allowed_sources.get(POP909_SOURCE_ID)
+    if (
+        pop909_source is not None
+        and options.dataset_version != pop909_source["version"]
+    ):
+        raise DatasetCompileError(
+            "POP909 dataset version must match the full source commit"
+        )
+    _validate_preparation_run_binding(
+        ledger=ledger,
+        preparation_run_path=preparation_run_path,
+        input_sha256=input_sha256,
+        input_record_count=len(raw_records),
+        options=options,
     )
     schema_version = (
         DATASET_SCHEMA_VERSION
@@ -205,7 +255,68 @@ def compile_dataset(
             )
         )
 
-    output_directory.mkdir(parents=True, exist_ok=True)
+    destination = output_directory.resolve()
+    if destination.exists():
+        raise DatasetCompileError(
+            "compiled output directory already exists; choose a new "
+            "versioned directory"
+        )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    staging_directory = Path(
+        tempfile.mkdtemp(
+            prefix=f".{destination.name}.stage-",
+            dir=destination.parent,
+        )
+    )
+    installed = False
+    try:
+        manifest = _write_compiled_dataset_bundle(
+            output_directory=staging_directory,
+            schema_version=schema_version,
+            ledger=ledger,
+            ledger_bytes=ledger_bytes,
+            input_sha256=input_sha256,
+            raw_records=raw_records,
+            allowed_sources=allowed_sources,
+            normalized=normalized,
+            excluded=excluded,
+            group_keys=group_keys,
+            split_rows=split_rows,
+            split_groups=split_groups,
+            record_splits=record_splits,
+            options=options,
+        )
+        staging_directory.replace(destination)
+        installed = True
+        return manifest
+    except OSError as exc:
+        raise DatasetCompileError(
+            "compiled dataset bundle could not be atomically installed"
+        ) from exc
+    finally:
+        if not installed and staging_directory.exists():
+            shutil.rmtree(staging_directory, ignore_errors=True)
+
+
+def _write_compiled_dataset_bundle(
+    *,
+    output_directory: Path,
+    schema_version: int,
+    ledger: Mapping[str, Any],
+    ledger_bytes: bytes,
+    input_sha256: str,
+    raw_records: Sequence[dict[str, Any]],
+    allowed_sources: Mapping[str, dict[str, Any]],
+    normalized: Sequence[dict[str, Any]],
+    excluded: Mapping[str, int],
+    group_keys: Mapping[str, str],
+    split_rows: Mapping[str, Sequence[dict[str, Any]]],
+    split_groups: Mapping[str, set[str]],
+    record_splits: Mapping[str, str],
+    options: CompileOptions,
+) -> dict[str, Any]:
+    """Write one complete bundle into an unpublished staging directory."""
+
     vocabulary = _vocabulary_payload(schema_version=schema_version)
     vocabulary_bytes = _canonical_json_bytes(vocabulary)
     _write_bytes(output_directory / VOCABULARY_FILE, vocabulary_bytes)
@@ -325,6 +436,15 @@ def compile_dataset(
         "assignments": assignments,
     }
     if schema_version == DATASET_SCHEMA_VERSION:
+        manifest["ledger"].update(
+            {
+                "reviewedSourceInputs": list(REVIEWED_SOURCE_INPUTS),
+                "emittedTrainingContent": list(
+                    EMITTED_TRAINING_CONTENT
+                ),
+                "preparation": ledger["preparation"],
+            }
+        )
         manifest.update(
             {
                 "contentProfile": options.content_profile,
@@ -344,6 +464,8 @@ def load_data_manifest(
 ) -> dict[str, Any]:
     """Load a compiled manifest and optionally verify every output hash."""
 
+    if verify_files:
+        return load_compiled_dataset_snapshot(manifest_path).manifest
     payload = _parse_json_object(
         _read_bytes(manifest_path, "data manifest"),
         "data manifest",
@@ -351,7 +473,43 @@ def load_data_manifest(
     return _validate_data_manifest_payload(
         payload,
         manifest_path=manifest_path,
-        verify_files=verify_files,
+        verify_files=False,
+    )
+
+
+def load_compiled_dataset_snapshot(
+    manifest_path: Path,
+) -> CompiledDatasetSnapshot:
+    """Read and verify a compiled dataset without reopening its artifacts."""
+
+    manifest_bytes = _read_bytes(manifest_path, "data manifest")
+    manifest = _validate_data_manifest_payload(
+        _parse_json_object(manifest_bytes, "data manifest"),
+        manifest_path=None,
+        verify_files=False,
+    )
+    directory = manifest_path.resolve().parent
+    descriptors = [
+        manifest["vocabulary"],
+        manifest["statistics"],
+        *manifest["splits"].values(),
+    ]
+    if manifest["schemaVersion"] == DATASET_SCHEMA_VERSION:
+        descriptors.append(manifest["provenance"])
+    artifacts: list[tuple[str, bytes]] = []
+    seen_names: set[str] = set()
+    for descriptor in descriptors:
+        name, payload = _snapshot_manifest_artifact(directory, descriptor)
+        if name in seen_names:
+            raise DatasetCompileError(
+                f"compiled dataset artifact is referenced twice: {name}"
+            )
+        seen_names.add(name)
+        artifacts.append((name, payload))
+    return CompiledDatasetSnapshot(
+        manifest=manifest,
+        manifest_bytes=manifest_bytes,
+        artifacts=tuple(artifacts),
     )
 
 
@@ -395,6 +553,11 @@ def _validate_data_manifest_payload(
     if schema_version == LEGACY_DATASET_SCHEMA_VERSION:
         required = legacy_required
     elif schema_version == DATASET_SCHEMA_VERSION:
+        if payload.get("compilerVersion") != COMPILER_VERSION:
+            raise DatasetCompileError(
+                "harmony-only provenance requires compiler 1.2.0; "
+                "recompile the private dataset"
+            )
         required = legacy_required | {
             "contentProfile",
             "distributionScope",
@@ -419,6 +582,62 @@ def _validate_data_manifest_payload(
             raise DatasetCompileError("schema v2 requires harmonyOnlyV1 content")
         if payload["distributionScope"] != PRIVATE_LOCAL_DISTRIBUTION_SCOPE:
             raise DatasetCompileError("schema v2 dataset must stay private and local")
+        ledger_descriptor = payload.get("ledger")
+        required_ledger_fields = {
+            "sha256",
+            "sourceIds",
+            "sourceChecksumScope",
+            "reviewedSourceInputs",
+            "emittedTrainingContent",
+            "preparation",
+        }
+        if (
+            not isinstance(ledger_descriptor, dict)
+            or set(ledger_descriptor) != required_ledger_fields
+        ):
+            raise DatasetCompileError(
+                "schema v2 data manifest ledger descriptor is invalid"
+            )
+        source_ids = ledger_descriptor["sourceIds"]
+        if (
+            not isinstance(source_ids, list)
+            or not source_ids
+            or not all(
+                isinstance(source_id, str) and source_id
+                for source_id in source_ids
+            )
+        ):
+            raise DatasetCompileError(
+                "schema v2 data manifest source IDs are invalid"
+            )
+        if not _is_sha256(ledger_descriptor["sha256"]):
+            raise DatasetCompileError(
+                "schema v2 data manifest ledger checksum is invalid"
+            )
+        if (
+            ledger_descriptor["sourceChecksumScope"]
+            != "perSourceCanonicalNormalizedRecords"
+        ):
+            raise DatasetCompileError(
+                "schema v2 source checksum scope is invalid"
+            )
+        if ledger_descriptor["reviewedSourceInputs"] != list(
+            REVIEWED_SOURCE_INPUTS
+        ):
+            raise DatasetCompileError(
+                "schema v2 reviewed source-input scope is invalid"
+            )
+        if ledger_descriptor["emittedTrainingContent"] != list(
+            EMITTED_TRAINING_CONTENT
+        ):
+            raise DatasetCompileError(
+                "schema v2 emitted training-content scope is invalid"
+            )
+        _validate_preparation_descriptor(
+            ledger_descriptor["preparation"],
+            required=POP909_SOURCE_ID in source_ids,
+            context="data manifest",
+        )
         normalization = payload.get("normalization")
         if (
             not isinstance(normalization, dict)
@@ -467,13 +686,20 @@ def iter_compiled_split(
     manifest_path: Path,
     split: Literal["train", "validation", "test"],
 ) -> Iterable[dict[str, Any]]:
-    manifest = load_data_manifest(manifest_path)
-    descriptor = manifest["splits"][split]
-    split_path = _safe_child(manifest_path.resolve().parent, descriptor["file"])
-    for line_number, line in enumerate(
-        split_path.read_text(encoding="utf-8").splitlines(),
-        start=1,
-    ):
+    snapshot = load_compiled_dataset_snapshot(manifest_path)
+    yield from snapshot.rows(split)
+
+
+def _parse_compiled_split_bytes(
+    payload: bytes,
+) -> Iterable[dict[str, Any]]:
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise DatasetCompileError(
+            "compiled split is not valid UTF-8"
+        ) from exc
+    for line_number, line in enumerate(text.splitlines(), start=1):
         try:
             value = json.loads(line)
         except json.JSONDecodeError as exc:
@@ -586,6 +812,7 @@ def _validate_harmony_only_ledger(
         "distributionScope",
         "rawDataInGit",
         "normalizedInputSha256",
+        "preparation",
         "sources",
     }
     if set(ledger) != expected:
@@ -633,7 +860,8 @@ def _validate_harmony_only_ledger(
         "status",
         "basis",
         "licenseId",
-        "allowedContent",
+        "reviewedSourceInputs",
+        "emittedTrainingContent",
         "reviewedAt",
     }
     allowed_bases = {
@@ -643,14 +871,31 @@ def _validate_harmony_only_ledger(
         "ownerProvided",
         "statutoryException",
     }
-    required_content = {"harmony", "key", "meter"}
+    has_pop909_source = any(
+        isinstance(source, dict)
+        and source.get("sourceId") == POP909_SOURCE_ID
+        for source in sources
+    )
+    _validate_preparation_descriptor(
+        ledger["preparation"],
+        required=has_pop909_source,
+        context="dataset ledger",
+    )
     for source in sources:
         if not isinstance(source, dict) or set(source) != required_source_fields:
             raise DatasetCompileError("dataset source fields do not match schema v2")
         source_id = _required_string(source, "sourceId")
         if source_id in allowed:
             raise DatasetCompileError(f"duplicate sourceId in ledger: {source_id}")
-        _required_string(source, "version")
+        source_version = _required_string(source, "version")
+        if source_id == POP909_SOURCE_ID and (
+            len(source_version) != POP909_COMMIT_PATTERN_LENGTH
+            or any(character not in "0123456789abcdef" for character in source_version)
+        ):
+            raise DatasetCompileError(
+                "POP909 source version must be a full lowercase 40-character "
+                "Git commit"
+            )
         _validate_https_url(_required_string(source, "canonicalUrl"))
         _required_string(source, "citation")
         _validate_utc_timestamp(_required_string(source, "retrievedAt"))
@@ -701,14 +946,17 @@ def _validate_harmony_only_ledger(
             raise DatasetCompileError(
                 f"source {source_id} license review requires licenseId"
             )
-        allowed_content = review["allowedContent"]
-        if (
-            not isinstance(allowed_content, list)
-            or not all(isinstance(item, str) for item in allowed_content)
-            or set(allowed_content) != required_content
-        ):
+        reviewed_source_inputs = review["reviewedSourceInputs"]
+        if reviewed_source_inputs != list(REVIEWED_SOURCE_INPUTS):
             raise DatasetCompileError(
-                f"source {source_id} must allow only harmony, key, and meter"
+                f"source {source_id} reviewed inputs must be harmony, key, "
+                "meter, and beat timing"
+            )
+        emitted_training_content = review["emittedTrainingContent"]
+        if emitted_training_content != list(EMITTED_TRAINING_CONTENT):
+            raise DatasetCompileError(
+                f"source {source_id} emitted content must be harmony, key, "
+                "and meter only"
             )
         _validate_utc_timestamp(_required_string(review, "reviewedAt"))
         _required_string(source, "attribution")
@@ -722,6 +970,218 @@ def _validate_harmony_only_ledger(
             + ", ".join(sorted(unknown_sources))
         )
     return allowed
+
+
+def _validate_preparation_descriptor(
+    value: Any,
+    *,
+    required: bool,
+    context: str,
+) -> None:
+    if value is None:
+        if required:
+            raise DatasetCompileError(
+                f"{context} requires a hash-bound POP909 preparation run"
+            )
+        return
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"schemaVersion", "sha256"}
+        or value["schemaVersion"] != PREPARATION_RUN_SCHEMA_VERSION
+        or not _is_sha256(value["sha256"])
+    ):
+        raise DatasetCompileError(
+            f"{context} preparation descriptor is invalid"
+        )
+
+
+def _validate_preparation_run_binding(
+    *,
+    ledger: Mapping[str, Any],
+    preparation_run_path: Path | None,
+    input_sha256: str,
+    input_record_count: int,
+    options: CompileOptions,
+) -> None:
+    if options.content_profile != "harmonyOnlyV1":
+        if preparation_run_path is not None:
+            raise DatasetCompileError(
+                "preparation run is only valid for harmonyOnlyV1"
+            )
+        return
+
+    descriptor = ledger["preparation"]
+    if descriptor is None:
+        if preparation_run_path is not None:
+            raise DatasetCompileError(
+                "dataset ledger does not bind a preparation run"
+            )
+        return
+    if preparation_run_path is None:
+        raise DatasetCompileError(
+            "hash-bound dataset ledger requires a preparation run"
+        )
+
+    run_bytes = _read_bytes(preparation_run_path, "preparation run")
+    if _sha256_bytes(run_bytes) != descriptor["sha256"]:
+        raise DatasetCompileError(
+            "preparation run checksum does not match dataset ledger"
+        )
+    run = _parse_json_object(run_bytes, "preparation run")
+    required_run_fields = {
+        "schemaVersion",
+        "preparer",
+        "source",
+        "reviewedSourceInputs",
+        "emittedTrainingContent",
+        "options",
+        "counts",
+        "excludedByReason",
+        "normalizedRecordsSha256",
+    }
+    if set(run) != required_run_fields:
+        raise DatasetCompileError(
+            "preparation run fields do not match schema v1"
+        )
+    if run["schemaVersion"] != PREPARATION_RUN_SCHEMA_VERSION:
+        raise DatasetCompileError("unsupported preparation run schema version")
+
+    preparer = run["preparer"]
+    if (
+        not isinstance(preparer, dict)
+        or set(preparer) != {"script", "scriptSha256"}
+        or preparer["script"] != "scripts/prepare-pop909-harmony-only.py"
+        or not _is_sha256(preparer["scriptSha256"])
+    ):
+        raise DatasetCompileError("preparation run preparer identity is invalid")
+
+    sources = ledger["sources"]
+    source = run["source"]
+    if (
+        not isinstance(source, dict)
+        or set(source)
+        != {"sourceId", "sourceCommit", "sourceMaterialSha256"}
+        or len(sources) != 1
+    ):
+        raise DatasetCompileError("preparation run source binding is invalid")
+    ledger_source = sources[0]
+    if (
+        source["sourceId"] != POP909_SOURCE_ID
+        or source["sourceId"] != ledger_source["sourceId"]
+        or source["sourceCommit"] != ledger_source["version"]
+        or source["sourceMaterialSha256"]
+        != ledger_source["sourceMaterialSha256"]
+    ):
+        raise DatasetCompileError(
+            "preparation run does not match the dataset ledger source"
+        )
+    if not _is_sha256(source["sourceMaterialSha256"]):
+        raise DatasetCompileError(
+            "preparation run source material checksum is invalid"
+        )
+    if run["reviewedSourceInputs"] != list(REVIEWED_SOURCE_INPUTS):
+        raise DatasetCompileError(
+            "preparation run reviewed source-input scope is invalid"
+        )
+    if run["emittedTrainingContent"] != list(
+        EMITTED_TRAINING_CONTENT
+    ):
+        raise DatasetCompileError(
+            "preparation run emitted training-content scope is invalid"
+        )
+    if run["normalizedRecordsSha256"] != input_sha256:
+        raise DatasetCompileError(
+            "preparation run normalized checksum does not match input JSONL"
+        )
+
+    run_options = run["options"]
+    required_option_fields = {
+        "gapPolicy",
+        "compilerHarmonyGapPolicy",
+        "maximumBarsPerRecord",
+        "quantization",
+    }
+    if (
+        not isinstance(run_options, dict)
+        or set(run_options) != required_option_fields
+    ):
+        raise DatasetCompileError("preparation run options are invalid")
+    gap_policy_pairs = {
+        "reject": "excludeRecord",
+        "allow-no-chord": "allowNoChord",
+    }
+    run_gap_policy = run_options["gapPolicy"]
+    if (
+        run_gap_policy not in gap_policy_pairs
+        or run_options["compilerHarmonyGapPolicy"]
+        != gap_policy_pairs[run_gap_policy]
+        or run_options["compilerHarmonyGapPolicy"]
+        != options.harmony_gap_policy
+    ):
+        raise DatasetCompileError(
+            "preparation and compiler harmony gap policies do not match"
+        )
+    if run_options["maximumBarsPerRecord"] != 128:
+        raise DatasetCompileError(
+            "preparation run maximum-bars policy is invalid"
+        )
+    expected_quantization = {
+        "ppq": 480,
+        "frameTicks": 120,
+        "beatUnit": "quarter",
+        "rounding": "nearestTiesAwayFromZero",
+        "adjacentJitterRepair": "snapWhenAbsoluteDeltaIsBelowOneFrame",
+    }
+    if run_options["quantization"] != expected_quantization:
+        raise DatasetCompileError(
+            "preparation run quantization policy is invalid"
+        )
+
+    counts = run["counts"]
+    required_count_fields = {
+        "discoveredSourceItemCount",
+        "eligibleSourceItemCount",
+        "excludedSourceItemCount",
+        "emittedRecordCount",
+    }
+    if (
+        not isinstance(counts, dict)
+        or set(counts) != required_count_fields
+        or not all(
+            isinstance(value, int) and not isinstance(value, bool) and value >= 0
+            for value in counts.values()
+        )
+    ):
+        raise DatasetCompileError("preparation run counts are invalid")
+    exclusions = run["excludedByReason"]
+    if (
+        not isinstance(exclusions, dict)
+        or not all(
+            isinstance(reason, str)
+            and reason
+            and isinstance(count, int)
+            and not isinstance(count, bool)
+            and count >= 0
+            for reason, count in exclusions.items()
+        )
+    ):
+        raise DatasetCompileError("preparation run exclusions are invalid")
+    if sum(exclusions.values()) != counts["excludedSourceItemCount"]:
+        raise DatasetCompileError(
+            "preparation run exclusion counts do not add up"
+        )
+    if (
+        counts["eligibleSourceItemCount"]
+        + counts["excludedSourceItemCount"]
+        != counts["discoveredSourceItemCount"]
+    ):
+        raise DatasetCompileError(
+            "preparation run source-item counts do not add up"
+        )
+    if counts["emittedRecordCount"] != input_record_count:
+        raise DatasetCompileError(
+            "preparation run emitted-record count does not match input JSONL"
+        )
 
 
 def _normalize_record(
@@ -1396,15 +1856,25 @@ def _verify_manifest_artifact(
     directory: Path,
     descriptor: Any,
 ) -> None:
+    _snapshot_manifest_artifact(directory, descriptor)
+
+
+def _snapshot_manifest_artifact(
+    directory: Path,
+    descriptor: Any,
+) -> tuple[str, bytes]:
     if (
         not isinstance(descriptor, dict)
         or not isinstance(descriptor.get("file"), str)
         or not _is_sha256(descriptor.get("sha256"))
     ):
         raise DatasetCompileError("data manifest artifact descriptor is invalid")
-    path = _safe_child(directory, descriptor["file"])
-    if _sha256_bytes(_read_bytes(path, "compiled dataset artifact")) != descriptor["sha256"]:
+    name = descriptor["file"]
+    path = _safe_child(directory, name)
+    payload = _read_bytes(path, "compiled dataset artifact")
+    if _sha256_bytes(payload) != descriptor["sha256"]:
         raise DatasetCompileError(f"compiled artifact checksum mismatch: {path.name}")
+    return name, payload
 
 
 def _safe_child(directory: Path, name: str) -> Path:

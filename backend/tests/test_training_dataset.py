@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from app.ml import dataset as dataset_module
 from app.ml import training_runtime
 from app.ml.artifacts import (
     ArtifactExportError,
@@ -29,6 +30,7 @@ from app.ml.dataset import (
     DatasetCompileError,
     compile_dataset,
     iter_compiled_split,
+    load_compiled_dataset_snapshot,
     load_data_manifest,
 )
 from app.ml.masking import MASK_KINDS, curriculum_mask
@@ -188,7 +190,17 @@ def _write_harmony_only_inputs(
                     "status": review_status,
                     "basis": "license",
                     "licenseId": "CC0-1.0",
-                    "allowedContent": ["harmony", "key", "meter"],
+                    "reviewedSourceInputs": [
+                        "harmony",
+                        "key",
+                        "meter",
+                        "beatTiming",
+                    ],
+                    "emittedTrainingContent": [
+                        "harmony",
+                        "key",
+                        "meter",
+                    ],
                     "reviewedAt": "2026-07-30T00:00:00Z",
                 },
                 "attribution": f"Fixture source {source_id}.",
@@ -205,6 +217,7 @@ def _write_harmony_only_inputs(
                 "distributionScope": "privateLocalOnly",
                 "rawDataInGit": False,
                 "normalizedInputSha256": hashlib.sha256(input_bytes).hexdigest(),
+                "preparation": None,
                 "sources": sources,
             },
             separators=(",", ":"),
@@ -353,6 +366,65 @@ def test_compiler_is_byte_deterministic_and_keeps_groups_in_one_split(
     assert loaded["splitBeforeWindowing"] is True
 
 
+def test_compiler_bundle_install_preserves_last_known_good_on_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    records = [_record(f"bundle-{index}") for index in range(8)]
+    previous, _ = _compile(tmp_path, records, "bundle-v1")
+    previous_snapshot = {
+        path.name: path.read_bytes() for path in previous.iterdir()
+    }
+
+    input_path, ledger_path = _write_inputs(tmp_path, records)
+    with pytest.raises(DatasetCompileError, match="already exists"):
+        compile_dataset(
+            input_path,
+            ledger_path,
+            previous,
+            options=CompileOptions(
+                dataset_id="fixture",
+                dataset_version="v1",
+            ),
+        )
+    assert {
+        path.name: path.read_bytes() for path in previous.iterdir()
+    } == previous_snapshot
+
+    failed = tmp_path / "bundle-v2"
+    original_write = dataset_module._write_bytes
+    writes = 0
+
+    def fail_on_third(path: Path, payload: bytes) -> None:
+        nonlocal writes
+        writes += 1
+        if writes == 3:
+            raise OSError("simulated third-file failure")
+        original_write(path, payload)
+
+    monkeypatch.setattr(dataset_module, "_write_bytes", fail_on_third)
+    with pytest.raises(
+        DatasetCompileError,
+        match="could not be atomically installed",
+    ):
+        compile_dataset(
+            input_path,
+            ledger_path,
+            failed,
+            options=CompileOptions(
+                dataset_id="fixture",
+                dataset_version="v2",
+            ),
+        )
+
+    assert writes == 3
+    assert not failed.exists()
+    assert list(tmp_path.glob(".bundle-v2.stage-*")) == []
+    assert {
+        path.name: path.read_bytes() for path in previous.iterdir()
+    } == previous_snapshot
+
+
 def test_compiler_rejects_unclear_rights_off_grid_chords_and_tampering(
     tmp_path,
 ) -> None:
@@ -397,6 +469,54 @@ def test_compiler_rejects_unclear_rights_off_grid_chords_and_tampering(
         load_data_manifest(output / DATA_MANIFEST_FILE)
 
 
+def test_dataset_snapshot_parses_the_same_bytes_it_hashes(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    output, manifest = _compile(
+        tmp_path,
+        [_record(f"snapshot-{index}") for index in range(12)],
+        "snapshot",
+    )
+    split = next(
+        name
+        for name, descriptor in manifest["splits"].items()
+        if descriptor["windowCount"]
+    )
+    manifest_path = output / DATA_MANIFEST_FILE
+    split_path = output / manifest["splits"][split]["file"]
+    original_manifest_bytes = manifest_path.read_bytes()
+    original_split_bytes = split_path.read_bytes()
+    expected_rows = [
+        json.loads(line)
+        for line in original_split_bytes.decode("utf-8").splitlines()
+    ]
+    original_read_bytes = dataset_module._read_bytes
+    mutated_paths: set[Path] = set()
+
+    def read_then_mutate(path: Path, label: str) -> bytes:
+        payload = original_read_bytes(path, label)
+        resolved = path.resolve()
+        if resolved == manifest_path.resolve() and resolved not in mutated_paths:
+            manifest_path.write_bytes(b"{}\n")
+            mutated_paths.add(resolved)
+        elif resolved == split_path.resolve() and resolved not in mutated_paths:
+            split_path.write_bytes(b'{"tampered":true}\n')
+            mutated_paths.add(resolved)
+        return payload
+
+    monkeypatch.setattr(dataset_module, "_read_bytes", read_then_mutate)
+
+    snapshot = load_compiled_dataset_snapshot(manifest_path)
+
+    assert snapshot.manifest_sha256 == hashlib.sha256(
+        original_manifest_bytes
+    ).hexdigest()
+    assert list(snapshot.rows(split)) == expected_rows
+    assert manifest_path.read_bytes() == b"{}\n"
+    assert split_path.read_bytes() == b'{"tampered":true}\n'
+
+
 def test_compiler_records_declared_quality_and_gap_exclusions(tmp_path) -> None:
     gap = _record("gap", chord_start=120)
     unsupported = _record("unsupported", root=3, quality="quartal")
@@ -436,6 +556,18 @@ def test_harmony_only_profile_compiles_private_provenance_and_sentinels(
     assert manifest["ledger"]["sourceChecksumScope"] == (
         "perSourceCanonicalNormalizedRecords"
     )
+    assert manifest["ledger"]["reviewedSourceInputs"] == [
+        "harmony",
+        "key",
+        "meter",
+        "beatTiming",
+    ]
+    assert manifest["ledger"]["emittedTrainingContent"] == [
+        "harmony",
+        "key",
+        "meter",
+    ]
+    assert manifest["ledger"]["preparation"] is None
     loaded = load_data_manifest(output / DATA_MANIFEST_FILE)
     provenance = json.loads(
         (output / loaded["provenance"]["file"]).read_text(encoding="utf-8")
@@ -459,6 +591,27 @@ def test_harmony_only_profile_compiles_private_provenance_and_sentinels(
         for row in rows
     )
     validate_compiled_rows(rows, load_model_config(_config_path()))
+
+
+def test_old_harmony_only_manifest_requires_explicit_recompile(tmp_path) -> None:
+    output, _ = _compile_harmony_only(
+        tmp_path,
+        [_harmony_only_record("old-v2")],
+        "old-v2",
+    )
+    manifest_path = output / DATA_MANIFEST_FILE
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["compilerVersion"] = "1.1.0"
+    manifest["ledger"].pop("reviewedSourceInputs")
+    manifest["ledger"].pop("emittedTrainingContent")
+    manifest["ledger"].pop("preparation")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(
+        DatasetCompileError,
+        match="harmony-only provenance requires compiler 1.2.0",
+    ):
+        load_data_manifest(manifest_path, verify_files=False)
 
 
 def test_harmony_only_profile_rejects_forbidden_content_and_unapproved_source(
@@ -510,6 +663,49 @@ def test_harmony_only_ledger_hashes_each_source_independently(tmp_path) -> None:
             input_path,
             ledger_path,
             tmp_path / "source-mismatch",
+            options=CompileOptions(
+                dataset_id="harmony-only-fixture",
+                dataset_version="v1",
+                purpose=PRIVATE_HARMONY_TRAINING_PURPOSE,
+                content_profile="harmonyOnlyV1",
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        (
+            "reviewedSourceInputs",
+            ["harmony", "key", "meter"],
+            "reviewed inputs",
+        ),
+        (
+            "emittedTrainingContent",
+            ["harmony", "key", "meter", "beatTiming"],
+            "emitted content",
+        ),
+    ],
+)
+def test_harmony_only_ledger_separates_reviewed_and_emitted_content(
+    tmp_path,
+    field,
+    value,
+    message,
+) -> None:
+    input_path, ledger_path = _write_harmony_only_inputs(
+        tmp_path,
+        [_harmony_only_record("scope")],
+    )
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    ledger["sources"][0]["review"][field] = value
+    ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+
+    with pytest.raises(DatasetCompileError, match=message):
+        compile_dataset(
+            input_path,
+            ledger_path,
+            tmp_path / f"invalid-{field}",
             options=CompileOptions(
                 dataset_id="harmony-only-fixture",
                 dataset_version="v1",

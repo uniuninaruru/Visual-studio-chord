@@ -46,7 +46,7 @@ def _write_manifest(model_directory: Path, **overrides) -> Path:
     data_manifest = artifact / "data-manifest.json"
     data_payload = {
         "schemaVersion": 2 if harmony_only else 1,
-        "compilerVersion": "1.1.0",
+        "compilerVersion": "1.2.0" if harmony_only else "1.1.0",
         "datasetId": "fixture",
         "datasetVersion": "v1",
         "purpose": (
@@ -70,6 +70,24 @@ def _write_manifest(model_directory: Path, **overrides) -> Path:
                 "perSourceCanonicalNormalizedRecords"
                 if harmony_only
                 else "completeCompilerInputJsonlBytes"
+            ),
+            **(
+                {
+                    "reviewedSourceInputs": [
+                        "harmony",
+                        "key",
+                        "meter",
+                        "beatTiming",
+                    ],
+                    "emittedTrainingContent": [
+                        "harmony",
+                        "key",
+                        "meter",
+                    ],
+                    "preparation": None,
+                }
+                if harmony_only
+                else {}
             ),
         },
         "tokenizerSha256": TOKENIZER_SHA256,

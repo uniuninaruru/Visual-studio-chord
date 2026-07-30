@@ -26,6 +26,15 @@
 除外形式を読み込んで後から捨てる処理も、この初期pipelineの対象外です。
 normalized inputの時点で、許可した和声表現だけにします。
 
+source reviewと学習へ出すcontentは別のscopeとして記録します。
+
+- `reviewedSourceInputs`：`harmony`、`key`、`meter`、`beatTiming`
+- `emittedTrainingContent`：`harmony`、`key`、`meter`
+
+`beatTiming`はsourceのbeat anchorを読み、meterと整数tick gridを導出する処理を
+review対象へ正直に含めるための識別子です。sourceの秒単位beat時刻そのものは
+normalized recordや学習rowへ出しません。
+
 ## データセット単位の確認
 
 和声専用段階では、全楽曲に対する個別許諾確認を標準gateにしません。代わりに、
@@ -34,11 +43,19 @@ normalized inputの時点で、許可した和声表現だけにします。
 - 安定したsource ID、version、正規URL、UTCの取得日
 - citationとattribution
 - source material／treeとnormalized inputの正確なSHA-256
-- 確認対象のcontent scopeがharmony、key、meterだけであること
+- 確認したsource inputがharmony、key、meter、beat timingであること
+- 学習へ出すcontentがharmony、key、meterだけであること
 - review statusと、license、public domain、contract、owner-provided data、
   または明示した法定の学習例外などの判断根拠
 - 許可purposeが非公開ローカル和声学習であること
 - 除去と再buildの手順
+
+POP909のsource versionには、省略SHAやbranch名ではなく、完全な40文字のGit commitを
+記録します。preparerは各runで`prepare-run.json`をatomicに書き出し、preparer
+scriptのSHA-256、source commit、gap／quantization option、件数と除外理由、
+source materialとnormalized recordのSHA-256を保存します。ledgerはこのrun recordの
+SHA-256を保持し、compilerは`--prepare-run`で実体を照合してからdata manifestへ
+bindingを引き継ぎます。
 
 `approved`はプロジェクト内の判断記録であり、compilerによる法的認定ではありません。
 `pending`、`blocked`、出典不明、checksum不一致のsourceは学習へ入れません。

@@ -29,6 +29,16 @@ Reading an excluded format merely to discard it is outside this first-stage
 pipeline. Its normalized input must already contain only the allowed harmony
 representation.
 
+The source-review scope and the content emitted for training are recorded as
+separate fields:
+
+- `reviewedSourceInputs`: `harmony`, `key`, `meter`, and `beatTiming`;
+- `emittedTrainingContent`: `harmony`, `key`, and `meter`.
+
+`beatTiming` honestly records that source beat anchors are reviewed and read to
+derive meter and an integer-tick grid. Source beat times in seconds are not
+emitted in normalized records or training rows.
+
 ## Dataset-level screening
 
 Individual-song permission review is not the default gate for this
@@ -38,11 +48,20 @@ documented provenance decision containing:
 - stable source ID, version, canonical URL, and retrieval date in UTC;
 - citation and attribution text;
 - exact source-material/tree SHA-256 and normalized-input SHA-256;
-- reviewed content scope: harmony, key, and meter only;
+- reviewed source inputs: harmony, key, meter, and beat timing;
+- emitted training content: harmony, key, and meter only;
 - review status and stated basis, such as license, public domain, contract,
   owner-provided data, or a documented statutory-training exception;
 - permitted purpose: private local harmony-only training;
 - removal/rebuild procedure.
+
+For POP909, the source version must be a full 40-character Git commit rather
+than an abbreviated hash or branch name. Each preparer run atomically writes a
+`prepare-run.json` containing the preparer-script SHA-256, source commit,
+gap/quantization options, counts and aggregate exclusion reasons, and the
+source-material and normalized-record SHA-256 values. The ledger binds that run
+record by SHA-256, and the compiler verifies its bytes through `--prepare-run`
+before carrying the binding into the data manifest.
 
 An “approved” status records a project decision; it is not a compiler-generated
 legal conclusion. Pending, blocked, unclear-source, or checksum-mismatched

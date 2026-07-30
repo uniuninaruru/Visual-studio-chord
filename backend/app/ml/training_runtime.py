@@ -36,7 +36,7 @@ from app.ml.contracts import (
     HarmonyForgeConfig,
     load_model_config,
 )
-from app.ml.dataset import iter_compiled_split, load_data_manifest
+from app.ml.dataset import load_compiled_dataset_snapshot
 from app.ml.masking import MaskPlan, curriculum_mask
 from app.ml.model import build_harmony_forge_model
 from app.ml.tokenizer import GENERATE_ID, MASK_ID, PRESERVE_ID
@@ -97,13 +97,14 @@ def train_reference_model(
             "source_commit must be a 7-64 digit lowercase hex id"
         )
     config = load_model_config(config_path)
-    data_manifest = load_data_manifest(data_manifest_path)
+    dataset_snapshot = load_compiled_dataset_snapshot(data_manifest_path)
+    data_manifest = dataset_snapshot.manifest
     try:
         validate_declared_task(task, data_manifest)
     except ArtifactExportError as exc:
         raise TrainingRuntimeError(str(exc)) from exc
-    train_rows = list(iter_compiled_split(data_manifest_path, "train"))
-    validation_rows = list(iter_compiled_split(data_manifest_path, "validation"))
+    train_rows = list(dataset_snapshot.rows("train"))
+    validation_rows = list(dataset_snapshot.rows("validation"))
     if not train_rows:
         raise TrainingRuntimeError("compiled training split is empty")
     if not validation_rows:
@@ -200,7 +201,7 @@ def train_reference_model(
         "initialCheckpoint": initial_checkpoint,
         "sourceCommit": source_commit,
         "configSha256": _sha256_file(config_path),
-        "dataManifestSha256": _sha256_file(data_manifest_path),
+        "dataManifestSha256": dataset_snapshot.manifest_sha256,
         "pytorchVersion": str(torch.__version__),
         "cublasWorkspaceConfig": cublas_workspace_config,
         "seed": options.seed,
@@ -338,8 +339,8 @@ def evaluate_checkpoint(
     if batch_size < 1:
         raise TrainingRuntimeError("batch_size must be positive")
     config = load_model_config(config_path)
-    load_data_manifest(data_manifest_path)
-    rows = list(iter_compiled_split(data_manifest_path, split))
+    dataset_snapshot = load_compiled_dataset_snapshot(data_manifest_path)
+    rows = list(dataset_snapshot.rows(split))
     if not rows:
         raise TrainingRuntimeError(f"compiled {split} split is empty")
     validate_compiled_rows(rows, config)
@@ -355,7 +356,7 @@ def evaluate_checkpoint(
         permit_pretraining_task=True,
     )
     manifest = checkpoint.manifest
-    if manifest.data_manifest_sha256 != _sha256_file(data_manifest_path):
+    if manifest.data_manifest_sha256 != dataset_snapshot.manifest_sha256:
         raise TrainingRuntimeError(
             "evaluation dataset differs from checkpoint data provenance"
         )
