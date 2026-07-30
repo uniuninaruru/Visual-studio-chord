@@ -7,90 +7,306 @@
 
 **コード進行とメロディを自動で作ってくれる、作曲の練習・アイデア出し用のアプリです。**
 
-キーと雰囲気を選んで「生成」を押すと、音楽理論に沿った曲が1曲できます。気に入らない部分だけを選んで作り直したり、音を直接動かしたりできます。**曲を再生したまま編集できる**のが特徴です。
+キーと雰囲気を選んで「生成」を押すと、音楽理論に沿った曲が1曲できます。
+気に入らない部分だけを選んで作り直したり、音を直接動かしたりできます。
+**曲を再生したまま編集できる**のが特徴です。
 
-楽譜が読めなくても、音楽理論を知らなくても使えます。作った曲はMIDIファイルとして書き出せるので、GarageBandやCubaseなどのDAWに読み込んで続きを作れます。
+楽譜が読めなくても、音楽理論を知らなくても使えます。作った曲はMIDIファイルとして
+書き出せるので、GarageBand、Logic Pro、Cubaseなどへ読み込んで続きを作れます。
 
-v0.4.0では、論文と実装計画に基づく**ニューラル和声プレビュー基盤**を追加しました。
-旋律、選択範囲、ロック済みコードを条件にする104,567,874 parameterの
-`HarmonyForge-BiMask`、非同期API v2、cancel、checkpoint検証、
-CUDA / Apple Metal（MPS）/ CPU adapterを実装しています。
+## このREADMEの読み方
 
-ただし、**学習済みcheckpointはまだ同梱していません**。通常の利用では、909曲の
-コード注釈から学習した経験則モデルと、論文に基づく制約探索を引き続き使います。
-開発用mockは明示的に有効化した場合だけ使用でき、画面とAPIの両方で
-「MOCK・未学習」と表示されます。
+このREADMEは、必要な知識が違う人同士で説明が混ざらないように2部構成にしています。
 
-### こんなことができます
+| 読む場所 | 対象 | 書いてあること |
+| --- | --- | --- |
+| [Part 1：初めて使う人向け](#part-1初めて使う人向け) | ターミナルやDockerに慣れていない人 | どの起動方法を選ぶか、コマンドをどこへ貼るか、最初の曲を作るまで |
+| [Part 2：技術者向け](#part-2技術者向けリファレンス) | 開発・検証・モデル運用を行う人 | アーキテクチャ、GPU、API、データ契約、セキュリティ、テスト、研究根拠 |
 
-- コード進行が思いつかないとき、**王道進行**や**小室進行**など定番の進行から選んで曲の骨組みを作る
-- できた曲の「サビだけ作り直す」「メロディだけ変える」といった部分的なやり直し
-- **Auto Fix mode**で、理論設定が分からなくても改善内容を確認してから曲を自動で整える
-- **Bass / Left Hand、Chords / Right Hand、Melody**をDAWのようなトラックで追い、表示・ミュート・ソロを切り替える
-- 対旋律・カノン・ポリリズム低音を重ね、声部ごとに再生／表示／ミュート／ソロ／MIDI書き出し
-- A0〜C8の88鍵全域からメロディ音域を選ぶ
-- 気に入った候補に **Like** を付けると、次からあなたの好みに寄せて候補を並べ替え
-- 作った曲をMIDIで書き出してDAWで仕上げる
+最初に試すだけならPart 1だけで十分です。コードの仕組みやモデル構成を理解してから
+使う必要はありません。
 
-### 安心して使える設計
+# Part 1：初めて使う人向け
 
-- **勝手に曲が書き換わりません。** AIが出した候補は「採用」を押すまで反映されません
-- ニューラル候補も既存の理論・schema・全トラック検証を通るまで採用できません
-- Cancelや推論失敗では中間候補を保存せず、編集中の曲をそのまま維持します
-- **同じ設定なら必ず同じ曲になります。** 気に入った曲は設定を控えておけば再現できます
-- **曲データはあなたのPCの中だけ**にあります。インターネットに送信されません
-- 保存状態は画面上部に常に表示されます（保存済み／このセッションのみ など）
+## 1. まず何ができるのか
 
----
+基本的な流れは次の5操作です。
 
-## まず試してみる
+1. キー、雰囲気、テンポ、小節数を選ぶ
+2. **この設定で生成**を押す
+3. **Play**を押して聴く
+4. 気に入らない小節だけ選び、コードまたはメロディを作り直す
+5. **Export**からMIDIを書き出す
 
-### いちばん簡単な方法
+さらに次の操作も画面から利用できます。
 
-Docker という仕組みを使うと、面倒な準備なしで動かせます。
+- Bass / Left Hand、Chords / Right Hand、MelodyをDAWのようなトラックで確認
+- 対旋律、カノン、ポリリズム低音の追加
+- 88鍵全域を使った音域指定
+- Auto Fixによる理論エラーやトラック衝突の診断
+- Like / Dislikeによる候補の並べ替え
+- Undo / Redo、JSON保存、マルチトラックMIDI書き出し
 
-1. [Docker Desktop](https://www.docker.com/products/docker-desktop/) をインストールして起動する
-2. このリポジトリをダウンロードする（緑の「Code」ボタン →「Download ZIP」）
-3. ダウンロードしたフォルダを開いて、ターミナル（Windowsは PowerShell）で次を実行する
+## 2. 起動方法を選ぶ
 
-**macOS の場合**
+迷った場合は、この表だけで選べます。
+
+| やりたいこと | 選ぶ方法 |
+| --- | --- |
+| とにかく画面を開いて試したい | [Dockerで起動](#方法aいちばん簡単なdocker起動) |
+| Apple Silicon MacのGPUを使いたい | [macOSネイティブ＋Apple MPS](#方法bmacosでapple-gpuを使うdockerなし) |
+| WindowsのNVIDIA GPUを使いたい | [Windowsネイティブ＋CUDA](#方法cwindowsでnvidia-cudaを使うdockerなし) |
+| LinuxのNVIDIA GPUを使いたい | [Linuxネイティブ＋CUDA](#方法dlinuxでnvidia-cudaを使うdockerなし) |
+| 同じWi-Fiのスマートフォンから使いたい | [スマートフォンから開く](#3-スマートフォンから開く) |
+
+> **Apple GPUとCUDAは別物です。** Apple SiliconはMetal/MPS、NVIDIA GPUはCUDAを
+> 使います。Apple GPUでCUDAを動かす設定はありません。
+
+### 「ターミナルでこのフォルダを開く」とは
+
+このREADMEのコマンドは、ダウンロードしたプロジェクトフォルダの中で実行します。
+
+- **macOS**：ターミナルを開き、`cd `まで入力した後、プロジェクトフォルダを
+  ターミナルへドラッグしてEnterを押します。
+- **Windows 11**：エクスプローラーでプロジェクトフォルダを開き、上部の
+  アドレス欄へ `powershell` と入力してEnterを押します。
+
+正しいフォルダにいるか分からない場合は、次を実行します。
+
+```bash
+# macOS / Linux
+pwd
+ls scripts
+```
+
+```powershell
+# Windows PowerShell
+Get-Location
+Get-ChildItem .\scripts
+```
+
+`scripts`の中身が表示されれば、その場所で合っています。
+
+## 方法A：いちばん簡単なDocker起動
+
+Dockerは、アプリ専用の小さな実行環境をまとめて起動する仕組みです。この方法では
+Node.jsやPythonを個別に準備する必要がありません。標準Docker構成はCPUを使います。
+
+### 最初の1回だけ
+
+1. [Docker Desktop](https://www.docker.com/products/docker-desktop/)をインストールする
+2. Docker Desktopを起動し、画面に「Engine running」と表示されるまで待つ
+3. GitHubの緑色の **Code** → **Download ZIP** からこのアプリを保存し、ZIPを展開する
+4. 前節の方法で、展開したフォルダをターミナルまたはPowerShellで開く
+
+### 起動する
+
+macOS / Linux：
 
 ```bash
 ./scripts/start-local.sh
 ```
 
-**Windows の場合**
+Windows 11 PowerShell：
 
 ```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\scripts\start-local.ps1
 ```
 
-4. 表示された `Desktop URL:` の後ろにあるURLを、そのままブラウザにコピーして開く
+初回は必要なファイルをダウンロードするため時間がかかります。処理中はウィンドウを
+閉じないでください。最後に次のような行が表示されます。
 
-> **Windowsで赤いエラーが出たら** → [コマンドを実行できないとき（Windows版）](#コマンドを実行できないときwindows版) を先に実行してください。
+```text
+Desktop URL: http://127.0.0.1:5173/#access=...
+```
 
-これで画面が開きます。最初はチュートリアルが出るので、案内に沿って進めてください。
+`Desktop URL:`の後ろを省略せずブラウザへ貼り付けます。アプリを終了するときは、
+ターミナルで `Control + C` を押します。
 
-### 動かしてみたあとに
+## 方法B：macOSでApple GPUを使う（Dockerなし）
 
-画面左の **Basic** 設定でキーやテンポを変えて「この設定で生成」を押すと、別の曲ができます。気に入ったら **Export** から MIDI を書き出せます。
+対象はM1、M2、M3、M4、M5などのApple Silicon Macです。Apple GPUではCUDAではなく
+PyTorch MPS / ONNX CoreMLを使用します。
 
-うまく動かないときは [困ったとき](#困ったとき) を見てください。
+### 最初の1回だけ
 
----
+1. [Node.js](https://nodejs.org/) 24系をインストールする
+2. [Python](https://www.python.org/downloads/) 3.12をインストールする
+3. プロジェクトフォルダで次を実行する
 
-技術的な詳細（決定的生成、ローカル優先設計、GPU高速化など）は、この先の各節で説明しています。
+```bash
+./scripts/setup.sh mps
+```
+
+セットアップが終わったら、Apple GPUで実際に計算できることを確認します。
+
+```bash
+./.venv/bin/python scripts/verify_acceleration.py \
+  --require-torch-device mps
+```
+
+エラーが出ず `MPS` または `GPU available: yes` と表示されれば準備完了です。
+
+### 2回目以降の起動
+
+```bash
+./scripts/dev.sh
+```
+
+ブラウザで <http://127.0.0.1:5173> を開きます。
+
+## 方法C：WindowsでNVIDIA CUDAを使う（Dockerなし）
+
+対象はNVIDIA GPUを搭載したWindows 11 PCです。AMD / Intel GPUはCUDAとしては
+利用できません。
+
+### 最初の1回だけ
+
+1. NVIDIA公式ドライバーをインストールする
+2. [Node.js](https://nodejs.org/) 24系をインストールする
+3. [Python](https://www.python.org/downloads/) 3.12をインストールする
+4. PowerShellで次を実行し、GPU名が表示されることを確認する
+
+```powershell
+nvidia-smi
+```
+
+続いてプロジェクトフォルダで実行します。
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\scripts\setup.ps1 -Acceleration cuda
+.\.venv\Scripts\python.exe .\scripts\verify_acceleration.py `
+  --require-torch-device cuda
+```
+
+`CUDA device:`の後ろにGPU名が表示されれば準備完了です。
+
+### 2回目以降の起動
+
+```powershell
+.\scripts\dev.ps1
+```
+
+ブラウザで <http://127.0.0.1:5173> を開きます。
+
+## 方法D：LinuxでNVIDIA CUDAを使う（Dockerなし）
+
+NVIDIAドライバー、Node.js 24系、Python 3.12を用意した後、次を実行します。
+
+```bash
+nvidia-smi
+./scripts/setup.sh cuda
+./.venv/bin/python scripts/verify_acceleration.py \
+  --require-torch-device cuda
+./scripts/dev.sh
+```
+
+ブラウザで <http://127.0.0.1:5173> を開きます。
+
+## 3. スマートフォンから開く
+
+曲の生成処理はMacまたはWindows PCで行い、スマートフォンはその画面へ接続します。
+PCとスマートフォンを同じ信頼できるWi-Fiへ接続してください。
+
+macOS / Linux：
+
+```bash
+./scripts/serve-lan.sh
+```
+
+Windows：
+
+```powershell
+.\scripts\serve-lan.ps1
+```
+
+表示された `Phone URL:` をスマートフォンへ送って開きます。`#access=...` 部分も
+認証情報なので省略しないでください。公共Wi-Fiやインターネットへ直接公開しないで
+ください。
+
+## 4. 画面が開いたら最初にすること
+
+1. 初回チュートリアルを開始する。不要ならスキップできます
+2. 左側の **Basic** を開く
+3. Keyは `C`、Scaleは `Major`、BPMは `120`、Barsは `8` のままでよい
+4. **この設定で生成**を押す
+5. 画面上部の **Play** を押す
+6. ピアノロールまたはChord Laneで、再生中の小節が移動することを確認する
+7. 小節を選択して部分再生成を試す
+8. 候補を聴き、気に入ったものだけ **この候補を採用**する
+9. **Export**からMIDIを書き出す
+
+候補を採用するまで元の曲は変わりません。採用後もUndoで戻せます。
+
+## 5. 「成功」と「失敗」の見分け方
+
+| 表示 | 意味 | 次にすること |
+| --- | --- | --- |
+| `Web app: http://127.0.0.1:5173` | 画面のサーバーが起動した | URLをブラウザで開く |
+| `Local inference server: http://127.0.0.1:8765` | Pythonバックエンドも起動した | そのまま使う |
+| `continuing in browser/theory mode` | GPUまたはPython機能が使えず、安全な基本モードへ切り替わった | 基本機能は使用可能。Diagnosticsで原因を確認 |
+| `ERR_CONNECTION_REFUSED` | 起動コマンドが動いていない、または終了した | ターミナルへ戻り、起動コマンドを再実行 |
+| `port 5173 is already in use` | 別のアプリが同じ番号を使用している | [ポート変更手順](#ポート5173が使用中と言われる)を使う |
+
+## 6. 知らなくても使える用語集
+
+| 用語 | かんたんな意味 |
+| --- | --- |
+| ターミナル / PowerShell | PCへ文字で命令を入力する画面 |
+| Docker | アプリに必要な環境をひとまとめにして起動する仕組み |
+| CPU | どのPCにもある標準的な計算装置。遅くても最も互換性が高い |
+| GPU | 大量の計算を並列に処理する装置 |
+| MPS / Metal | Apple GPUをPyTorchから使う仕組み |
+| CUDA | NVIDIA GPUを計算へ使う仕組み |
+| バックエンド | 生成や保存を裏側で処理するローカルPythonサーバー |
+| 推論 | 学習済みモデルへ入力を渡し、候補を計算すること |
+| checkpoint | 学習済みモデルの重みを保存したファイル |
+| MIDI | DAWへ渡せる、音符と演奏情報のファイル |
+
+## 7. データが消えたり勝手に変わったりしないための設計
+
+- AI候補は **この候補を採用** を押すまで正式データになりません
+- Cancelや推論失敗では中間候補を保存しません
+- 採用後もUndoで戻せます
+- 同じシードと設定から同じ曲を再生成できます
+- 基本データはPC内に保存され、外部サービスへの送信を必須にしません
+- 保存状態、オフライン状態、実際に使った推論デバイスを画面へ表示します
 
 ## スクリーンショット
 
-*<img width="1710" height="993" alt="スクリーンショット 2026-07-23 21 51 06" src="https://github.com/user-attachments/assets/25408cdc-9e18-473b-bc3f-40ebe987208c" />
-*
+<img width="1710" height="993" alt="Visual studio chordの全体画面" src="https://github.com/user-attachments/assets/25408cdc-9e18-473b-bc3f-40ebe987208c" />
 
-<!-- 画像を docs/images/ に置いたら、以下のコメントを外してください
-![全体画面](docs/images/overview.png)
-![ピアノロールと候補比較](docs/images/piano-roll.png)
-![スマートフォン表示](docs/images/mobile.png)
--->
+ここまでで通常利用の説明は終了です。以下は、実装、運用、研究モデル、API、
+テストを確認する人向けの情報です。
+
+---
+
+# Part 2：技術者向けリファレンス
+
+## v0.4.0の位置づけ
+
+v0.4.0では、論文と実装計画に基づくニューラル和声プレビュー基盤を追加しました。
+旋律、選択範囲、ロック済みコードを条件にする104,567,874 parameterの
+`HarmonyForge-BiMask`、非同期API v2、cancel、checkpoint検証、
+CUDA / Apple Metal（MPS）/ CPU adapterを実装しています。
+
+ただし、**学習済みcheckpointは同梱していません**。通常の利用では、909曲の
+コード注釈から学習した経験則モデルと、論文に基づく制約探索を使用します。
+開発用mockは明示的に有効化した場合だけ使用でき、画面とAPIの両方で
+「MOCK・未学習」と表示されます。
+
+## 技術者向け目次
+
+| 分野 | 参照先 |
+| --- | --- |
+| 実装済み音楽機能 | [主な機能](#主な機能)、[UI操作仕様](#ui操作仕様)、[生成と好み学習](#生成と好み学習の仕組み) |
+| 実行環境 | [技術スタック](#技術スタック)、[Docker構成](#docker構成と起動技術者向け詳細)、[ネイティブ構成](#ネイティブ構成と起動技術者向け詳細)、[GPU高速化](#gpu高速化任意) |
+| ニューラルモデル | [HarmonyForge研究プレビュー](#ニューラル和声プレビューv04研究プレビュー)、[モデル配置と検証](#ニューラル和声プレビューv04研究プレビュー) |
+| システム設計 | [アーキテクチャ](#アーキテクチャ)、[状態とエラー](#状態表示とエラー時の動作)、[設定と診断](#設定と診断) |
+| 安全性と再現性 | [セキュリティ](#セキュリティ)、[品質チェック](#品質チェック)、[再現性](#再現性と設定ファイル) |
+| 契約と保守 | [APIとデータ契約](#apiとデータ契約)、[ディレクトリ](#ディレクトリ)、[ロードマップ](#ロードマップ)、[参考資料](#参考にした音楽理論資料) |
 
 ## 主な機能
 
@@ -209,7 +425,7 @@ Advanced画面の「コードの彩り」は、理論用語を理解していな
 | テスト | Vitest、Playwright（Chromium / WebKit）、pytest、ruff、ESLint |
 | 実行環境 | Docker Compose、GitHub Actions、Node.js 24.14.0 |
 
-## クイックスタート（Docker）
+## Docker構成と起動（技術者向け詳細）
 
 Docker Desktop または Docker Engine + Compose v2 があれば、ホスト側の Node.js や Python は不要です。
 
@@ -271,7 +487,7 @@ $env:MTC_FRONTEND_PORT = "5174"
 
 Linux Docker build は GitHub Actions でも検証しています。Windows NVIDIA CUDA、物理スマートフォン、物理Safari は別の実機リリースゲートです。Firefox は対象外です。
 
-## Dockerを使わない起動
+## ネイティブ構成と起動（技術者向け詳細）
 
 固定している標準環境は Node.js `24.14.0`、npm または pnpm `11.9.0`、Python `3.12.10` です。対応範囲は Node.js 24系、Python 3.11〜3.14 です。
 
@@ -480,7 +696,7 @@ exporterは完全なversion directoryをstageして全hashを再検証した後�
 5. accelerator失敗後は「CPUで再試行」で同じ範囲をCPU指定できます。それも
    失敗した場合は決定的理論生成、local rank、browser rankの順にfallbackします。
 
-## 基本操作
+## UI操作仕様
 
 1. 初回チュートリアルまたはサンプル曲から開始します。
 2. Basic設定で Key、Scale、Style、BPM、Bars を選び、「この設定で生成」を押します。
