@@ -7,6 +7,17 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Documentation — README split by audience
+
+- Added a first-time-user path that begins by choosing Docker, Apple GPU,
+  Windows CUDA, Linux CUDA, or same-LAN phone access.
+- Explained how to open a terminal in the project directory, recognize
+  successful and failed startup states, generate the first song, and export
+  MIDI without assuming prior infrastructure or ML knowledge.
+- Preserved the GPU, neural-model, API/data-contract, security, testing, and
+  research material in a separately labeled technical reference.
+- Kept the Japanese and English README launch paths aligned.
+
 ### Fixed — the adopt button could no longer be reached by its visible text (`browser-e2e` failure)
 
 An `aria-label` added to the "この候補を採用" button on each candidate card replaced
