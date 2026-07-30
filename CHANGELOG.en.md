@@ -7,6 +7,21 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Fixed — neural candidates cannot spill outside the selected edit range
+
+A candidate event returned by the API could start inside a `generate` span and
+continue into the following `preserve` span. The client checked only the start
+tick, so a malformed or incompatible response could replace harmony in an
+unselected bar inside the preview.
+
+- Every event's complete `[startTick, endTick)` interval must now be covered
+  without gaps by generation-mask spans of the same mode.
+- Preview materialization also splits at mask boundaries and never uses neural
+  material outside a `generate` span.
+- A regression test reproduces the out-of-range replacement against the old
+  code. The complete invalid candidate is now rejected atomically, leaving the
+  source composition unchanged.
+
 ### Fixed — the adopt button could no longer be reached by its visible text (`browser-e2e` failure)
 
 An `aria-label` added to the "この候補を採用" button on each candidate card replaced
