@@ -6,6 +6,50 @@
 
 ## 未リリース
 
+### 追加 — 和声事前学習の重みを推論経路から締め出す安全境界
+
+学習器は「メロディ条件付き可変リズム和声付け」に固定されています。和声だけで
+作った事前学習の重みは、**同じアーキテクチャ・同じtokenizer・同じconfigを持つため、
+既存の構造検査（tokenizer照合、architecture照合、全ファイルのSHA-256）を
+すべて通過します**。両者を隔てるものは宣言された目的関数しかありません。
+これを製品用AIとして読み込ませると、画面が表示する能力が実物と一致しなくなります。
+
+穴は3つありました。
+
+- **正直に宣言する語彙が無い。** `manifest.task` は
+  `melody_conditioned_variable_rhythm_harmonization` の1値のみを許す `Literal` で、
+  書き出し側もこの文字列をハードコードしていました。和声のみの重みは
+  「メロディ条件付きだ」と名乗る以外にmanifestを書く手段がなく、
+  スキーマが虚偽記載を強制していました。
+- **境界がrelease-statusに相乗りしていた。** `MTC_ENABLE_RESEARCH_CHECKPOINT=1` は
+  本番の推論経路へ `allow_research` として渡ります。「まだ評価していない」と
+  「別の目的関数で学習した」は直交する軸なのに1つのフラグに畳まれており、
+  環境変数1つで通常経路に入る状態でした。
+- **表示に出ない。** backendのmanifest応答が `task` を含まず、
+  クライアントは区別する材料を持てませんでした。
+
+変更点。
+
+- `manifest.task` に `harmony_only_pretraining` を追加し、事前学習の重みを
+  正直に宣言できるようにしました。書き出し側（`save_trained_artifact` /
+  `publish_checkpoint_manifest` / `train_reference_model`）も `task` を受け取ります。
+- ローダは他のどのゲートよりも先に `task` を検査し、推論用以外を拒否します。
+  **この判定は `allow_research` を経由しません。** 専用引数
+  `permit_pretraining_task` は既定 `False` で、学習・書き出し・評価の各経路だけが
+  明示的に渡します。推論経路（`TorchHarmonyBackend`）はこの引数に一切触れないため、
+  **境界を開く設定項目も環境変数も存在しません**。
+- 宣言された目的関数を `training-run.json` にも記録しました。同ファイルは
+  manifestへSHA-256で連結されるため、目的関数がハッシュ検証の鎖の内側に入ります。
+- `evaluate_checkpoint` は事前学習の重みも評価できます（それが昇格の手段であるため）。
+  ただし返り値に `task` を含め、一方の目的関数で測った数値がもう一方の
+  証拠として読まれないようにしました。
+- backendのmanifest応答に `task` を追加。拒否された成果物は
+  `available: false` と拒否理由に宣言された目的関数を表示します。
+
+`backend/tests/test_harmony_pretraining_boundary.py` に8件。境界を削除する変異と、
+判定を `allow_research` に畳む変異の両方でテストが落ちることを確認しました。
+後者は軸の独立性を検証するテストが捕捉します。
+
 ### 修正 — インタプリタが消えた仮想環境をセットアップが再構築する（`e8546cc`）
 
 `.venv/bin/python` はシンボリックリンクです。参照先のPythonが更新・削除されると

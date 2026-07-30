@@ -76,6 +76,7 @@ causal studentは比較実験後に判断する研究variantであり、v0.4実�
 - allowlist済みの固定file名
   `harmonyforge-bimask-base-v1.safetensors`、`data-manifest.json`、
   `training-run.json`
+- `task: melody_conditioned_variable_rhythm_harmonization`
 - `trained: true`
 - `evaluationStatus: researchOnly`または`validated`
 - research-only artifactでは`MTC_ENABLE_RESEARCH_CHECKPOINT=1`
@@ -84,8 +85,16 @@ causal studentは比較実験後に判断する研究variantであり、v0.4実�
 - PyTorch version、minimum app/API version、supported precisionの宣言
 - `SafeTensors`をCPUへ安全に読み、strictなstate-dict検査後にdeviceへ移動
 
-artifactがない、未学習、未評価、破損、checksum不一致の場合、偽の候補を返さず
-`available: false`または安全なjob failureにする。
+`task`は他のどのgateよりも先に検査し、`allow_research`を経由しない。
+和声のみで学習した`harmony_only_pretraining` artifactは同一architecture・
+同一tokenizer・同一configを持つため他の検査をすべて通過するが、推論経路へは
+入れない。学習・書き出し・評価の各経路だけが明示的にこれを受理する。
+release statusと目的関数は独立な軸であり、
+`MTC_ENABLE_RESEARCH_CHECKPOINT=1`は前者だけを緩める。
+境界を開く設定項目・環境変数は存在しない。
+
+artifactがない、未学習、未評価、破損、checksum不一致、目的関数が異なる場合、
+偽の候補を返さず`available: false`または安全なjob failureにする。
 runtimeはexport済み`data-manifest.json`そのもののhashを検証する。export前には
 compilerがledgerのsource checksumをnormalized input JSONLの実bytesにbindし、
 split / vocabulary / statistics artifactのhashを

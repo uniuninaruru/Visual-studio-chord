@@ -12,8 +12,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from app.ml.artifacts import save_trained_artifact
+from app.ml.artifacts import CheckpointTask, save_trained_artifact
 from app.ml.checkpoint import (
+    INFERENCE_TASK,
     load_validated_checkpoint,
     load_weights,
     validate_pytorch_compatibility,
@@ -77,6 +78,7 @@ def train_reference_model(
     model_directory: Path,
     source_commit: str,
     options: TrainOptions,
+    task: CheckpointTask = INFERENCE_TASK,
 ) -> dict[str, Any]:
     """Run deterministic reference training and export a research checkpoint."""
 
@@ -182,6 +184,9 @@ def train_reference_model(
     training_run = {
         "schemaVersion": 1,
         "deterministic": True,
+        # Recorded here as well as in the manifest so the declared objective is
+        # inside the hashed provenance chain, not a label attached beside it.
+        "task": task,
         "sourceCommit": source_commit,
         "configSha256": _sha256_file(config_path),
         "dataManifestSha256": _sha256_file(data_manifest_path),
@@ -214,11 +219,13 @@ def train_reference_model(
         training_run_path=training_run_path,
         source_commit=source_commit,
         pytorch_version=str(torch.__version__),
+        task=task,
         evaluation_status="researchOnly",
     )
     return {
         "modelId": config.model_id,
         "trained": True,
+        "task": manifest.task,
         "evaluationStatus": manifest.evaluation_status,
         "device": device,
         "fallbackReason": device_fallback,
@@ -253,11 +260,15 @@ def evaluate_checkpoint(
     if not rows:
         raise TrainingRuntimeError(f"compiled {split} split is empty")
     validate_compiled_rows(rows, config)
+    # Evaluating a pre-training artifact is legitimate and is how it earns
+    # promotion; the returned payload names the objective so a number measured
+    # on one task can never be read as evidence about the other.
     checkpoint = load_validated_checkpoint(
         model_directory,
         config,
         config_path=config_path,
         allow_research=True,
+        permit_pretraining_task=True,
     )
     manifest = checkpoint.manifest
     if manifest.data_manifest_sha256 != _sha256_file(data_manifest_path):
@@ -279,6 +290,7 @@ def evaluate_checkpoint(
     return {
         "schemaVersion": 1,
         "modelId": config.model_id,
+        "task": manifest.task,
         "split": split,
         "device": device,
         "fallbackReason": device_fallback,

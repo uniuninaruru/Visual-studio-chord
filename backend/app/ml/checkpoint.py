@@ -23,6 +23,14 @@ TRAINING_RUN_FILE = "training-run.json"
 ARTIFACT_POINTER_FILE = "current.json"
 ARTIFACT_VERSIONS_DIRECTORY = "versions"
 
+# The only objective the serving path is allowed to present as the product
+# model. Harmony-only pre-training produces weights for the same architecture,
+# so every structural check — tokenizer, architecture, file hashes — passes on
+# them. Nothing but the declared objective distinguishes the two, which is why
+# it has to be declarable and why it has to be checked.
+INFERENCE_TASK = "melody_conditioned_variable_rhythm_harmonization"
+PRETRAINING_TASK = "harmony_only_pretraining"
+
 
 class SupportedPrecisions(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -37,7 +45,10 @@ class HarmonyCheckpointManifest(BaseModel):
 
     schema_version: Literal[1] = Field(alias="schemaVersion")
     model_id: Literal["harmonyforge-bimask-base-v1"] = Field(alias="modelId")
-    task: Literal["melody_conditioned_variable_rhythm_harmonization"]
+    task: Literal[
+        "melody_conditioned_variable_rhythm_harmonization",
+        "harmony_only_pretraining",
+    ]
     trained: bool
     evaluation_status: Literal["notEvaluated", "researchOnly", "validated"] = Field(
         alias="evaluationStatus",
@@ -124,12 +135,14 @@ def load_manifest(
     *,
     config_path: Path,
     allow_research: bool,
+    permit_pretraining_task: bool = False,
 ) -> HarmonyCheckpointManifest:
     return load_validated_checkpoint(
         model_directory,
         config,
         config_path=config_path,
         allow_research=allow_research,
+        permit_pretraining_task=permit_pretraining_task,
     ).manifest
 
 
@@ -139,6 +152,7 @@ def load_validated_checkpoint(
     *,
     config_path: Path,
     allow_research: bool,
+    permit_pretraining_task: bool = False,
 ) -> ValidatedHarmonyCheckpoint:
     """Resolve the active pointer once and bind all later reads to that version."""
 
@@ -148,6 +162,7 @@ def load_validated_checkpoint(
         config,
         config_path=config_path,
         allow_research=allow_research,
+        permit_pretraining_task=permit_pretraining_task,
     )
     return ValidatedHarmonyCheckpoint(
         manifest=manifest,
@@ -161,6 +176,7 @@ def load_manifest_from_artifact_directory(
     *,
     config_path: Path,
     allow_research: bool,
+    permit_pretraining_task: bool = False,
 ) -> HarmonyCheckpointManifest:
     """Validate one direct artifact directory, including staging versions."""
 
@@ -172,6 +188,18 @@ def load_manifest_from_artifact_directory(
         manifest = HarmonyCheckpointManifest.model_validate(payload)
     except (OSError, UnicodeError, json.JSONDecodeError, ValidationError) as exc:
         raise CheckpointInvalidError("HarmonyForge manifest is invalid") from exc
+    # Checked before every other gate, and deliberately not routed through
+    # `allow_research`. Release status and training objective are independent:
+    # `researchOnly` means "not yet validated at this task", not "trained at
+    # some other task". Collapsing them onto one flag would let
+    # MTC_ENABLE_RESEARCH_CHECKPOINT admit a model that cannot do the job the
+    # interface says it does. No environment variable or setting reaches this
+    # argument — only the training and export paths pass it.
+    if manifest.task != INFERENCE_TASK and not permit_pretraining_task:
+        raise CheckpointUnavailableError(
+            f"HarmonyForge artifact declares task {manifest.task!r}, which cannot "
+            f"serve inference; only {INFERENCE_TASK!r} may be loaded"
+        )
     if not manifest.trained:
         raise CheckpointUnavailableError("HarmonyForge artifact is explicitly untrained")
     if manifest.evaluation_status == "notEvaluated":
