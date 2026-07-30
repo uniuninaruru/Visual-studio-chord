@@ -1,7 +1,13 @@
 import pytest
 
 from app.ml.checkpoint import PRETRAINING_TASK
-from app.ml.cli import build_train_parser, compile_main, evaluate_main, train_main
+from app.ml.cli import (
+    build_compile_parser,
+    build_train_parser,
+    compile_main,
+    evaluate_main,
+    train_main,
+)
 
 
 @pytest.mark.parametrize(
@@ -51,3 +57,26 @@ def test_training_cli_requires_an_explicit_objective() -> None:
     )
     assert arguments.task == PRETRAINING_TASK
     assert str(arguments.initial_model_directory) == "local-models"
+
+
+def test_compile_cli_accepts_a_hash_bound_preparation_run() -> None:
+    arguments = build_compile_parser().parse_args(
+        [
+            "--input",
+            "records.jsonl",
+            "--ledger",
+            "ledger.json",
+            "--prepare-run",
+            "prepare-run.json",
+            "--output",
+            "processed",
+            "--dataset-id",
+            "pop909-harmony-only",
+            "--dataset-version",
+            "d83e6edba6872a704f5d3b8b32f5cb540088dae6",
+            "--content-profile",
+            "harmonyOnlyV1",
+        ]
+    )
+
+    assert str(arguments.prepare_run) == "prepare-run.json"

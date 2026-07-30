@@ -301,13 +301,17 @@ def test_evaluation_receipt_preserves_warm_start_lineage(
     class FakeTorch:
         __version__ = "2.13.0"
 
+    class FakeDatasetSnapshot:
+        manifest = {}
+        manifest_sha256 = _sha256(data_manifest_path)
+
+        @staticmethod
+        def rows(_split):
+            return ({},)
+
     monkeypatch.setattr(
-        "app.ml.training_runtime.load_data_manifest",
-        lambda _path: {},
-    )
-    monkeypatch.setattr(
-        "app.ml.training_runtime.iter_compiled_split",
-        lambda _path, _split: iter([{}]),
+        "app.ml.training_runtime.load_compiled_dataset_snapshot",
+        lambda _path: FakeDatasetSnapshot(),
     )
     monkeypatch.setattr(
         "app.ml.training_runtime.validate_compiled_rows",

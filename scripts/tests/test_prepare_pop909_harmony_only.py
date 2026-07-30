@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "prepare-pop909-harmony-only.py"
@@ -24,6 +27,7 @@ SPEC.loader.exec_module(MODULE)
 from app.ml.dataset import (  # noqa: E402
     PRIVATE_HARMONY_TRAINING_PURPOSE,
     CompileOptions,
+    DatasetCompileError,
     compile_dataset,
 )
 
@@ -63,6 +67,277 @@ def write_song(
 
 
 class Pop909HarmonyOnlyPreparationTests(unittest.TestCase):
+    def test_cli_requires_explicit_source_approval_metadata(self) -> None:
+        parser = MODULE.build_argument_parser()
+        base_arguments = [
+            "--pop909",
+            "/private/pop909",
+            "--output-records",
+            "/private/records.jsonl",
+            "--output-ledger",
+            "/private/ledger.json",
+            "--retrieved-at-utc",
+            "2026-07-30T00:00:00Z",
+        ]
+        with (
+            contextlib.redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit),
+        ):
+            parser.parse_args(base_arguments)
+
+        license_arguments = parser.parse_args(
+            [
+                *base_arguments,
+                "--review-basis",
+                "license",
+                "--reviewed-at-utc",
+                "2026-07-30T00:00:00Z",
+                "--confirm-source-approved",
+            ]
+        )
+        with (
+            contextlib.redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit),
+        ):
+            MODULE.validate_approval_arguments(parser, license_arguments)
+
+        public_domain_arguments = parser.parse_args(
+            [
+                *base_arguments,
+                "--review-basis",
+                "publicDomain",
+                "--reviewed-at-utc",
+                "2026-07-30T01:00:00Z",
+                "--confirm-source-approved",
+            ]
+        )
+        MODULE.validate_approval_arguments(parser, public_domain_arguments)
+        self.assertIsNone(public_domain_arguments.license_id)
+        help_text = parser.format_help()
+        self.assertIn("--confirm-source-approved", help_text)
+        self.assertIn("--review-basis", help_text)
+        self.assertIn("--reviewed-at-utc", help_text)
+        self.assertIn("--output-prepare-run", help_text)
+        self.assertIn("40-character POP909 Git commit", help_text)
+
+    def test_pop909_source_version_requires_a_full_git_commit(self) -> None:
+        with self.assertRaises(MODULE.PreparationError) as raised:
+            MODULE.validate_source_commit("d83e6ed")
+        self.assertIn("full 40-character", str(raised.exception))
+
+        self.assertEqual(
+            MODULE.validate_source_commit(
+                "D83E6EDBA6872A704F5D3B8B32F5CB540088DAE6"
+            ),
+            "d83e6edba6872a704f5d3b8b32f5cb540088dae6",
+        )
+
+    def test_cli_writes_hash_bound_prepare_run_beside_ledger(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            write_song(root, "001")
+            output = root / "private-output"
+            records_path = output / "records.jsonl"
+            ledger_path = output / "ledger.json"
+            stdout = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout):
+                result = MODULE.main(
+                    [
+                        "--pop909",
+                        str(root),
+                        "--output-records",
+                        str(records_path),
+                        "--output-ledger",
+                        str(ledger_path),
+                        "--source-version",
+                        "d83e6edba6872a704f5d3b8b32f5cb540088dae6",
+                        "--retrieved-at-utc",
+                        "2026-07-30T00:00:00Z",
+                        "--review-basis",
+                        "publicDomain",
+                        "--reviewed-at-utc",
+                        "2026-07-30T01:00:00Z",
+                        "--confirm-source-approved",
+                    ]
+                )
+
+            self.assertEqual(result, 0)
+            prepare_run_path = output / "prepare-run.json"
+            prepare_run_bytes = prepare_run_path.read_bytes()
+            prepare_run = json.loads(prepare_run_bytes)
+            ledger = json.loads(ledger_path.read_bytes())
+            self.assertEqual(
+                ledger["preparation"]["sha256"],
+                hashlib.sha256(prepare_run_bytes).hexdigest(),
+            )
+            self.assertEqual(
+                prepare_run["preparer"]["scriptSha256"],
+                hashlib.sha256(SCRIPT_PATH.read_bytes()).hexdigest(),
+            )
+            self.assertEqual(
+                prepare_run["source"]["sourceCommit"],
+                "d83e6edba6872a704f5d3b8b32f5cb540088dae6",
+            )
+            self.assertEqual(
+                prepare_run["normalizedRecordsSha256"],
+                hashlib.sha256(records_path.read_bytes()).hexdigest(),
+            )
+            self.assertEqual(
+                prepare_run["reviewedSourceInputs"],
+                ["harmony", "key", "meter", "beatTiming"],
+            )
+            self.assertEqual(
+                prepare_run["emittedTrainingContent"],
+                ["harmony", "key", "meter"],
+            )
+            self.assertEqual(
+                prepare_run["counts"],
+                {
+                    "discoveredSourceItemCount": 1,
+                    "eligibleSourceItemCount": 1,
+                    "excludedSourceItemCount": 0,
+                    "emittedRecordCount": 1,
+                },
+            )
+            printed = json.loads(stdout.getvalue())
+            self.assertEqual(
+                printed["prepareRunPath"],
+                str(prepare_run_path.resolve()),
+            )
+
+    def test_cli_rejects_a_preparer_script_changed_during_the_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            write_song(root, "001")
+            simulated_script = root / "simulated-preparer.py"
+            simulated_script.write_bytes(b"reviewed start bytes\n")
+            start_sha256 = hashlib.sha256(
+                simulated_script.read_bytes()
+            ).hexdigest()
+            original_prepare_corpus = MODULE.prepare_corpus
+
+            def prepare_then_change_script(*args, **kwargs):
+                corpus = original_prepare_corpus(*args, **kwargs)
+                simulated_script.write_bytes(b"changed during execution\n")
+                return corpus
+
+            output = root / "private-output"
+            arguments = [
+                "--pop909",
+                str(root),
+                "--output-records",
+                str(output / "records.jsonl"),
+                "--output-ledger",
+                str(output / "ledger.json"),
+                "--source-version",
+                "d83e6edba6872a704f5d3b8b32f5cb540088dae6",
+                "--retrieved-at-utc",
+                "2026-07-30T00:00:00Z",
+                "--review-basis",
+                "publicDomain",
+                "--reviewed-at-utc",
+                "2026-07-30T01:00:00Z",
+                "--confirm-source-approved",
+            ]
+            with (
+                mock.patch.object(
+                    MODULE,
+                    "_snapshot_preparer_script",
+                    return_value=(simulated_script, start_sha256),
+                ),
+                mock.patch.object(
+                    MODULE,
+                    "prepare_corpus",
+                    side_effect=prepare_then_change_script,
+                ),
+                contextlib.redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit),
+            ):
+                MODULE.main(arguments)
+
+            self.assertFalse(output.exists())
+
+    def test_atomic_write_preserves_existing_prepare_run_on_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "prepare-run.json"
+            output.write_bytes(b"last-known-good\n")
+
+            with (
+                mock.patch.object(
+                    MODULE.os,
+                    "fsync",
+                    side_effect=OSError("simulated sync failure"),
+                ),
+                self.assertRaises(OSError),
+            ):
+                MODULE.atomic_write(output, b"incomplete replacement\n")
+
+            self.assertEqual(output.read_bytes(), b"last-known-good\n")
+            self.assertEqual(
+                list(output.parent.glob(".prepare-run.json.*.tmp")),
+                [],
+            )
+
+    def test_bundle_install_is_all_or_nothing_and_never_overwrites(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            good = root / "good-v1"
+            good_payloads = {
+                good / "records.jsonl": b"old records\n",
+                good / "ledger.json": b'{"old":"ledger"}\n',
+                good / "prepare-run.json": b'{"old":"run"}\n',
+            }
+            MODULE.atomic_install_bundle(good_payloads)
+            good_snapshot = {
+                path.name: path.read_bytes() for path in good.iterdir()
+            }
+
+            with self.assertRaises(MODULE.PreparationError) as raised:
+                MODULE.atomic_install_bundle(good_payloads)
+            self.assertEqual(raised.exception.reason, "outputBundleExists")
+            self.assertEqual(
+                {path.name: path.read_bytes() for path in good.iterdir()},
+                good_snapshot,
+            )
+
+            failed = root / "failed-v2"
+            failed_payloads = {
+                failed / "records.jsonl": b"new records\n",
+                failed / "ledger.json": b'{"new":"ledger"}\n',
+                failed / "prepare-run.json": b'{"new":"run"}\n',
+            }
+            original_writer = MODULE._write_bundle_file
+            writes = 0
+
+            def fail_on_third(path, payload):
+                nonlocal writes
+                writes += 1
+                if writes == 3:
+                    raise OSError("simulated third-file failure")
+                original_writer(path, payload)
+
+            with (
+                mock.patch.object(
+                    MODULE,
+                    "_write_bundle_file",
+                    side_effect=fail_on_third,
+                ),
+                self.assertRaises(OSError),
+            ):
+                MODULE.atomic_install_bundle(failed_payloads)
+
+            self.assertEqual(writes, 3)
+            self.assertFalse(failed.exists())
+            self.assertEqual(
+                list(root.glob(".failed-v2.stage-*")),
+                [],
+            )
+            self.assertEqual(
+                {path.name: path.read_bytes() for path in good.iterdir()},
+                good_snapshot,
+            )
+
     def test_song_becomes_key_relative_harmony_only_record(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -117,6 +392,171 @@ class Pop909HarmonyOnlyPreparationTests(unittest.TestCase):
                         "mode": "naturalMinor",
                     },
                 ],
+            )
+
+    def test_song_and_annotation_symlinks_are_rejected_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            song = write_song(root, "001")
+            external = root / "external-chords.txt"
+            external.write_text("0 8 C:maj\n", encoding="utf-8")
+            chord_path = song / "chord_audio.txt"
+            chord_path.unlink()
+            try:
+                chord_path.symlink_to(external)
+            except OSError as exc:
+                self.skipTest(f"symlinks are unavailable: {exc}")
+
+            with self.assertRaises(MODULE.PreparationError) as raised:
+                MODULE.prepare_corpus(root, gap_policy="reject")
+            self.assertEqual(raised.exception.reason, "unsafeAnnotationFile")
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source_root = root / "source"
+            external_song = write_song(source_root, "001")
+            corpus_root = root / "corpus" / "POP909"
+            corpus_root.mkdir(parents=True)
+            try:
+                (corpus_root / "001").symlink_to(
+                    external_song,
+                    target_is_directory=True,
+                )
+            except OSError as exc:
+                self.skipTest(f"directory symlinks are unavailable: {exc}")
+
+            with self.assertRaises(MODULE.PreparationError) as raised:
+                MODULE.prepare_corpus(root / "corpus", gap_policy="reject")
+            self.assertEqual(raised.exception.reason, "unsafeSongDirectory")
+
+    def test_input_root_symlink_and_non_directory_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            real_root = root / "real"
+            write_song(real_root, "001")
+            linked_root = root / "linked"
+            try:
+                linked_root.symlink_to(real_root, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"directory symlinks are unavailable: {exc}")
+
+            with self.assertRaises(MODULE.PreparationError) as raised:
+                MODULE.prepare_corpus(linked_root, gap_policy="reject")
+            self.assertEqual(raised.exception.reason, "unsafeCorpusRoot")
+
+            non_directory = root / "not-a-directory"
+            non_directory.write_text("not POP909", encoding="utf-8")
+            with self.assertRaises(MODULE.PreparationError) as raised:
+                MODULE.prepare_corpus(non_directory, gap_policy="reject")
+            self.assertEqual(raised.exception.reason, "unsafeCorpusRoot")
+
+    def test_non_regular_song_and_annotation_paths_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            song = write_song(root, "001")
+            chord_path = song / "chord_audio.txt"
+            chord_path.unlink()
+            chord_path.mkdir()
+
+            with self.assertRaises(MODULE.PreparationError) as raised:
+                MODULE.prepare_corpus(root, gap_policy="reject")
+            self.assertEqual(raised.exception.reason, "unsafeAnnotationFile")
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            corpus_root = root / "POP909"
+            corpus_root.mkdir()
+            (corpus_root / "001").write_text(
+                "not a song directory",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(MODULE.PreparationError) as raised:
+                MODULE.prepare_corpus(root, gap_policy="reject")
+            self.assertEqual(raised.exception.reason, "unsafeSongDirectory")
+
+    def test_oversized_annotation_is_rejected_before_reading(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            song = write_song(root, "001")
+            with (song / "chord_audio.txt").open("wb") as handle:
+                handle.truncate(MODULE.MAXIMUM_ANNOTATION_BYTES + 1)
+
+            with self.assertRaises(MODULE.PreparationError) as raised:
+                MODULE.prepare_corpus(root, gap_policy="reject")
+            self.assertEqual(raised.exception.reason, "annotationTooLarge")
+
+    def test_hash_and_normalization_share_one_immutable_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            song = write_song(root, "001")
+            original_hash_function = MODULE._source_material_sha256
+            mutation_count = 0
+
+            def hash_then_mutate(snapshots):
+                nonlocal mutation_count
+                digest = original_hash_function(snapshots)
+                (song / "chord_audio.txt").write_text(
+                    "0 2 C:maj\n"
+                    "2 4 F:maj\n"
+                    "4 6 A:min7\n"
+                    "6 8 E:7\n",
+                    encoding="utf-8",
+                )
+                mutation_count += 1
+                return digest
+
+            with mock.patch.object(
+                MODULE,
+                "_source_material_sha256",
+                side_effect=hash_then_mutate,
+            ):
+                corpus = MODULE.prepare_corpus(root, gap_policy="reject")
+
+            self.assertEqual(mutation_count, 1)
+            self.assertEqual(
+                corpus.records[0]["harmony"][1]["rootOffsetFromKey"],
+                7,
+            )
+            fresh = MODULE.prepare_corpus(root, gap_policy="reject")
+            self.assertEqual(
+                fresh.records[0]["harmony"][1]["rootOffsetFromKey"],
+                5,
+            )
+            self.assertNotEqual(
+                corpus.source_material_sha256,
+                fresh.source_material_sha256,
+            )
+
+    def test_snapshot_hash_preserves_the_reference_byte_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            write_song(root, "002")
+            write_song(root, "001")
+            songs = MODULE.resolve_song_directories(root)
+            common_root = Path(
+                MODULE.os.path.commonpath([str(song) for song in songs])
+            )
+            legacy_digest = hashlib.sha256()
+            for song in songs:
+                for name in MODULE.ANNOTATION_FILE_NAMES:
+                    path = song / name
+                    relative = (
+                        path.relative_to(common_root)
+                        .as_posix()
+                        .encode("utf-8")
+                    )
+                    payload = path.read_bytes()
+                    legacy_digest.update(len(relative).to_bytes(8, "big"))
+                    legacy_digest.update(relative)
+                    legacy_digest.update(len(payload).to_bytes(8, "big"))
+                    legacy_digest.update(payload)
+
+            corpus = MODULE.prepare_corpus(root, gap_policy="reject")
+
+            self.assertEqual(
+                corpus.source_material_sha256,
+                legacy_digest.hexdigest(),
             )
 
     def test_adjacent_sub_frame_jitter_is_snapped(self) -> None:
@@ -346,6 +786,7 @@ class Pop909HarmonyOnlyPreparationTests(unittest.TestCase):
             ledger = MODULE.build_ledger_v2(
                 records_sha256=records_sha256,
                 corpus=corpus,
+                preparation_run_sha256="0" * 64,
                 source_version="d83e6edba6872a704f5d3b8b32f5cb540088dae6",
                 retrieved_at_utc="2026-07-30T00:00:00Z",
                 reviewed_at_utc="2026-07-30T00:00:00Z",
@@ -362,6 +803,7 @@ class Pop909HarmonyOnlyPreparationTests(unittest.TestCase):
                     "distributionScope",
                     "rawDataInGit",
                     "normalizedInputSha256",
+                    "preparation",
                     "sources",
                 },
             )
@@ -373,6 +815,10 @@ class Pop909HarmonyOnlyPreparationTests(unittest.TestCase):
             self.assertEqual(ledger["distributionScope"], "privateLocalOnly")
             self.assertFalse(ledger["rawDataInGit"])
             self.assertEqual(ledger["normalizedInputSha256"], records_sha256)
+            self.assertEqual(
+                ledger["preparation"],
+                {"schemaVersion": 1, "sha256": "0" * 64},
+            )
             source = ledger["sources"][0]
             self.assertEqual(
                 set(source),
@@ -390,7 +836,11 @@ class Pop909HarmonyOnlyPreparationTests(unittest.TestCase):
                 },
             )
             self.assertEqual(
-                source["review"]["allowedContent"],
+                source["review"]["reviewedSourceInputs"],
+                ["harmony", "key", "meter", "beatTiming"],
+            )
+            self.assertEqual(
+                source["review"]["emittedTrainingContent"],
                 ["harmony", "key", "meter"],
             )
             self.assertEqual(
@@ -399,7 +849,8 @@ class Pop909HarmonyOnlyPreparationTests(unittest.TestCase):
                     "status",
                     "basis",
                     "licenseId",
-                    "allowedContent",
+                    "reviewedSourceInputs",
+                    "emittedTrainingContent",
                     "reviewedAt",
                 },
             )
@@ -409,6 +860,7 @@ class Pop909HarmonyOnlyPreparationTests(unittest.TestCase):
                 MODULE.build_ledger_v2(
                     records_sha256=records_sha256,
                     corpus=corpus,
+                    preparation_run_sha256="0" * 64,
                     source_version="d83e6edba6872a704f5d3b8b32f5cb540088dae6",
                     retrieved_at_utc="2026-07-30T00:00:00Z",
                     reviewed_at_utc="2026-07-30T00:00:00Z",
@@ -428,9 +880,24 @@ class Pop909HarmonyOnlyPreparationTests(unittest.TestCase):
             corpus = MODULE.prepare_corpus(root, gap_policy="reject")
             records_bytes = MODULE.canonical_jsonl(corpus.records)
             records_sha256 = hashlib.sha256(records_bytes).hexdigest()
+            prepare_run = MODULE.build_prepare_run(
+                records_sha256=records_sha256,
+                corpus=corpus,
+                source_commit=(
+                    "d83e6edba6872a704f5d3b8b32f5cb540088dae6"
+                ),
+                gap_policy="reject",
+                preparer_sha256=hashlib.sha256(
+                    SCRIPT_PATH.read_bytes()
+                ).hexdigest(),
+            )
+            prepare_run_bytes = MODULE.canonical_json(prepare_run)
             ledger = MODULE.build_ledger_v2(
                 records_sha256=records_sha256,
                 corpus=corpus,
+                preparation_run_sha256=hashlib.sha256(
+                    prepare_run_bytes
+                ).hexdigest(),
                 source_version="d83e6edba6872a704f5d3b8b32f5cb540088dae6",
                 retrieved_at_utc="2026-07-30T00:00:00Z",
                 reviewed_at_utc="2026-07-30T00:00:00Z",
@@ -438,16 +905,21 @@ class Pop909HarmonyOnlyPreparationTests(unittest.TestCase):
             )
             input_path = root / "records.jsonl"
             ledger_path = root / "ledger.json"
+            prepare_run_path = root / "prepare-run.json"
             input_path.write_bytes(records_bytes)
             ledger_path.write_bytes(MODULE.canonical_json(ledger))
+            prepare_run_path.write_bytes(prepare_run_bytes)
 
             manifest = compile_dataset(
                 input_path,
                 ledger_path,
                 root / "processed",
+                preparation_run_path=prepare_run_path,
                 options=CompileOptions(
                     dataset_id="pop909-harmony-only",
-                    dataset_version="v1",
+                    dataset_version=(
+                        "d83e6edba6872a704f5d3b8b32f5cb540088dae6"
+                    ),
                     purpose=PRIVATE_HARMONY_TRAINING_PURPOSE,
                     content_profile="harmonyOnlyV1",
                     harmony_gap_policy=MODULE.COMPILER_GAP_POLICIES["reject"],
@@ -457,7 +929,42 @@ class Pop909HarmonyOnlyPreparationTests(unittest.TestCase):
             self.assertEqual(manifest["schemaVersion"], 2)
             self.assertEqual(manifest["contentProfile"], "harmonyOnlyV1")
             self.assertEqual(manifest["distributionScope"], "privateLocalOnly")
+            self.assertEqual(
+                manifest["ledger"]["reviewedSourceInputs"],
+                ["harmony", "key", "meter", "beatTiming"],
+            )
+            self.assertEqual(
+                manifest["ledger"]["emittedTrainingContent"],
+                ["harmony", "key", "meter"],
+            )
+            self.assertEqual(
+                manifest["ledger"]["preparation"],
+                ledger["preparation"],
+            )
             self.assertTrue((root / "processed" / "provenance.json").is_file())
+
+            prepare_run_path.write_bytes(prepare_run_bytes + b" ")
+            with self.assertRaisesRegex(
+                DatasetCompileError,
+                "preparation run checksum does not match",
+            ):
+                compile_dataset(
+                    input_path,
+                    ledger_path,
+                    root / "tampered-processed",
+                    preparation_run_path=prepare_run_path,
+                    options=CompileOptions(
+                        dataset_id="pop909-harmony-only",
+                        dataset_version=(
+                            "d83e6edba6872a704f5d3b8b32f5cb540088dae6"
+                        ),
+                        purpose=PRIVATE_HARMONY_TRAINING_PURPOSE,
+                        content_profile="harmonyOnlyV1",
+                        harmony_gap_policy=(
+                            MODULE.COMPILER_GAP_POLICIES["reject"]
+                        ),
+                    ),
+                )
 
     def test_source_hash_changes_only_for_consumed_annotations(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

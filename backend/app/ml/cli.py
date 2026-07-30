@@ -31,6 +31,14 @@ def build_compile_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--ledger", type=Path, required=True)
+    parser.add_argument(
+        "--prepare-run",
+        type=Path,
+        help=(
+            "hash-bound prepare-run.json required when a harmony-only ledger "
+            "declares a preparation descriptor"
+        ),
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--dataset-id", required=True)
     parser.add_argument("--dataset-version", required=True)
@@ -67,6 +75,7 @@ def compile_main(argv: Sequence[str] | None = None) -> int:
         arguments.input,
         arguments.ledger,
         arguments.output,
+        preparation_run_path=arguments.prepare_run,
         options=CompileOptions(
             dataset_id=arguments.dataset_id,
             dataset_version=arguments.dataset_version,
