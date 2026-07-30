@@ -129,11 +129,20 @@ export function useDiagnostics(
             ? model.available
               ? "explicit Mock · untrained"
               : "explicit Mock disabled"
+            : model.task === "harmony_only_pretraining"
+              ? "pretraining manifest detected · inference blocked"
             : harmony
               ? model.available
                 ? "trained checkpoint ready"
                 : "trained checkpoint missing"
               : "ranking model";
+          const task = model.task === "harmony_only_pretraining"
+            ? "task: harmony-only pretraining（推論利用不可）"
+            : model.task === "melody_conditioned_variable_rhythm_harmonization"
+              ? "task: melody-conditioned inference"
+              : harmony
+                ? "task: 未配置または未報告"
+                : null;
           return {
             id: model.id,
             name: model.name,
@@ -147,6 +156,7 @@ export function useDiagnostics(
                 : model.available ? "available on demand" : "unavailable",
               `capability: ${model.capabilities.join(", ")}`,
               modelKind,
+              task,
               model.id === backend.models.activeModel
                 ? fallbackLabel(backend.models.fallbackReason)
                 : null,

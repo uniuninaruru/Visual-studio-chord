@@ -5,21 +5,23 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app import __version__ as APP_VERSION
 from app.ml.contracts import MODEL_ID, HarmonyForgeConfig
-from app.ml.dataset import DATA_MANIFEST_FILE
+from app.ml.dataset import DATA_MANIFEST_FILE, load_data_manifest
 from app.ml.tokenizer import TOKENIZER_SHA256
 
 MANIFEST_FILE = "manifest.json"
 CHECKPOINT_FILE = "harmonyforge-bimask-base-v1.safetensors"
 TRAINING_RUN_FILE = "training-run.json"
+TRAINING_RUN_SCHEMA_VERSION = 2
 ARTIFACT_POINTER_FILE = "current.json"
 ARTIFACT_VERSIONS_DIRECTORY = "versions"
 
@@ -30,6 +32,10 @@ ARTIFACT_VERSIONS_DIRECTORY = "versions"
 # it has to be declarable and why it has to be checked.
 INFERENCE_TASK = "melody_conditioned_variable_rhythm_harmonization"
 PRETRAINING_TASK = "harmony_only_pretraining"
+CheckpointTask = Literal[
+    "melody_conditioned_variable_rhythm_harmonization",
+    "harmony_only_pretraining",
+]
 
 
 class SupportedPrecisions(BaseModel):
@@ -45,10 +51,7 @@ class HarmonyCheckpointManifest(BaseModel):
 
     schema_version: Literal[1] = Field(alias="schemaVersion")
     model_id: Literal["harmonyforge-bimask-base-v1"] = Field(alias="modelId")
-    task: Literal[
-        "melody_conditioned_variable_rhythm_harmonization",
-        "harmony_only_pretraining",
-    ]
+    task: CheckpointTask
     trained: bool
     evaluation_status: Literal["notEvaluated", "researchOnly", "validated"] = Field(
         alias="evaluationStatus",
@@ -89,6 +92,15 @@ class HarmonyCheckpointManifest(BaseModel):
 
 class CheckpointUnavailableError(RuntimeError):
     """A trained, compatible artifact is not present."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        declared_task: CheckpointTask | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.declared_task = declared_task
 
 
 class CheckpointInvalidError(RuntimeError):
@@ -198,7 +210,8 @@ def load_manifest_from_artifact_directory(
     if manifest.task != INFERENCE_TASK and not permit_pretraining_task:
         raise CheckpointUnavailableError(
             f"HarmonyForge artifact declares task {manifest.task!r}, which cannot "
-            f"serve inference; only {INFERENCE_TASK!r} may be loaded"
+            f"serve inference; only {INFERENCE_TASK!r} may be loaded",
+            declared_task=manifest.task,
         )
     if not manifest.trained:
         raise CheckpointUnavailableError("HarmonyForge artifact is explicitly untrained")
@@ -245,7 +258,183 @@ def load_manifest_from_artifact_directory(
         raise CheckpointInvalidError(
             "HarmonyForge training run checksum does not match"
         )
+    try:
+        data_contract = load_data_manifest(
+            data_manifest_path,
+            verify_files=False,
+        )
+        training_run = load_training_run_contract(training_run_path)
+    except Exception as exc:
+        raise CheckpointInvalidError(
+            "HarmonyForge artifact provenance contract is invalid"
+        ) from exc
+    data_task = (
+        PRETRAINING_TASK
+        if data_contract.get("contentProfile") == "harmonyOnlyV1"
+        else INFERENCE_TASK
+    )
+    if data_task != manifest.task or training_run["task"] != manifest.task:
+        raise CheckpointInvalidError(
+            "HarmonyForge task disagrees with its data or training provenance"
+        )
+    if training_run["dataManifestSha256"] != manifest.data_manifest_sha256:
+        raise CheckpointInvalidError(
+            "HarmonyForge training run binds a different data manifest"
+        )
+    if training_run["configSha256"] != manifest.architecture_config_sha256:
+        raise CheckpointInvalidError(
+            "HarmonyForge training run binds a different model config"
+        )
+    if training_run["sourceCommit"] != manifest.source_commit:
+        raise CheckpointInvalidError(
+            "HarmonyForge training run source commit does not match"
+        )
+    if training_run["pytorchVersion"] != manifest.pytorch_version:
+        raise CheckpointInvalidError(
+            "HarmonyForge training run PyTorch version does not match"
+        )
     return manifest
+
+
+def load_training_run_contract(path: Path) -> dict[str, Any]:
+    """Load v2 provenance or normalize one legacy inference-only v1 run."""
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise CheckpointInvalidError("training run is not valid UTF-8 JSON") from exc
+    common = {
+        "schemaVersion",
+        "deterministic",
+        "sourceCommit",
+        "configSha256",
+        "dataManifestSha256",
+        "pytorchVersion",
+        "cublasWorkspaceConfig",
+        "seed",
+        "optimizer",
+        "epochs",
+        "steps",
+        "actualDevice",
+        "dtype",
+        "fallbackReason",
+        "meanTrainingLoss",
+        "metrics",
+    }
+    if not isinstance(payload, dict):
+        raise CheckpointInvalidError("training run must be an object")
+    schema_version = payload.get("schemaVersion")
+    if schema_version == 1:
+        if set(payload) != common:
+            raise CheckpointInvalidError(
+                "legacy training run fields do not match schema v1"
+            )
+        normalized = {
+            **payload,
+            "task": INFERENCE_TASK,
+            "initialCheckpoint": None,
+        }
+    elif schema_version == TRAINING_RUN_SCHEMA_VERSION:
+        if set(payload) != common | {"task", "initialCheckpoint"}:
+            raise CheckpointInvalidError(
+                "training run fields do not match schema v2"
+            )
+        normalized = dict(payload)
+        if normalized["task"] not in {INFERENCE_TASK, PRETRAINING_TASK}:
+            raise CheckpointInvalidError("training run task is invalid")
+        _validate_initial_checkpoint_contract(normalized["initialCheckpoint"])
+        initial_checkpoint = normalized["initialCheckpoint"]
+        if initial_checkpoint is not None and not is_allowed_task_transition(
+            initial_checkpoint["task"],
+            normalized["task"],
+        ):
+            raise CheckpointInvalidError(
+                "training run initial checkpoint task transition is invalid"
+            )
+    else:
+        raise CheckpointInvalidError("unsupported training run schema version")
+
+    if normalized["deterministic"] is not True:
+        raise CheckpointInvalidError("training run must be deterministic")
+    for field in (
+        "sourceCommit",
+        "configSha256",
+        "dataManifestSha256",
+        "pytorchVersion",
+        "cublasWorkspaceConfig",
+        "seed",
+        "actualDevice",
+        "dtype",
+    ):
+        if not isinstance(normalized[field], str) or not normalized[field]:
+            raise CheckpointInvalidError(f"training run {field} is invalid")
+    if not re.fullmatch(r"[0-9a-f]{7,64}", normalized["sourceCommit"]):
+        raise CheckpointInvalidError("training run sourceCommit is invalid")
+    for field in ("configSha256", "dataManifestSha256"):
+        if not re.fullmatch(r"[0-9a-f]{64}", normalized[field]):
+            raise CheckpointInvalidError(f"training run {field} is invalid")
+    if not isinstance(normalized["optimizer"], dict):
+        raise CheckpointInvalidError("training run optimizer is invalid")
+    if not isinstance(normalized["metrics"], dict):
+        raise CheckpointInvalidError("training run metrics are invalid")
+    if (
+        not isinstance(normalized["steps"], int)
+        or isinstance(normalized["steps"], bool)
+        or normalized["steps"] < 1
+    ):
+        raise CheckpointInvalidError("training run steps are invalid")
+    if (
+        not isinstance(normalized["epochs"], int)
+        or isinstance(normalized["epochs"], bool)
+        or normalized["epochs"] < 1
+    ):
+        raise CheckpointInvalidError("training run epochs are invalid")
+    if (
+        not isinstance(normalized["meanTrainingLoss"], (int, float))
+        or isinstance(normalized["meanTrainingLoss"], bool)
+        or not math.isfinite(normalized["meanTrainingLoss"])
+    ):
+        raise CheckpointInvalidError("training run mean loss is invalid")
+    if normalized["fallbackReason"] is not None and not isinstance(
+        normalized["fallbackReason"],
+        str,
+    ):
+        raise CheckpointInvalidError("training run fallback reason is invalid")
+    return normalized
+
+
+def _validate_initial_checkpoint_contract(value: Any) -> None:
+    if value is None:
+        return
+    if not isinstance(value, dict) or set(value) != {
+        "modelId",
+        "task",
+        "manifestSha256",
+        "checkpointSha256",
+    }:
+        raise CheckpointInvalidError("training run initial checkpoint is invalid")
+    if value["modelId"] != MODEL_ID:
+        raise CheckpointInvalidError("training run initial checkpoint model is invalid")
+    if value["task"] not in {INFERENCE_TASK, PRETRAINING_TASK}:
+        raise CheckpointInvalidError("training run initial checkpoint task is invalid")
+    for field in ("manifestSha256", "checkpointSha256"):
+        if not isinstance(value[field], str) or not re.fullmatch(
+            r"[0-9a-f]{64}",
+            value[field],
+        ):
+            raise CheckpointInvalidError(
+                f"training run initial checkpoint {field} is invalid"
+            )
+
+
+def is_allowed_task_transition(
+    source_task: CheckpointTask,
+    destination_task: CheckpointTask,
+) -> bool:
+    return source_task == destination_task or (
+        source_task == PRETRAINING_TASK
+        and destination_task == INFERENCE_TASK
+    )
 
 
 def validate_pytorch_compatibility(

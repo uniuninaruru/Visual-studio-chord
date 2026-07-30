@@ -10,6 +10,8 @@ declaring it must keep the artifact out of inference.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app.ml.artifacts import (
@@ -22,12 +24,17 @@ from app.ml.checkpoint import (
     CHECKPOINT_FILE,
     INFERENCE_TASK,
     PRETRAINING_TASK,
+    CheckpointInvalidError,
     CheckpointUnavailableError,
     load_manifest,
 )
 from app.ml.contracts import MODEL_ID, load_model_config
 from app.ml.dataset import DATA_MANIFEST_FILE
-from tests.test_harmony_checkpoint import _config_path, _write_manifest
+from app.ml.training_runtime import (
+    TrainingRuntimeError,
+    load_initial_checkpoint_for_training,
+)
+from tests.test_harmony_checkpoint import _config_path, _sha256, _write_manifest
 from tests.test_training_dataset import (
     _compile,
     _compile_harmony_only,
@@ -38,7 +45,7 @@ from tests.test_training_dataset import (
 )
 
 
-def _staged_artifact(tmp_path, compiled):
+def _staged_artifact(tmp_path, compiled, *, task=INFERENCE_TASK):
     """Lay out one exportable artifact directory against a compiled dataset."""
 
     artifact = tmp_path / "models" / MODEL_ID
@@ -49,6 +56,7 @@ def _staged_artifact(tmp_path, compiled):
     training_run_path = _write_training_run(
         artifact / "source-training-run.json",
         compiled / DATA_MANIFEST_FILE,
+        task=task,
     )
     return artifact, training_run_path
 
@@ -101,6 +109,77 @@ def test_research_mode_does_not_open_the_task_boundary(tmp_path) -> None:
             )
 
 
+def test_relabelling_only_the_manifest_cannot_hide_pretraining_provenance(
+    tmp_path,
+) -> None:
+    _write_manifest(tmp_path, task=PRETRAINING_TASK)
+    manifest_path = tmp_path / MODEL_ID / "manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["task"] = INFERENCE_TASK
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(CheckpointInvalidError, match="task disagrees"):
+        load_manifest(
+            tmp_path,
+            load_model_config(_config_path()),
+            config_path=_config_path(),
+            allow_research=True,
+        )
+
+
+def test_training_run_task_mismatch_is_rejected(tmp_path) -> None:
+    _write_manifest(tmp_path, task=INFERENCE_TASK)
+    artifact = tmp_path / MODEL_ID
+    training_run_path = artifact / "training-run.json"
+    training_run = json.loads(training_run_path.read_text(encoding="utf-8"))
+    training_run["task"] = PRETRAINING_TASK
+    training_run_path.write_text(json.dumps(training_run), encoding="utf-8")
+    manifest_path = artifact / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["trainingRunSha256"] = _sha256(training_run_path)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(CheckpointInvalidError, match="task disagrees"):
+        load_manifest(
+            tmp_path,
+            load_model_config(_config_path()),
+            config_path=_config_path(),
+            allow_research=True,
+        )
+
+
+def test_impossible_initial_checkpoint_transition_is_rejected(tmp_path) -> None:
+    _write_manifest(tmp_path, task=PRETRAINING_TASK)
+    artifact = tmp_path / MODEL_ID
+    training_run_path = artifact / "training-run.json"
+    training_run = json.loads(training_run_path.read_text(encoding="utf-8"))
+    training_run["initialCheckpoint"] = {
+        "modelId": MODEL_ID,
+        "task": INFERENCE_TASK,
+        "manifestSha256": "c" * 64,
+        "checkpointSha256": "d" * 64,
+    }
+    training_run_path.write_text(json.dumps(training_run), encoding="utf-8")
+    manifest_path = artifact / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["trainingRunSha256"] = _sha256(training_run_path)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(
+        CheckpointInvalidError,
+        match="provenance contract",
+    ) as error:
+        load_manifest(
+            tmp_path,
+            load_model_config(_config_path()),
+            config_path=_config_path(),
+            allow_research=True,
+            permit_pretraining_task=True,
+        )
+    assert isinstance(error.value.__cause__, CheckpointInvalidError)
+    assert "task transition" in str(error.value.__cause__)
+
+
 def test_a_validated_pretraining_artifact_is_still_rejected(tmp_path) -> None:
     """Evaluation status cannot substitute for the right objective.
 
@@ -144,6 +223,58 @@ def test_training_and_export_paths_may_load_a_pretraining_checkpoint(
     assert manifest.task == PRETRAINING_TASK
 
 
+def test_inference_training_can_explicitly_warm_start_pretraining_weights(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _write_manifest(tmp_path, task=PRETRAINING_TASK)
+    loaded = []
+    monkeypatch.setattr(
+        "app.ml.training_runtime.load_weights",
+        lambda model, checkpoint, *, device: loaded.append(
+            (model, checkpoint.manifest.task, device)
+        ),
+    )
+    model = object()
+
+    provenance = load_initial_checkpoint_for_training(
+        model,
+        model_directory=tmp_path,
+        config=load_model_config(_config_path()),
+        config_path=_config_path(),
+        destination_task=INFERENCE_TASK,
+        device="cpu",
+        pytorch_version="2.13.0",
+    )
+
+    assert loaded == [(model, PRETRAINING_TASK, "cpu")]
+    assert provenance["task"] == PRETRAINING_TASK
+    assert len(provenance["manifestSha256"]) == 64
+    assert len(provenance["checkpointSha256"]) == 64
+
+
+def test_inference_weights_cannot_be_relabelled_as_pretraining(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _write_manifest(tmp_path, task=INFERENCE_TASK)
+    monkeypatch.setattr(
+        "app.ml.training_runtime.load_weights",
+        lambda *_args, **_kwargs: pytest.fail("weights must not be loaded"),
+    )
+
+    with pytest.raises(TrainingRuntimeError, match="cannot warm-start"):
+        load_initial_checkpoint_for_training(
+            object(),
+            model_directory=tmp_path,
+            config=load_model_config(_config_path()),
+            config_path=_config_path(),
+            destination_task=PRETRAINING_TASK,
+            device="cpu",
+            pytorch_version="2.13.0",
+        )
+
+
 def test_melody_conditioned_checkpoints_still_load(tmp_path) -> None:
     _write_manifest(tmp_path, task=INFERENCE_TASK)
     config = load_model_config(_config_path())
@@ -182,7 +313,36 @@ def test_serving_backend_reports_a_pretraining_artifact_as_unavailable(
     manifest = backend.manifest()
 
     assert manifest["available"] is False
+    assert manifest["task"] == PRETRAINING_TASK
+    assert manifest["trained"] is False
+    assert manifest["evaluationStatus"] == "notEvaluated"
+    assert manifest["checkpointSha256"] is None
     assert PRETRAINING_TASK in str(manifest["unavailableReason"])
+
+
+def test_serving_does_not_claim_a_tampered_pretraining_checkpoint_is_valid(
+    tmp_path,
+) -> None:
+    model_directory = tmp_path / "models"
+    model_directory.mkdir()
+    checkpoint_path = _write_manifest(
+        model_directory,
+        task=PRETRAINING_TASK,
+    )
+    checkpoint_path.write_bytes(b"tampered-after-manifest")
+    backend = TorchHarmonyBackend(
+        model_directory=model_directory,
+        config_path=_config_path(),
+        allow_research=True,
+    )
+
+    manifest = backend.manifest()
+
+    assert manifest["available"] is False
+    assert manifest["task"] == PRETRAINING_TASK
+    assert manifest["trained"] is False
+    assert manifest["evaluationStatus"] == "notEvaluated"
+    assert manifest["checkpointSha256"] is None
 
 
 def test_serving_backend_accepts_the_inference_task_from_the_same_fixture(
@@ -221,7 +381,11 @@ def test_a_harmony_only_dataset_cannot_export_the_inference_task(tmp_path) -> No
         [_harmony_only_record("first", source_id="fixture-a")],
         "harmony-only",
     )
-    artifact, training_run_path = _staged_artifact(tmp_path, compiled)
+    artifact, training_run_path = _staged_artifact(
+        tmp_path,
+        compiled,
+        task=PRETRAINING_TASK,
+    )
     config = load_model_config(_config_path())
 
     with pytest.raises(ArtifactExportError, match="content profile"):
@@ -242,7 +406,11 @@ def test_a_harmony_only_dataset_exports_the_pretraining_task(tmp_path) -> None:
         [_harmony_only_record("first", source_id="fixture-a")],
         "harmony-only",
     )
-    artifact, training_run_path = _staged_artifact(tmp_path, compiled)
+    artifact, training_run_path = _staged_artifact(
+        tmp_path,
+        compiled,
+        task=PRETRAINING_TASK,
+    )
     config = load_model_config(_config_path())
 
     exported = publish_checkpoint_manifest(

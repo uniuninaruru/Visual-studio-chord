@@ -100,6 +100,11 @@ class TorchHarmonyBackend:
                 response = _unavailable_manifest_response(
                     architecture=config.architecture_dict(),
                     reason=str(exc),
+                    task=(
+                        exc.declared_task
+                        if isinstance(exc, CheckpointUnavailableError)
+                        else None
+                    ),
                 )
                 self._cache_manifest_validation(
                     signature,
@@ -494,12 +499,14 @@ def _unavailable_manifest_response(
     *,
     architecture: dict[str, int | float | str | bool],
     reason: str,
+    task: str | None = None,
 ) -> dict[str, object]:
     return {
         "modelId": MODEL_ID,
         "available": False,
         "mock": False,
         "trained": False,
+        "task": task,
         "evaluationStatus": "notEvaluated",
         "checkpointSha256": None,
         "tokenizerSha256": TOKENIZER_SHA256,

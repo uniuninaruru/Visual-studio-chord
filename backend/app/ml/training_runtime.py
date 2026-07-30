@@ -7,14 +7,23 @@ import importlib
 import json
 import os
 import re
+import tempfile
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from app.ml.artifacts import CheckpointTask, save_trained_artifact
+from app.ml.artifacts import (
+    ArtifactExportError,
+    CheckpointTask,
+    save_trained_artifact,
+    validate_declared_task,
+)
 from app.ml.checkpoint import (
     INFERENCE_TASK,
+    MANIFEST_FILE,
+    TRAINING_RUN_SCHEMA_VERSION,
+    is_allowed_task_transition,
     load_validated_checkpoint,
     load_weights,
     validate_pytorch_compatibility,
@@ -79,6 +88,7 @@ def train_reference_model(
     source_commit: str,
     options: TrainOptions,
     task: CheckpointTask = INFERENCE_TASK,
+    initial_model_directory: Path | None = None,
 ) -> dict[str, Any]:
     """Run deterministic reference training and export a research checkpoint."""
 
@@ -88,7 +98,11 @@ def train_reference_model(
             "source_commit must be a 7-64 digit lowercase hex id"
         )
     config = load_model_config(config_path)
-    load_data_manifest(data_manifest_path)
+    data_manifest = load_data_manifest(data_manifest_path)
+    try:
+        validate_declared_task(task, data_manifest)
+    except ArtifactExportError as exc:
+        raise TrainingRuntimeError(str(exc)) from exc
     train_rows = list(iter_compiled_split(data_manifest_path, "train"))
     validation_rows = list(iter_compiled_split(data_manifest_path, "validation"))
     if not train_rows:
@@ -105,6 +119,17 @@ def train_reference_model(
     device, device_fallback = _select_device(torch, options.device)
     _configure_determinism(torch, options.seed)
     model = build_harmony_forge_model(config, torch_module=torch).to(device)
+    initial_checkpoint = None
+    if initial_model_directory is not None:
+        initial_checkpoint = load_initial_checkpoint_for_training(
+            model,
+            model_directory=initial_model_directory,
+            config=config,
+            config_path=config_path,
+            destination_task=task,
+            device=device,
+            pytorch_version=str(torch.__version__),
+        )
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=options.learning_rate,
@@ -167,26 +192,13 @@ def train_reference_model(
         device=device,
         batch_size=options.batch_size,
     )
-    artifact_directory = model_directory.resolve() / config.model_id
-    artifact_directory.mkdir(parents=True, exist_ok=True)
-    evaluation_payload = {
-        "schemaVersion": 1,
-        "split": "validation",
-        "dataManifestSha256": _sha256_file(data_manifest_path),
-        "checkpointStatus": "preExportValidation",
-        "metrics": evaluation,
-    }
-    _atomic_json_write(
-        artifact_directory / "evaluation.json",
-        evaluation_payload,
-    )
-    training_run_path = artifact_directory / "training-run.json"
     training_run = {
-        "schemaVersion": 1,
+        "schemaVersion": TRAINING_RUN_SCHEMA_VERSION,
         "deterministic": True,
         # Recorded here as well as in the manifest so the declared objective is
         # inside the hashed provenance chain, not a label attached beside it.
         "task": task,
+        "initialCheckpoint": initial_checkpoint,
         "sourceCommit": source_commit,
         "configSha256": _sha256_file(config_path),
         "dataManifestSha256": _sha256_file(data_manifest_path),
@@ -209,23 +221,23 @@ def train_reference_model(
         "meanTrainingLoss": loss_sum / step,
         "metrics": evaluation,
     }
-    _atomic_json_write(training_run_path, training_run)
-    manifest = save_trained_artifact(
+    manifest = _save_artifact_with_staged_training_run(
         model,
-        model_directory,
+        model_directory=model_directory,
         config=config,
         config_path=config_path,
         data_manifest_path=data_manifest_path,
-        training_run_path=training_run_path,
+        training_run=training_run,
         source_commit=source_commit,
         pytorch_version=str(torch.__version__),
         task=task,
-        evaluation_status="researchOnly",
     )
+    artifact_directory = model_directory.resolve() / config.model_id
     return {
         "modelId": config.model_id,
         "trained": True,
         "task": manifest.task,
+        "initialCheckpoint": initial_checkpoint,
         "evaluationStatus": manifest.evaluation_status,
         "device": device,
         "fallbackReason": device_fallback,
@@ -236,6 +248,79 @@ def train_reference_model(
         "checkpointSha256": manifest.checkpoint_sha256,
         "dataManifestSha256": manifest.data_manifest_sha256,
         "artifactDirectory": str(artifact_directory),
+    }
+
+
+def _save_artifact_with_staged_training_run(
+    model: Any,
+    *,
+    model_directory: Path,
+    config: HarmonyForgeConfig,
+    config_path: Path,
+    data_manifest_path: Path,
+    training_run: dict[str, Any],
+    source_commit: str,
+    pytorch_version: str,
+    task: CheckpointTask,
+) -> Any:
+    """Keep mutable run metadata away from an active legacy artifact."""
+
+    # The immutable artifact writer copies this file into a staging version and
+    # switches current.json only after validation. Keeping the source in an
+    # unrelated temporary directory means a same-root warm-start cannot be
+    # corrupted if serialization or validation fails.
+    with tempfile.TemporaryDirectory(
+        prefix="harmonyforge-training-run-",
+    ) as temporary_directory:
+        training_run_path = Path(temporary_directory) / "training-run.json"
+        _atomic_json_write(training_run_path, training_run)
+        return save_trained_artifact(
+            model,
+            model_directory,
+            config=config,
+            config_path=config_path,
+            data_manifest_path=data_manifest_path,
+            training_run_path=training_run_path,
+            source_commit=source_commit,
+            pytorch_version=pytorch_version,
+            task=task,
+            evaluation_status="researchOnly",
+        )
+
+
+def load_initial_checkpoint_for_training(
+    model: Any,
+    *,
+    model_directory: Path,
+    config: HarmonyForgeConfig,
+    config_path: Path,
+    destination_task: CheckpointTask,
+    device: str,
+    pytorch_version: str,
+) -> dict[str, str]:
+    """Load an explicitly selected local checkpoint and record its identity."""
+
+    checkpoint = load_validated_checkpoint(
+        model_directory,
+        config,
+        config_path=config_path,
+        allow_research=True,
+        permit_pretraining_task=True,
+    )
+    initial_task = checkpoint.manifest.task
+    if not is_allowed_task_transition(initial_task, destination_task):
+        raise TrainingRuntimeError(
+            f"cannot warm-start task {destination_task!r} from "
+            f"checkpoint task {initial_task!r}"
+        )
+    validate_pytorch_compatibility(checkpoint.manifest, pytorch_version)
+    load_weights(model, checkpoint, device=device)
+    manifest_path = checkpoint.artifact_directory / MANIFEST_FILE
+    return {
+        "modelId": checkpoint.manifest.model_id,
+        "task": initial_task,
+        "manifestSha256": _sha256_file(manifest_path),
+        "checkpointSha256": checkpoint.manifest.checkpoint_sha256,
     }
 
 
@@ -260,9 +345,10 @@ def evaluate_checkpoint(
     if not rows:
         raise TrainingRuntimeError(f"compiled {split} split is empty")
     validate_compiled_rows(rows, config)
-    # Evaluating a pre-training artifact is legitimate and is how it earns
-    # promotion; the returned payload names the objective so a number measured
-    # on one task can never be read as evidence about the other.
+    # Evaluating a pre-training artifact is legitimate, but never changes its
+    # task. Promotion requires an explicit melody-conditioned fine-tuning run
+    # that writes a new artifact. The returned payload names the objective so a
+    # number measured on one task cannot be read as evidence about the other.
     checkpoint = load_validated_checkpoint(
         model_directory,
         config,
