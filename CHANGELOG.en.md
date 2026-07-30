@@ -7,6 +7,54 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Added — a safety boundary keeping harmony-pre-trained weights out of inference
+
+The trainer is fixed at melody-conditioned variable-rhythm harmonization.
+Weights produced by harmony-only pre-training share the architecture, the
+tokenizer, and the config, so **every structural check the loader performs —
+tokenizer match, architecture match, SHA-256 of every file — passes on them**.
+The declared objective is the only thing separating the two. Loading such
+weights as the product model would make the capability the interface advertises
+untrue.
+
+There were three gaps.
+
+- **No vocabulary for an honest declaration.** `manifest.task` was a `Literal`
+  admitting exactly one value, and the writer hardcoded that same string. A
+  harmony-only checkpoint could not be described at all except by claiming to
+  be melody-conditioned — the schema compelled the misstatement.
+- **The boundary rode on release status.** `MTC_ENABLE_RESEARCH_CHECKPOINT=1`
+  reaches the production serving path as `allow_research`. "Not yet evaluated"
+  and "trained at a different objective" are independent axes, but they were
+  collapsed onto one flag, so a single environment variable admitted the wrong
+  kind of model.
+- **Nothing surfaced it.** The backend manifest response omitted `task`, leaving
+  clients no way to tell the two apart.
+
+What changed:
+
+- `manifest.task` accepts `harmony_only_pretraining`, so pre-training weights
+  can be declared honestly. The writers (`save_trained_artifact`,
+  `publish_checkpoint_manifest`, `train_reference_model`) take a `task`.
+- The loader checks `task` ahead of every other gate and refuses anything but
+  the inference objective. **That check does not consult `allow_research`.** A
+  dedicated `permit_pretraining_task` argument defaults to `False`, and only the
+  training, export, and evaluation paths pass it. The serving path
+  (`TorchHarmonyBackend`) never mentions the argument, so **no setting and no
+  environment variable can open the boundary**.
+- The declared objective is also recorded in `training-run.json`, which is
+  hashed into the manifest — putting it inside the verified provenance chain
+  rather than beside it.
+- `evaluate_checkpoint` can still evaluate pre-training weights, since that is
+  how they earn promotion, but its result now names the `task` so a number
+  measured on one objective cannot be read as evidence about the other.
+- The backend manifest response reports `task`; a rejected artifact appears as
+  `available: false` with the declared objective in its reason.
+
+Eight tests in `backend/tests/test_harmony_pretraining_boundary.py`. Both
+removing the boundary and folding it into `allow_research` make them fail; the
+latter is caught by the test that exists to hold the two axes apart.
+
 ### Fixed — setup rebuilds a virtual environment whose interpreter has gone (`e8546cc`)
 
 `.venv/bin/python` is a symlink. When the Python it points at is upgraded or

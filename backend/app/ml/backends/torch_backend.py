@@ -517,6 +517,10 @@ def _available_manifest_response(
         "available": True,
         "mock": False,
         "trained": manifest.trained,
+        # Constant by construction here — the loader rejects every other task
+        # before an artifact can reach this response — but reported so a client
+        # never has to infer the objective from the model id alone.
+        "task": manifest.task,
         "evaluationStatus": manifest.evaluation_status,
         "checkpointSha256": manifest.checkpoint_sha256,
         "tokenizerSha256": manifest.tokenizer_sha256,

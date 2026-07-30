@@ -18,7 +18,9 @@ from app.ml.checkpoint import (
     ARTIFACT_POINTER_FILE,
     ARTIFACT_VERSIONS_DIRECTORY,
     CHECKPOINT_FILE,
+    INFERENCE_TASK,
     MANIFEST_FILE,
+    PRETRAINING_TASK,
     TRAINING_RUN_FILE,
     HarmonyCheckpointManifest,
     SupportedPrecisions,
@@ -29,6 +31,10 @@ from app.ml.dataset import DATA_MANIFEST_FILE, load_data_manifest
 from app.ml.tokenizer import TOKENIZER_SHA256
 
 EvaluationStatus = Literal["researchOnly"]
+CheckpointTask = Literal[
+    "melody_conditioned_variable_rhythm_harmonization",
+    "harmony_only_pretraining",
+]
 
 
 class ArtifactExportError(RuntimeError):
@@ -45,6 +51,7 @@ def save_trained_artifact(
     training_run_path: Path,
     source_commit: str,
     pytorch_version: str,
+    task: CheckpointTask = INFERENCE_TASK,
     evaluation_status: EvaluationStatus = "researchOnly",
     minimum_app_version: str = APP_VERSION,
     minimum_api_version: str = "2",
@@ -59,6 +66,7 @@ def save_trained_artifact(
         training_run_path=training_run_path,
         source_commit=source_commit,
         pytorch_version=pytorch_version,
+        task=task,
         evaluation_status=evaluation_status,
         minimum_app_version=minimum_app_version,
         minimum_api_version=minimum_api_version,
@@ -101,16 +109,20 @@ def save_trained_artifact(
             training_run_path=training_run_path,
             source_commit=source_commit,
             pytorch_version=pytorch_version,
+            task=task,
             evaluation_status=evaluation_status,
             minimum_app_version=minimum_app_version,
             minimum_api_version=minimum_api_version,
             supported_precisions=supported_precisions,
         )
+        # The export path re-reads what it just wrote to prove the artifact is
+        # loadable, so it must accept every task it is allowed to write.
         validated = load_manifest_from_artifact_directory(
             staging_directory,
             config,
             config_path=config_path,
             allow_research=True,
+            permit_pretraining_task=True,
         )
         if validated.checkpoint_sha256 != manifest.checkpoint_sha256:
             raise ArtifactExportError(
@@ -124,6 +136,7 @@ def save_trained_artifact(
                 config,
                 config_path=config_path,
                 allow_research=True,
+                permit_pretraining_task=True,
             )
             if existing != validated:
                 raise ArtifactExportError(
@@ -168,6 +181,7 @@ def publish_checkpoint_manifest(
     training_run_path: Path,
     source_commit: str,
     pytorch_version: str,
+    task: CheckpointTask = INFERENCE_TASK,
     evaluation_status: EvaluationStatus = "researchOnly",
     minimum_app_version: str = APP_VERSION,
     minimum_api_version: str = "2",
@@ -182,6 +196,7 @@ def publish_checkpoint_manifest(
         training_run_path=training_run_path,
         source_commit=source_commit,
         pytorch_version=pytorch_version,
+        task=task,
         evaluation_status=evaluation_status,
         minimum_app_version=minimum_app_version,
         minimum_api_version=minimum_api_version,
@@ -207,7 +222,7 @@ def publish_checkpoint_manifest(
     payload = {
         "schemaVersion": 1,
         "modelId": config.model_id,
-        "task": "melody_conditioned_variable_rhythm_harmonization",
+        "task": task,
         "trained": True,
         "evaluationStatus": evaluation_status,
         "architecture": config.architecture_dict(),
@@ -237,6 +252,30 @@ def publish_checkpoint_manifest(
     return manifest
 
 
+def _validate_declared_task(
+    task: CheckpointTask,
+    data_manifest: dict[str, Any],
+) -> None:
+    """Hold the declared objective to the dataset the weights were trained on.
+
+    A label an operator types is a promise; the content profile of the compiled
+    dataset is evidence. A harmony-only corpus carries no melody, so weights
+    trained from it cannot have learned melody-conditioned harmonization, and
+    the export refuses to say otherwise. Because the data manifest is hashed
+    into the checkpoint manifest, the objective ends up bound to the data rather
+    than asserted beside it.
+    """
+
+    # Schema v1 predates the field and is the melody-and-harmony corpus.
+    profile = data_manifest.get("contentProfile", "melodyHarmonyV1")
+    required = PRETRAINING_TASK if profile == "harmonyOnlyV1" else INFERENCE_TASK
+    if task != required:
+        raise ArtifactExportError(
+            f"dataset content profile {profile!r} can only produce task "
+            f"{required!r}, but the export declared {task!r}"
+        )
+
+
 def _validate_export_provenance(
     *,
     config: HarmonyForgeConfig,
@@ -245,6 +284,7 @@ def _validate_export_provenance(
     training_run_path: Path,
     source_commit: str,
     pytorch_version: str,
+    task: CheckpointTask,
     evaluation_status: EvaluationStatus,
     minimum_app_version: str,
     minimum_api_version: str,
@@ -266,9 +306,10 @@ def _validate_export_provenance(
     if not config_path.is_file():
         raise ArtifactExportError("model config file is missing")
     try:
-        load_data_manifest(data_manifest_path)
+        data_manifest = load_data_manifest(data_manifest_path)
     except Exception as exc:
         raise ArtifactExportError("compiled data manifest is invalid") from exc
+    _validate_declared_task(task, data_manifest)
     training_run = _load_training_run(training_run_path)
     expected_config_sha256 = _sha256_file(config_path)
     expected_data_sha256 = _sha256_file(data_manifest_path)
