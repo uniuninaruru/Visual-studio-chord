@@ -4,6 +4,7 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 def load_diagnostics_module():
@@ -82,6 +83,77 @@ class EnvironmentDiagnosticsTests(unittest.TestCase):
             self.assertEqual(check["status"], "ok")
             self.assertTrue(check["details"]["corpusModelAvailable"])
             self.assertIn("Empirical harmony corpus", check["summary"])
+
+    def test_installed_metadata_without_importable_cli_is_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / ".venv" / "bin" / "python"
+            executable.parent.mkdir(parents=True)
+            executable.write_text("", encoding="utf-8")
+            observed: list[list[str]] = []
+
+            def fail_cli_import(command, timeout=4.0):
+                observed.append(list(command))
+                return 1, "ModuleNotFoundError: No module named 'app'"
+
+            with (
+                mock.patch.object(
+                    diagnostics,
+                    "venv_python",
+                    return_value=executable,
+                ),
+                mock.patch.object(
+                    diagnostics,
+                    "command_output",
+                    side_effect=fail_cli_import,
+                ),
+            ):
+                checks = diagnostics.check_python_environment(
+                    root,
+                    strict_versions=False,
+                    require_installed=True,
+                )
+
+            environment = next(
+                check
+                for check in checks
+                if check["id"] == "pythonEnvironment"
+            )
+            self.assertEqual(environment["status"], "error")
+            self.assertIn("app.ml.cli", observed[0][-1])
+
+    def test_successful_probe_with_invalid_payload_is_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / ".venv" / "bin" / "python"
+            executable.parent.mkdir(parents=True)
+            executable.write_text("", encoding="utf-8")
+
+            with (
+                mock.patch.object(
+                    diagnostics,
+                    "venv_python",
+                    return_value=executable,
+                ),
+                mock.patch.object(
+                    diagnostics,
+                    "command_output",
+                    return_value=(0, "{}"),
+                ),
+            ):
+                checks = diagnostics.check_python_environment(
+                    root,
+                    strict_versions=False,
+                    require_installed=True,
+                )
+
+            environment = next(
+                check
+                for check in checks
+                if check["id"] == "pythonEnvironment"
+            )
+            self.assertEqual(environment["status"], "error")
+            self.assertIn("invalid result", environment["summary"])
 
 
 if __name__ == "__main__":

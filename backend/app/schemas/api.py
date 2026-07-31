@@ -34,6 +34,10 @@ BackendKind: TypeAlias = Literal[
     "mock",
 ]
 RuntimeDevice: TypeAlias = Literal["cpu", "cuda", "mps", "coreml", "directml"]
+HarmonyCheckpointTask: TypeAlias = Literal[
+    "melody_conditioned_variable_rhythm_harmonization",
+    "harmony_only_pretraining",
+]
 ServerModelId: TypeAlias = Literal[
     "local-deterministic-v1",
     "harmony-corpus-ngram-v1",
@@ -131,6 +135,11 @@ class ModelInfo(ApiModel):
     capabilities: list[Literal["rank", "generateHarmony"]]
     backend: BackendKind
     mock: bool
+    task: HarmonyCheckpointTask | None = None
+    trained: bool | None = None
+    evaluation_status: Literal["notEvaluated", "researchOnly", "validated"] | None = None
+    checkpoint_sha256: str | None = None
+    unavailable_reason: str | None = None
 
 
 class ModelsResponse(ApiResponse):
@@ -508,6 +517,7 @@ class HarmonyModelManifestResponse(ApiResponseV2):
     available: bool
     mock: bool
     trained: bool
+    task: HarmonyCheckpointTask | None
     evaluation_status: Literal["notEvaluated", "researchOnly", "validated"]
     checkpoint_sha256: str | None
     tokenizer_sha256: str

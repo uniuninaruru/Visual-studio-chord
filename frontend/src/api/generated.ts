@@ -619,6 +619,8 @@ export interface components {
             requestId: string;
             /** Supporteddevices */
             supportedDevices: ("cpu" | "cuda" | "mps")[];
+            /** Task */
+            task: ("melody_conditioned_variable_rhythm_harmonization" | "harmony_only_pretraining") | null;
             /** Tokenizersha256 */
             tokenizerSha256: string;
             /** Trained */
@@ -745,6 +747,10 @@ export interface components {
             backend: "linear" | "corpus" | "pytorch" | "onnx" | "browser" | "mock";
             /** Capabilities */
             capabilities: ("rank" | "generateHarmony")[];
+            /** Checkpointsha256 */
+            checkpointSha256?: string | null;
+            /** Evaluationstatus */
+            evaluationStatus?: ("notEvaluated" | "researchOnly" | "validated") | null;
             /** Id */
             id: string;
             /** Loaded */
@@ -755,6 +761,12 @@ export interface components {
             name: string;
             /** Runtime */
             runtime: ("browser" | "cpu" | "cuda" | "mps" | "coreml" | "directml") | null;
+            /** Task */
+            task?: ("melody_conditioned_variable_rhythm_harmonization" | "harmony_only_pretraining") | null;
+            /** Trained */
+            trained?: boolean | null;
+            /** Unavailablereason */
+            unavailableReason?: string | null;
         };
         /** ModelsResponse */
         ModelsResponse: {

@@ -109,6 +109,22 @@ Invoke-Checked -Program $VenvPython -Arguments @(
   "-m", "pip", "install", "--disable-pip-version-check",
   "--no-deps", "--no-build-isolation", "--editable", (Join-Path $ProjectDir "backend")
 )
+Invoke-Checked -Program $VenvPython -Arguments @(
+  (Join-Path $ProjectDir "scripts\repair-venv-pth.py"),
+  "--expected-venv", $VenvDir
+)
+Invoke-Checked -Program $VenvPython -Arguments @(
+  "-c", "from app.ml.cli import compile_main, evaluate_main, train_main"
+)
+foreach ($HarmonyForgeCommand in @(
+  "harmonyforge-compile.exe",
+  "harmonyforge-train.exe",
+  "harmonyforge-evaluate.exe"
+)) {
+  Invoke-Checked `
+    -Program (Join-Path $VenvDir "Scripts\$HarmonyForgeCommand") `
+    -Arguments @("--help")
+}
 
 $EnvFile = Join-Path $ProjectDir ".env"
 if (-not (Test-Path $EnvFile)) {

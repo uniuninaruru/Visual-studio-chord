@@ -36,13 +36,20 @@ jobs:
           MTC_PACKAGE_MANAGER: npm
           MTC_ACCELERATION: none
         run: .\scripts\setup.ps1
+      - name: Enforce private training artifact boundary
+        run: python scripts/check-private-artifacts.py
       - name: Validate POSIX launchers
         if: runner.os != 'Windows'
         run: |
           bash -n scripts/*.sh
           python3 scripts/check-environment.py --skip-backend
           python3 scripts/verify_acceleration.py --json
-          python3 -m unittest discover -s scripts/tests
+          # The launcher checks above are stdlib-only and belong on the plain
+          # interpreter. The scripts' own tests are not: several drive the
+          # compiler and the training entrypoints, so they need the backend
+          # dependencies that the setup step just installed. scripts/test.sh
+          # already runs this discovery with the same interpreter.
+          .venv/bin/python -m unittest discover -s scripts/tests
       - name: Validate Windows launchers
         if: runner.os == 'Windows'
         shell: pwsh
@@ -62,7 +69,10 @@ jobs:
           }
           python scripts/check-environment.py --skip-backend
           python scripts/verify_acceleration.py --json
-          python -m unittest discover -s scripts/tests
+          # Same split as the POSIX step: stdlib-only launcher checks on the
+          # plain interpreter, the scripts' own tests on the environment that
+          # actually has the backend dependencies installed.
+          .\.venv\Scripts\python.exe -m unittest discover -s scripts/tests
 
   frontend:
     runs-on: ubuntu-latest

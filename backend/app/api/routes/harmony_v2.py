@@ -98,6 +98,7 @@ def harmony_manifest(
         available=bool(manifest["available"]),
         mock=bool(manifest["mock"]),
         trained=bool(manifest["trained"]),
+        task=manifest.get("task"),  # type: ignore[arg-type]
         evaluation_status=manifest["evaluationStatus"],  # type: ignore[arg-type]
         checkpoint_sha256=manifest["checkpointSha256"],  # type: ignore[arg-type]
         tokenizer_sha256=str(manifest["tokenizerSha256"]),

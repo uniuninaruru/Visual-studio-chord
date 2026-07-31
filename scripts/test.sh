@@ -29,4 +29,5 @@ run_frontend_script "$PACKAGE_MANAGER" "$PROJECT_DIR" build
 "$VENV_PYTHON" -m unittest discover \
   --start-directory "$PROJECT_DIR/scripts/tests" \
   --pattern 'test_*.py'
+"$VENV_PYTHON" "$PROJECT_DIR/scripts/check-private-artifacts.py"
 "$VENV_PYTHON" "$PROJECT_DIR/scripts/check-environment.py" --require-installed

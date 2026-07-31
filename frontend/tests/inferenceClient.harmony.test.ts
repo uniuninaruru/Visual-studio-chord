@@ -5,6 +5,7 @@ import {
   cancelHarmonyGeneration,
   detectLocalBackend,
   getHarmonyJob,
+  getHarmonyModelManifest,
   rankCandidates,
   startHarmonyGeneration,
 } from "../src/api/inferenceClient";
@@ -164,7 +165,56 @@ describe("v2 harmony inference client", () => {
     );
   });
 
+  it("reports a harmony-only task without treating it as an inference model", async () => {
+    const manifest = {
+      apiVersion: "2",
+      requestId: "manifest-inspection",
+      modelId: "harmonyforge-bimask-base-v1",
+      available: false,
+      mock: false,
+      trained: false,
+      task: "harmony_only_pretraining",
+      evaluationStatus: "notEvaluated",
+      checkpointSha256: null,
+      tokenizerSha256: "b".repeat(64),
+      architecture: {},
+      supportedDevices: ["cpu", "cuda", "mps"],
+      unavailableReason: "Pretraining checkpoints cannot serve inference.",
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => manifest,
+      status: 200,
+    }) as Response));
+
+    await expect(
+      getHarmonyModelManifest("harmonyforge-bimask-base-v1"),
+    ).resolves.toMatchObject({
+      available: false,
+      task: "harmony_only_pretraining",
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ ...manifest, task: "unknown_objective" }),
+      status: 200,
+    }) as Response));
+    await expect(
+      getHarmonyModelManifest("harmonyforge-bimask-base-v1"),
+    ).rejects.toThrow(/malformed model manifest/);
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ ...manifest, available: true }),
+      status: 200,
+    }) as Response));
+    await expect(
+      getHarmonyModelManifest("harmonyforge-bimask-base-v1"),
+    ).rejects.toThrow(/malformed model manifest/);
+  });
+
   it("accepts generateHarmony discovery rows without changing the v1 health envelope", async () => {
+    let emitImpossibleAvailableModel = false;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
       const shared = { apiVersion: "1", requestId: path };
@@ -212,11 +262,18 @@ describe("v2 harmony inference client", () => {
               id: "harmonyforge-bimask-base-v1",
               name: "HarmonyForge BiMask",
               runtime: null,
-              available: false,
+              available: emitImpossibleAvailableModel,
                 loaded: false,
                 capabilities: ["generateHarmony"],
                 backend: "pytorch",
                 mock: false,
+                task: emitImpossibleAvailableModel
+                  ? null
+                  : "harmony_only_pretraining",
+                trained: true,
+                evaluationStatus: "researchOnly",
+                checkpointSha256: "c".repeat(64),
+                unavailableReason: "Pretraining only.",
               }],
             };
       return { ok: true, json: async () => payload } as Response;
@@ -225,8 +282,19 @@ describe("v2 harmony inference client", () => {
     await expect(detectLocalBackend()).resolves.toMatchObject({
       state: "connected",
       models: {
-        models: [{ runtime: null, capabilities: ["generateHarmony"] }],
+        models: [{
+          runtime: null,
+          capabilities: ["generateHarmony"],
+          task: "harmony_only_pretraining",
+          trained: true,
+        }],
       },
+    });
+
+    emitImpossibleAvailableModel = true;
+    await expect(detectLocalBackend()).resolves.toMatchObject({
+      state: "browser",
+      reason: "api-mismatch",
     });
   });
 

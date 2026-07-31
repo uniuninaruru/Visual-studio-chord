@@ -48,6 +48,31 @@ models/
       harmonyforge-bimask-base-v1.safetensors
 ```
 
+### Declared training objective
+
+`manifest.task` declares what the weights were trained to do. Two values exist:
+
+- `melody_conditioned_variable_rhythm_harmonization` — the product objective,
+  and **the only one the inference path will load**.
+- `harmony_only_pretraining` — weights from harmony-only pre-training. Local and
+  research use only.
+
+The distinction matters because it is invisible to every other check. A
+pre-training checkpoint has the same architecture, the same tokenizer, and the
+same config, so it satisfies the whole integrity chain — the declared objective
+is the only thing that separates a model which can harmonize a melody from one
+that has never been conditioned on a melody. Serving it would make the
+application's stated capability false.
+
+The refusal is therefore not configurable. It is checked before every other
+gate and it does not consult research mode: `MTC_ENABLE_RESEARCH_CHECKPOINT=1`
+relaxes release status only, and release status is a separate question from
+which objective the weights were trained at. Training, export, and evaluation
+accept a pre-training artifact — that is how it is warm-started, measured, and
+promoted — but no environment variable or setting makes one loadable for
+inference. Promotion happens by training at the melody-conditioned objective and
+exporting a new artifact that declares it, not by re-labelling an old one.
+
 The manifest must declare the architecture, actual config, checkpoint, and
 `data-manifest.json` and `training-run.json` file SHA-256 values, the fixed
 tokenizer digest, training and evaluation status, supported precision, and

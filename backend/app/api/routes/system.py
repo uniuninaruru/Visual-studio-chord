@@ -77,6 +77,10 @@ def models(request: Request) -> ModelsResponse:
     harmony_manager = request.app.state.harmony_model_manager
     for manifest in harmony_manager.discovery_models():
         mock = bool(manifest["mock"])
+        trained = manifest.get("trained")
+        evaluation_status = manifest.get("evaluationStatus")
+        checkpoint_sha256 = manifest.get("checkpointSha256")
+        unavailable_reason = manifest.get("unavailableReason")
         response.models.append(
             ModelInfo(
                 id=str(manifest["modelId"]),
@@ -91,6 +95,19 @@ def models(request: Request) -> ModelsResponse:
                 capabilities=["generateHarmony"],
                 backend="mock" if mock else "pytorch",
                 mock=mock,
+                task=manifest.get("task"),  # type: ignore[arg-type]
+                trained=trained if isinstance(trained, bool) else None,
+                evaluation_status=evaluation_status,  # type: ignore[arg-type]
+                checkpoint_sha256=(
+                    checkpoint_sha256
+                    if isinstance(checkpoint_sha256, str)
+                    else None
+                ),
+                unavailable_reason=(
+                    unavailable_reason
+                    if isinstance(unavailable_reason, str)
+                    else None
+                ),
             )
         )
     return response

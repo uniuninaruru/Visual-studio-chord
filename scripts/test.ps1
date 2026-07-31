@@ -31,5 +31,8 @@ Invoke-Checked -Program $VenvPython -Arguments @(
   "--pattern", "test_*.py"
 )
 Invoke-Checked -Program $VenvPython -Arguments @(
+  (Join-Path $ProjectDir "scripts\check-private-artifacts.py")
+)
+Invoke-Checked -Program $VenvPython -Arguments @(
   (Join-Path $ProjectDir "scripts\check-environment.py"), "--require-installed"
 )
