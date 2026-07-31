@@ -333,11 +333,18 @@ def check_python_environment(
         )
         return checks
 
+    required_packages = (
+        "fastapi",
+        "uvicorn",
+        "pytest",
+        "ruff",
+        "music-theory-composer-backend",
+    )
     probe = (
         "import importlib.metadata as m,json; "
+        "from app.ml.cli import compile_main,evaluate_main,train_main; "
         "names=['fastapi','uvicorn','pytest','ruff','music-theory-composer-backend']; "
-        "out={}; "
-        "[(out.__setitem__(n, m.version(n)) if True else None) for n in names]; "
+        "out={n:m.version(n) for n in names}; "
         "print(json.dumps(out))"
     )
     code, raw = command_output([str(executable), "-c", probe], timeout=8.0)
@@ -355,7 +362,22 @@ def check_python_environment(
     try:
         packages = json.loads(raw)
     except json.JSONDecodeError:
-        packages = {}
+        packages = None
+    if (
+        not isinstance(packages, dict)
+        or set(packages) != set(required_packages)
+        or not all(isinstance(version, str) and version for version in packages.values())
+    ):
+        checks.append(
+            make_check(
+                "pythonEnvironment",
+                "error" if require_installed else "warning",
+                "The virtual environment probe returned an invalid result.",
+                action="Rerun the setup script; it will not delete project data.",
+                optional=not require_installed,
+            )
+        )
+        return checks
     checks.append(
         make_check(
             "pythonEnvironment",

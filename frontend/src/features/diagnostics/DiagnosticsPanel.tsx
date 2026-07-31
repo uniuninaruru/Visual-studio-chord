@@ -9,7 +9,12 @@ import type {
 
 export type BackendConnectionStatus = "connected" | "disconnected" | "checking" | "error";
 export type ApiCompatibilityStatus = "compatible" | "incompatible" | "checking" | "unknown";
-export type ModelAvailabilityStatus = "ready" | "missing" | "loading" | "error";
+export type ModelAvailabilityStatus =
+  | "ready"
+  | "blocked"
+  | "missing"
+  | "loading"
+  | "error";
 export type StorageMode =
   | "indexeddb"
   | "localStorage"
@@ -96,6 +101,7 @@ const API_STATUS_LABELS: Readonly<Record<ApiCompatibilityStatus, string>> = {
 
 const MODEL_STATUS_LABELS: Readonly<Record<ModelAvailabilityStatus, string>> = {
   ready: "利用可能",
+  blocked: "配置済み（推論対象外）",
   missing: "未配置",
   loading: "読み込み中",
   error: "エラー",
@@ -367,7 +373,14 @@ export function DiagnosticsPanel({
                       <StatusBadge status={model.status} label={MODEL_STATUS_LABELS[model.status]} />
                     </div>
                     {model.detail && <p>{model.detail}</p>}
-                    {model.status !== "ready" && <p className="diagnostic-remedy"><strong>対処:</strong> モデル設定を確認するか、モデル不要の推論モードを使用してください。</p>}
+                    {model.status === "blocked" ? (
+                      <p className="diagnostic-remedy">
+                        <strong>対処:</strong> この重みは和声事前学習専用です。
+                        メロディ条件付きデータでfine-tuningし、別の推論artifactを作成してください。
+                      </p>
+                    ) : model.status !== "ready" && (
+                      <p className="diagnostic-remedy"><strong>対処:</strong> モデル設定を確認するか、モデル不要の推論モードを使用してください。</p>
+                    )}
                   </li>
                 ))}
               </ul>

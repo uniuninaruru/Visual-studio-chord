@@ -6,6 +6,97 @@
 
 ## 未リリース
 
+### 追加 — 和声専用・非公開ローカル学習パイプライン
+
+最初に学習する重みは、公開用のメロディ条件付きモデルではなく、**非公開・ローカル
+限定の和声専用事前学習成果物**です。リポジトリはPOP909 corpus、normalized／processed
+row、split assignment、学習済みweightのいずれも配布しません。利用者が本家から
+自分で取得し、prepare・compile・学習をローカルで実行します。
+
+**取得と抽出** — `scripts/fetch-pop909.py` は認証情報なしで本家GitHubリポジトリから
+blob filter付きcloneとnon-cone sparse checkoutを行い、LICENSEと各曲の
+`beat_audio.txt`／`chord_audio.txt`／`key_audio.txt` だけを実体化します。MIDI、音声、
+アーカイブ、weight、正規化済み派生物は作業ツリーへ要求しません。
+`scripts/prepare-pop909-harmony-only.py` は、調基準に正規化したコードroot・quality・
+転回形・bass・extension、整数tickの和声リズム、key／mode、拍子、小節内位置だけを
+出力します。メロディ、音声、歌詞、raw MIDI、演奏表現、voicing、編成、曲名などの
+識別metadataは、読み込んでから捨てるのではなく**正規化の時点で出力しません**。
+
+**compile** — dataset schema v2に `harmonyOnlyV1` content profileを追加しました。
+`privateLocalHarmonyOnlyTraining` purposeでのみ到達でき、`privateLocalOnly`
+distribution scopeに固定されます。provenanceは曲単位ではなくdataset／source subset
+単位で記録します（安定したsource ID、version、正規URL、UTC取得日、citation、
+source treeとnormalized inputの両方のSHA-256、実際にreviewしたcontent scope、判断根拠）。
+`approved` はプロジェクト内の記録であって法的認定ではなく、`pending`、`blocked`、
+出典不明、checksum不一致のsourceは学習へ入りません。ledgerがpreparation descriptorを
+宣言する場合、`--prepare-run` でhashで束縛された `prepare-run.json` を要求します。
+
+**原子的保存** — prepare・compileとも、途中で失敗しても直前の正常な一式を壊しません。
+全出力をstagingへ書き、ディレクトリのrename1回で公開します。既存の非空ディレクトリは
+そもそも上書き対象にせず、新しいversion付きディレクトリを要求します。renameの前に
+staging、後に親ディレクトリを`fsync`し、ファイル内容も書き込み時に`fsync`するため、
+「最終的な名前で公開されているが中身は page cache にしかない」状態を避けます。
+
+**Docker build contextの監査** — 監査範囲を「Gitに入らない」から「Dockerのbuild送信領域にも
+入らない」へ広げました。リモートDocker daemonではcontextがネットワーク越しに送信され、
+cache layerがregistryへpushされ得るため、`COPY` を慎重に書くだけでは防げません。
+生データ、学習済みweight、MIDI・音声素材を `.dockerignore` でcontext段階から除外し、
+契約テストを追加しました。`scripts/check-private-artifacts.py` がCIと
+`scripts/test.sh` の両方で境界を検査します。
+
+**公開できるもの** — `scripts/export-public-training-receipts.py` は、非公開の
+checkpointとcompile済みdataから、内容アドレス指定の束縛を検証したうえで
+再構成不可能なreceipt JSONのみを書き出します。weight、split assignment、record ID、
+source-item ID、raw content、ローカルpathは含みません。data card
+（[日本語](docs/research/pop909-harmony-only-data-card.ja.md)）にrecipeとcontract、
+固定checkoutに対する集計とhashを記録しました。
+
+**未計測** — full neural trainingの所要時間、コスト、収束、音楽品質は測定していません。
+data cardのsource review状態は、利用者が取得するrunごとに `pending` です。
+
+### 追加 — 和声事前学習の重みを推論経路から締め出す安全境界
+
+学習器は「メロディ条件付き可変リズム和声付け」に固定されています。和声だけで
+作った事前学習の重みは、**同じアーキテクチャ・同じtokenizer・同じconfigを持つため、
+既存の構造検査（tokenizer照合、architecture照合、全ファイルのSHA-256）を
+すべて通過します**。両者を隔てるものは宣言された目的関数しかありません。
+これを製品用AIとして読み込ませると、画面が表示する能力が実物と一致しなくなります。
+
+穴は3つありました。
+
+- **正直に宣言する語彙が無い。** `manifest.task` は
+  `melody_conditioned_variable_rhythm_harmonization` の1値のみを許す `Literal` で、
+  書き出し側もこの文字列をハードコードしていました。和声のみの重みは
+  「メロディ条件付きだ」と名乗る以外にmanifestを書く手段がなく、
+  スキーマが虚偽記載を強制していました。
+- **境界がrelease-statusに相乗りしていた。** `MTC_ENABLE_RESEARCH_CHECKPOINT=1` は
+  本番の推論経路へ `allow_research` として渡ります。「まだ評価していない」と
+  「別の目的関数で学習した」は直交する軸なのに1つのフラグに畳まれており、
+  環境変数1つで通常経路に入る状態でした。
+- **表示に出ない。** backendのmanifest応答が `task` を含まず、
+  クライアントは区別する材料を持てませんでした。
+
+変更点。
+
+- `manifest.task` に `harmony_only_pretraining` を追加し、事前学習の重みを
+  正直に宣言できるようにしました。書き出し側（`save_trained_artifact` /
+  `publish_checkpoint_manifest` / `train_reference_model`）も `task` を受け取ります。
+- ローダは他のどのゲートよりも先に `task` を検査し、推論用以外を拒否します。
+  **この判定は `allow_research` を経由しません。** 専用引数
+  `permit_pretraining_task` は既定 `False` で、学習・書き出し・評価の各経路だけが
+  明示的に渡します。推論経路（`TorchHarmonyBackend`）はこの引数に一切触れないため、
+  **境界を開く設定項目も環境変数も存在しません**。
+- 宣言された目的関数を `training-run.json` にも記録しました。同ファイルは
+  manifestへSHA-256で連結されるため、目的関数がハッシュ検証の鎖の内側に入ります。
+- `evaluate_checkpoint` は事前学習の重みも評価できます（それが昇格の手段であるため）。
+  ただし返り値に `task` を含め、一方の目的関数で測った数値がもう一方の
+  証拠として読まれないようにしました。
+- backendのmanifest応答に `task` を追加。拒否された成果物は
+  `available: false` と拒否理由に宣言された目的関数を表示します。
+
+`backend/tests/test_harmony_pretraining_boundary.py` に8件。境界を削除する変異と、
+判定を `allow_research` に畳む変異の両方でテストが落ちることを確認しました。
+後者は軸の独立性を検証するテストが捕捉します。
 ### ドキュメント — READMEを初心者向けと技術者向けに分離
 
 - 初めて使う人向けに、Docker、Apple GPU、Windows CUDA、Linux CUDA、

@@ -79,6 +79,7 @@ The real model is available only when every check passes:
 - the allowlisted filename
   `harmonyforge-bimask-base-v1.safetensors`, `data-manifest.json`, and
   `training-run.json`;
+- `task: melody_conditioned_variable_rhythm_harmonization`;
 - `trained: true`;
 - `evaluationStatus: researchOnly` or `validated`;
 - `MTC_ENABLE_RESEARCH_CHECKPOINT=1` for a research-only artifact;
@@ -88,9 +89,17 @@ The real model is available only when every check passes:
 - CPU-safe `SafeTensors` loading, strict state-dict validation, and only then
   device placement.
 
-Missing, untrained, unevaluated, corrupt, or checksum-mismatched artifacts return
-`available: false` or a safe job failure. They never produce a disguised fallback
-candidate.
+`task` is checked ahead of every other gate and does not consult
+`allow_research`. A `harmony_only_pretraining` artifact shares the architecture,
+tokenizer, and config, so it satisfies every other check, yet it never reaches
+inference; only the training, export, and evaluation paths accept one. Release
+status and training objective are independent axes, and
+`MTC_ENABLE_RESEARCH_CHECKPOINT=1` relaxes the former alone. No setting or
+environment variable opens the boundary.
+
+Missing, untrained, unevaluated, corrupt, checksum-mismatched, or
+wrong-objective artifacts return `available: false` or a safe job failure. They
+never produce a disguised fallback candidate.
 
 Runtime verifies the exported `data-manifest.json` file itself. Before export,
 the compiler binds every ledger source checksum to the exact normalized input

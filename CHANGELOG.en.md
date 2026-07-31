@@ -7,6 +7,112 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Added — a harmony-only, private-local training pipeline
+
+The first weights this project trains are a **private, local-only harmony
+pretraining artifact**, not a publishable melody-conditioned model. The
+repository distributes no part of the POP909 corpus, no normalized or processed
+rows, no split assignments, and no trained weights. Whoever runs it obtains
+POP909 from the upstream source themselves and prepares, compiles, and trains
+locally.
+
+**Fetch and extract.** `scripts/fetch-pop909.py` clones the canonical GitHub
+repository without credentials using a blob filter and a non-cone sparse
+checkout, materializing only LICENSE and each song's `beat_audio.txt`,
+`chord_audio.txt`, and `key_audio.txt`. MIDI, audio, archives, weights, and
+normalized derivatives are never requested into the working tree.
+`scripts/prepare-pop909-harmony-only.py` emits only key-relative chord root,
+quality, inversion, bass, and extension; harmonic rhythm in integer ticks;
+key/mode, meter, and bar position. Melody, audio, lyrics, raw MIDI, performance
+expression, voicing, arrangement, and identifying metadata are **not written at
+the normalization step**, rather than read and discarded afterwards.
+
+**Compile.** Dataset schema v2 adds a `harmonyOnlyV1` content profile, reachable
+only under the `privateLocalHarmonyOnlyTraining` purpose and pinned to a
+`privateLocalOnly` distribution scope. Provenance is recorded per dataset or
+source subset rather than per song: stable source id, version, canonical URL,
+UTC retrieval date, citation, SHA-256 of both the source tree and the normalized
+input, the content scope actually reviewed, and the basis for the decision.
+`approved` is a project record, not a legal finding; `pending`, `blocked`,
+unknown-origin, and checksum-mismatched sources never enter training. When a
+ledger declares a preparation descriptor, `--prepare-run` requires the
+hash-bound `prepare-run.json` that matches it.
+
+**Atomic installs.** Neither prepare nor compile can damage the last known good
+set by failing partway. Each writes its whole output into a staging directory
+and publishes it with a single directory rename. An existing non-empty directory
+is never an overwrite target — a new versioned directory is required. The
+staging directory is flushed before the rename and the parent after it, and file
+contents are flushed as they are written, so a bundle cannot appear under its
+final name while its bytes are still only in the page cache.
+
+**Docker build-context audit.** The audit now covers not only "stays out of Git"
+but "stays out of what Docker uploads". A remote daemon receives the build
+context over the network and cache layers can be pushed to a registry, so
+careful `COPY` statements are not sufficient. Raw data, trained weights, and
+MIDI/audio material are excluded at the context level in `.dockerignore`, with
+contract tests. `scripts/check-private-artifacts.py` enforces the boundary in CI
+and in `scripts/test.sh`.
+
+**What may be published.** `scripts/export-public-training-receipts.py` verifies
+the content-addressed binding between a private checkpoint and its compiled data
+and then writes only non-reconstructive receipt JSON — never weights, split
+assignments, record ids, source-item ids, raw content, or local paths. The
+[data card](docs/research/pop909-harmony-only-data-card.en.md) records the recipe
+and contract along with aggregate counts and hashes for a pinned upstream
+checkout.
+
+**Not measured.** Full neural training time, cost, convergence, and musical
+quality are unmeasured. The data card's source-review status is `pending` per
+run for whoever fetches the corpus.
+
+### Added — a safety boundary keeping harmony-pre-trained weights out of inference
+
+The trainer is fixed at melody-conditioned variable-rhythm harmonization.
+Weights produced by harmony-only pre-training share the architecture, the
+tokenizer, and the config, so **every structural check the loader performs —
+tokenizer match, architecture match, SHA-256 of every file — passes on them**.
+The declared objective is the only thing separating the two. Loading such
+weights as the product model would make the capability the interface advertises
+untrue.
+
+There were three gaps.
+
+- **No vocabulary for an honest declaration.** `manifest.task` was a `Literal`
+  admitting exactly one value, and the writer hardcoded that same string. A
+  harmony-only checkpoint could not be described at all except by claiming to
+  be melody-conditioned — the schema compelled the misstatement.
+- **The boundary rode on release status.** `MTC_ENABLE_RESEARCH_CHECKPOINT=1`
+  reaches the production serving path as `allow_research`. "Not yet evaluated"
+  and "trained at a different objective" are independent axes, but they were
+  collapsed onto one flag, so a single environment variable admitted the wrong
+  kind of model.
+- **Nothing surfaced it.** The backend manifest response omitted `task`, leaving
+  clients no way to tell the two apart.
+
+What changed:
+
+- `manifest.task` accepts `harmony_only_pretraining`, so pre-training weights
+  can be declared honestly. The writers (`save_trained_artifact`,
+  `publish_checkpoint_manifest`, `train_reference_model`) take a `task`.
+- The loader checks `task` ahead of every other gate and refuses anything but
+  the inference objective. **That check does not consult `allow_research`.** A
+  dedicated `permit_pretraining_task` argument defaults to `False`, and only the
+  training, export, and evaluation paths pass it. The serving path
+  (`TorchHarmonyBackend`) never mentions the argument, so **no setting and no
+  environment variable can open the boundary**.
+- The declared objective is also recorded in `training-run.json`, which is
+  hashed into the manifest — putting it inside the verified provenance chain
+  rather than beside it.
+- `evaluate_checkpoint` can still evaluate pre-training weights, since that is
+  how they earn promotion, but its result now names the `task` so a number
+  measured on one objective cannot be read as evidence about the other.
+- The backend manifest response reports `task`; a rejected artifact appears as
+  `available: false` with the declared objective in its reason.
+
+Eight tests in `backend/tests/test_harmony_pretraining_boundary.py`. Both
+removing the boundary and folding it into `allow_research` make them fail; the
+latter is caught by the test that exists to hold the two axes apart.
 ### Documentation — README split by audience
 
 - Added a first-time-user path that begins by choosing Docker, Apple GPU,

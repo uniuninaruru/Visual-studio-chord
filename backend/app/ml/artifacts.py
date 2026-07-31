@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
-import math
 import os
 import re
 import shutil
@@ -18,11 +17,16 @@ from app.ml.checkpoint import (
     ARTIFACT_POINTER_FILE,
     ARTIFACT_VERSIONS_DIRECTORY,
     CHECKPOINT_FILE,
+    INFERENCE_TASK,
     MANIFEST_FILE,
+    PRETRAINING_TASK,
     TRAINING_RUN_FILE,
+    CheckpointInvalidError,
+    CheckpointTask,
     HarmonyCheckpointManifest,
     SupportedPrecisions,
     load_manifest_from_artifact_directory,
+    load_training_run_contract,
 )
 from app.ml.contracts import MODEL_ID, HarmonyForgeConfig
 from app.ml.dataset import DATA_MANIFEST_FILE, load_data_manifest
@@ -45,6 +49,7 @@ def save_trained_artifact(
     training_run_path: Path,
     source_commit: str,
     pytorch_version: str,
+    task: CheckpointTask = INFERENCE_TASK,
     evaluation_status: EvaluationStatus = "researchOnly",
     minimum_app_version: str = APP_VERSION,
     minimum_api_version: str = "2",
@@ -59,6 +64,7 @@ def save_trained_artifact(
         training_run_path=training_run_path,
         source_commit=source_commit,
         pytorch_version=pytorch_version,
+        task=task,
         evaluation_status=evaluation_status,
         minimum_app_version=minimum_app_version,
         minimum_api_version=minimum_api_version,
@@ -101,16 +107,20 @@ def save_trained_artifact(
             training_run_path=training_run_path,
             source_commit=source_commit,
             pytorch_version=pytorch_version,
+            task=task,
             evaluation_status=evaluation_status,
             minimum_app_version=minimum_app_version,
             minimum_api_version=minimum_api_version,
             supported_precisions=supported_precisions,
         )
+        # The export path re-reads what it just wrote to prove the artifact is
+        # loadable, so it must accept every task it is allowed to write.
         validated = load_manifest_from_artifact_directory(
             staging_directory,
             config,
             config_path=config_path,
             allow_research=True,
+            permit_pretraining_task=True,
         )
         if validated.checkpoint_sha256 != manifest.checkpoint_sha256:
             raise ArtifactExportError(
@@ -124,6 +134,7 @@ def save_trained_artifact(
                 config,
                 config_path=config_path,
                 allow_research=True,
+                permit_pretraining_task=True,
             )
             if existing != validated:
                 raise ArtifactExportError(
@@ -168,6 +179,7 @@ def publish_checkpoint_manifest(
     training_run_path: Path,
     source_commit: str,
     pytorch_version: str,
+    task: CheckpointTask = INFERENCE_TASK,
     evaluation_status: EvaluationStatus = "researchOnly",
     minimum_app_version: str = APP_VERSION,
     minimum_api_version: str = "2",
@@ -182,6 +194,7 @@ def publish_checkpoint_manifest(
         training_run_path=training_run_path,
         source_commit=source_commit,
         pytorch_version=pytorch_version,
+        task=task,
         evaluation_status=evaluation_status,
         minimum_app_version=minimum_app_version,
         minimum_api_version=minimum_api_version,
@@ -207,7 +220,7 @@ def publish_checkpoint_manifest(
     payload = {
         "schemaVersion": 1,
         "modelId": config.model_id,
-        "task": "melody_conditioned_variable_rhythm_harmonization",
+        "task": task,
         "trained": True,
         "evaluationStatus": evaluation_status,
         "architecture": config.architecture_dict(),
@@ -237,6 +250,30 @@ def publish_checkpoint_manifest(
     return manifest
 
 
+def validate_declared_task(
+    task: CheckpointTask,
+    data_manifest: dict[str, Any],
+) -> None:
+    """Hold the declared objective to the dataset the weights were trained on.
+
+    A label an operator types is a promise; the content profile of the compiled
+    dataset is evidence. A harmony-only corpus carries no melody, so weights
+    trained from it cannot have learned melody-conditioned harmonization, and
+    the export refuses to say otherwise. Because the data manifest is hashed
+    into the checkpoint manifest, the objective ends up bound to the data rather
+    than asserted beside it.
+    """
+
+    # Schema v1 predates the field and is the melody-and-harmony corpus.
+    profile = data_manifest.get("contentProfile", "melodyHarmonyV1")
+    required = PRETRAINING_TASK if profile == "harmonyOnlyV1" else INFERENCE_TASK
+    if task != required:
+        raise ArtifactExportError(
+            f"dataset content profile {profile!r} can only produce task "
+            f"{required!r}, but the export declared {task!r}"
+        )
+
+
 def _validate_export_provenance(
     *,
     config: HarmonyForgeConfig,
@@ -245,6 +282,7 @@ def _validate_export_provenance(
     training_run_path: Path,
     source_commit: str,
     pytorch_version: str,
+    task: CheckpointTask,
     evaluation_status: EvaluationStatus,
     minimum_app_version: str,
     minimum_api_version: str,
@@ -266,14 +304,17 @@ def _validate_export_provenance(
     if not config_path.is_file():
         raise ArtifactExportError("model config file is missing")
     try:
-        load_data_manifest(data_manifest_path)
+        data_manifest = load_data_manifest(data_manifest_path)
     except Exception as exc:
         raise ArtifactExportError("compiled data manifest is invalid") from exc
+    validate_declared_task(task, data_manifest)
     training_run = _load_training_run(training_run_path)
     expected_config_sha256 = _sha256_file(config_path)
     expected_data_sha256 = _sha256_file(data_manifest_path)
     if training_run["sourceCommit"] != source_commit:
         raise ArtifactExportError("training run source commit does not match export")
+    if training_run["task"] != task:
+        raise ArtifactExportError("training run task does not match export")
     if training_run["configSha256"] != expected_config_sha256:
         raise ArtifactExportError("training run model config hash does not match")
     if training_run["dataManifestSha256"] != expected_data_sha256:
@@ -353,67 +394,9 @@ def validate_safetensors_file(path: Path) -> None:
 
 def _load_training_run(path: Path) -> dict[str, Any]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise ArtifactExportError("training run is not valid UTF-8 JSON") from exc
-    required = {
-        "schemaVersion",
-        "deterministic",
-        "sourceCommit",
-        "configSha256",
-        "dataManifestSha256",
-        "pytorchVersion",
-        "cublasWorkspaceConfig",
-        "seed",
-        "optimizer",
-        "epochs",
-        "steps",
-        "actualDevice",
-        "dtype",
-        "fallbackReason",
-        "meanTrainingLoss",
-        "metrics",
-    }
-    if not isinstance(payload, dict) or set(payload) != required:
-        raise ArtifactExportError("training run fields do not match schema v1")
-    if payload["schemaVersion"] != 1 or payload["deterministic"] is not True:
-        raise ArtifactExportError("training run must be deterministic schema v1")
-    for field in (
-        "sourceCommit",
-        "configSha256",
-        "dataManifestSha256",
-        "pytorchVersion",
-        "cublasWorkspaceConfig",
-        "seed",
-        "actualDevice",
-        "dtype",
-    ):
-        if not isinstance(payload[field], str) or not payload[field]:
-            raise ArtifactExportError(f"training run {field} is invalid")
-    if not isinstance(payload["optimizer"], dict):
-        raise ArtifactExportError("training run optimizer is invalid")
-    if not isinstance(payload["metrics"], dict):
-        raise ArtifactExportError("training run metrics are invalid")
-    if not isinstance(payload["steps"], int) or payload["steps"] < 1:
-        raise ArtifactExportError("training run steps are invalid")
-    if (
-        not isinstance(payload["epochs"], int)
-        or isinstance(payload["epochs"], bool)
-        or payload["epochs"] < 1
-    ):
-        raise ArtifactExportError("training run epochs are invalid")
-    if (
-        not isinstance(payload["meanTrainingLoss"], (int, float))
-        or isinstance(payload["meanTrainingLoss"], bool)
-        or not math.isfinite(payload["meanTrainingLoss"])
-    ):
-        raise ArtifactExportError("training run mean loss is invalid")
-    if payload["fallbackReason"] is not None and not isinstance(
-        payload["fallbackReason"],
-        str,
-    ):
-        raise ArtifactExportError("training run fallback reason is invalid")
-    return payload
+        return load_training_run_contract(path)
+    except CheckpointInvalidError as exc:
+        raise ArtifactExportError("training run contract is invalid") from exc
 
 
 def _sha256_file(path: Path) -> str:

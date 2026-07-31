@@ -91,6 +91,14 @@ fi
   --requirement "$PROJECT_DIR/backend/requirements.lock"
 "$VENV_PYTHON" -m pip install --disable-pip-version-check \
   --no-deps --no-build-isolation --editable "$PROJECT_DIR/backend"
+"$VENV_PYTHON" "$PROJECT_DIR/scripts/repair-venv-pth.py" \
+  --expected-venv "$VENV_DIR"
+"$VENV_PYTHON" -c \
+  'from app.ml.cli import compile_main, evaluate_main, train_main'
+for HARMONYFORGE_COMMAND in \
+  harmonyforge-compile harmonyforge-train harmonyforge-evaluate; do
+  "$VENV_DIR/bin/$HARMONYFORGE_COMMAND" --help >/dev/null
+done
 
 if [[ ! -f "$PROJECT_DIR/.env" ]]; then
   cp "$PROJECT_DIR/.env.example" "$PROJECT_DIR/.env"

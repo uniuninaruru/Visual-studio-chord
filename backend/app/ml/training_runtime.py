@@ -7,13 +7,22 @@ import importlib
 import json
 import os
 import re
+import tempfile
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from app.ml.artifacts import save_trained_artifact
+from app.ml.artifacts import (
+    ArtifactExportError,
+    CheckpointTask,
+    save_trained_artifact,
+    validate_declared_task,
+)
 from app.ml.checkpoint import (
+    INFERENCE_TASK,
+    TRAINING_RUN_SCHEMA_VERSION,
+    is_allowed_task_transition,
     load_validated_checkpoint,
     load_weights,
     validate_pytorch_compatibility,
@@ -27,7 +36,7 @@ from app.ml.contracts import (
     HarmonyForgeConfig,
     load_model_config,
 )
-from app.ml.dataset import iter_compiled_split, load_data_manifest
+from app.ml.dataset import load_compiled_dataset_snapshot
 from app.ml.masking import MaskPlan, curriculum_mask
 from app.ml.model import build_harmony_forge_model
 from app.ml.tokenizer import GENERATE_ID, MASK_ID, PRESERVE_ID
@@ -77,6 +86,8 @@ def train_reference_model(
     model_directory: Path,
     source_commit: str,
     options: TrainOptions,
+    task: CheckpointTask = INFERENCE_TASK,
+    initial_model_directory: Path | None = None,
 ) -> dict[str, Any]:
     """Run deterministic reference training and export a research checkpoint."""
 
@@ -86,9 +97,14 @@ def train_reference_model(
             "source_commit must be a 7-64 digit lowercase hex id"
         )
     config = load_model_config(config_path)
-    load_data_manifest(data_manifest_path)
-    train_rows = list(iter_compiled_split(data_manifest_path, "train"))
-    validation_rows = list(iter_compiled_split(data_manifest_path, "validation"))
+    dataset_snapshot = load_compiled_dataset_snapshot(data_manifest_path)
+    data_manifest = dataset_snapshot.manifest
+    try:
+        validate_declared_task(task, data_manifest)
+    except ArtifactExportError as exc:
+        raise TrainingRuntimeError(str(exc)) from exc
+    train_rows = list(dataset_snapshot.rows("train"))
+    validation_rows = list(dataset_snapshot.rows("validation"))
     if not train_rows:
         raise TrainingRuntimeError("compiled training split is empty")
     if not validation_rows:
@@ -103,6 +119,17 @@ def train_reference_model(
     device, device_fallback = _select_device(torch, options.device)
     _configure_determinism(torch, options.seed)
     model = build_harmony_forge_model(config, torch_module=torch).to(device)
+    initial_checkpoint = None
+    if initial_model_directory is not None:
+        initial_checkpoint = load_initial_checkpoint_for_training(
+            model,
+            model_directory=initial_model_directory,
+            config=config,
+            config_path=config_path,
+            destination_task=task,
+            device=device,
+            pytorch_version=str(torch.__version__),
+        )
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=options.learning_rate,
@@ -165,26 +192,16 @@ def train_reference_model(
         device=device,
         batch_size=options.batch_size,
     )
-    artifact_directory = model_directory.resolve() / config.model_id
-    artifact_directory.mkdir(parents=True, exist_ok=True)
-    evaluation_payload = {
-        "schemaVersion": 1,
-        "split": "validation",
-        "dataManifestSha256": _sha256_file(data_manifest_path),
-        "checkpointStatus": "preExportValidation",
-        "metrics": evaluation,
-    }
-    _atomic_json_write(
-        artifact_directory / "evaluation.json",
-        evaluation_payload,
-    )
-    training_run_path = artifact_directory / "training-run.json"
     training_run = {
-        "schemaVersion": 1,
+        "schemaVersion": TRAINING_RUN_SCHEMA_VERSION,
         "deterministic": True,
+        # Recorded here as well as in the manifest so the declared objective is
+        # inside the hashed provenance chain, not a label attached beside it.
+        "task": task,
+        "initialCheckpoint": initial_checkpoint,
         "sourceCommit": source_commit,
         "configSha256": _sha256_file(config_path),
-        "dataManifestSha256": _sha256_file(data_manifest_path),
+        "dataManifestSha256": dataset_snapshot.manifest_sha256,
         "pytorchVersion": str(torch.__version__),
         "cublasWorkspaceConfig": cublas_workspace_config,
         "seed": options.seed,
@@ -204,21 +221,23 @@ def train_reference_model(
         "meanTrainingLoss": loss_sum / step,
         "metrics": evaluation,
     }
-    _atomic_json_write(training_run_path, training_run)
-    manifest = save_trained_artifact(
+    manifest = _save_artifact_with_staged_training_run(
         model,
-        model_directory,
+        model_directory=model_directory,
         config=config,
         config_path=config_path,
         data_manifest_path=data_manifest_path,
-        training_run_path=training_run_path,
+        training_run=training_run,
         source_commit=source_commit,
         pytorch_version=str(torch.__version__),
-        evaluation_status="researchOnly",
+        task=task,
     )
+    artifact_directory = model_directory.resolve() / config.model_id
     return {
         "modelId": config.model_id,
         "trained": True,
+        "task": manifest.task,
+        "initialCheckpoint": initial_checkpoint,
         "evaluationStatus": manifest.evaluation_status,
         "device": device,
         "fallbackReason": device_fallback,
@@ -229,6 +248,78 @@ def train_reference_model(
         "checkpointSha256": manifest.checkpoint_sha256,
         "dataManifestSha256": manifest.data_manifest_sha256,
         "artifactDirectory": str(artifact_directory),
+    }
+
+
+def _save_artifact_with_staged_training_run(
+    model: Any,
+    *,
+    model_directory: Path,
+    config: HarmonyForgeConfig,
+    config_path: Path,
+    data_manifest_path: Path,
+    training_run: dict[str, Any],
+    source_commit: str,
+    pytorch_version: str,
+    task: CheckpointTask,
+) -> Any:
+    """Keep mutable run metadata away from an active legacy artifact."""
+
+    # The immutable artifact writer copies this file into a staging version and
+    # switches current.json only after validation. Keeping the source in an
+    # unrelated temporary directory means a same-root warm-start cannot be
+    # corrupted if serialization or validation fails.
+    with tempfile.TemporaryDirectory(
+        prefix="harmonyforge-training-run-",
+    ) as temporary_directory:
+        training_run_path = Path(temporary_directory) / "training-run.json"
+        _atomic_json_write(training_run_path, training_run)
+        return save_trained_artifact(
+            model,
+            model_directory,
+            config=config,
+            config_path=config_path,
+            data_manifest_path=data_manifest_path,
+            training_run_path=training_run_path,
+            source_commit=source_commit,
+            pytorch_version=pytorch_version,
+            task=task,
+            evaluation_status="researchOnly",
+        )
+
+
+def load_initial_checkpoint_for_training(
+    model: Any,
+    *,
+    model_directory: Path,
+    config: HarmonyForgeConfig,
+    config_path: Path,
+    destination_task: CheckpointTask,
+    device: str,
+    pytorch_version: str,
+) -> dict[str, str]:
+    """Load an explicitly selected local checkpoint and record its identity."""
+
+    checkpoint = load_validated_checkpoint(
+        model_directory,
+        config,
+        config_path=config_path,
+        allow_research=True,
+        permit_pretraining_task=True,
+    )
+    initial_task = checkpoint.manifest.task
+    if not is_allowed_task_transition(initial_task, destination_task):
+        raise TrainingRuntimeError(
+            f"cannot warm-start task {destination_task!r} from "
+            f"checkpoint task {initial_task!r}"
+        )
+    validate_pytorch_compatibility(checkpoint.manifest, pytorch_version)
+    load_weights(model, checkpoint, device=device)
+    return {
+        "modelId": checkpoint.manifest.model_id,
+        "task": initial_task,
+        "manifestSha256": checkpoint.manifest_sha256,
+        "checkpointSha256": checkpoint.manifest.checkpoint_sha256,
     }
 
 
@@ -248,19 +339,24 @@ def evaluate_checkpoint(
     if batch_size < 1:
         raise TrainingRuntimeError("batch_size must be positive")
     config = load_model_config(config_path)
-    load_data_manifest(data_manifest_path)
-    rows = list(iter_compiled_split(data_manifest_path, split))
+    dataset_snapshot = load_compiled_dataset_snapshot(data_manifest_path)
+    rows = list(dataset_snapshot.rows(split))
     if not rows:
         raise TrainingRuntimeError(f"compiled {split} split is empty")
     validate_compiled_rows(rows, config)
+    # Evaluating a pre-training artifact is legitimate, but never changes its
+    # task. Promotion requires an explicit melody-conditioned fine-tuning run
+    # that writes a new artifact. The returned payload names the objective so a
+    # number measured on one task cannot be read as evidence about the other.
     checkpoint = load_validated_checkpoint(
         model_directory,
         config,
         config_path=config_path,
         allow_research=True,
+        permit_pretraining_task=True,
     )
     manifest = checkpoint.manifest
-    if manifest.data_manifest_sha256 != _sha256_file(data_manifest_path):
+    if manifest.data_manifest_sha256 != dataset_snapshot.manifest_sha256:
         raise TrainingRuntimeError(
             "evaluation dataset differs from checkpoint data provenance"
         )
@@ -279,6 +375,8 @@ def evaluate_checkpoint(
     return {
         "schemaVersion": 1,
         "modelId": config.model_id,
+        "task": manifest.task,
+        "initialCheckpoint": checkpoint.training_run["initialCheckpoint"],
         "split": split,
         "device": device,
         "fallbackReason": device_fallback,
@@ -552,8 +650,16 @@ def validate_compiled_rows(
     config: HarmonyForgeConfig,
 ) -> None:
     for row in rows:
-        if row.get("schemaVersion") != 1:
+        schema_version = row.get("schemaVersion")
+        if schema_version not in {1, 2}:
             raise TrainingRuntimeError("compiled row schema version is unsupported")
+        if (
+            schema_version == 2
+            and row.get("contentProfile") != "harmonyOnlyV1"
+        ):
+            raise TrainingRuntimeError(
+                "schema v2 compiled rows require harmonyOnlyV1 content"
+            )
         frame_count = row.get("frameCount")
         if (
             not isinstance(frame_count, int)
@@ -602,6 +708,16 @@ def validate_compiled_rows(
             0,
             len(ROLE_VOCABULARY) - 1,
         )
+        if schema_version == 2 and (
+            any(value != 128 for value in inputs["melodyMidi"])
+            or any(
+                value != ROLE_VOCABULARY.index("unknown")
+                for value in inputs["melodyRole"]
+            )
+        ):
+            raise TrainingRuntimeError(
+                "harmonyOnlyV1 rows must use melody sentinel inputs"
+            )
         _validate_integer_array(inputs["metricalSlot"], "metricalSlot", 0, 15)
         _validate_integer_array(
             inputs["barIndex"],

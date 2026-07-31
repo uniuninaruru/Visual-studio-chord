@@ -1057,6 +1057,21 @@
             "title": "Supporteddevices",
             "type": "array"
           },
+          "task": {
+            "anyOf": [
+              {
+                "enum": [
+                  "melody_conditioned_variable_rhythm_harmonization",
+                  "harmony_only_pretraining"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task"
+          },
           "tokenizerSha256": {
             "title": "Tokenizersha256",
             "type": "string"
@@ -1083,6 +1098,7 @@
           "available",
           "mock",
           "trained",
+          "task",
           "evaluationStatus",
           "checkpointSha256",
           "tokenizerSha256",
@@ -1420,6 +1436,33 @@
             "title": "Capabilities",
             "type": "array"
           },
+          "checkpointSha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpointsha256"
+          },
+          "evaluationStatus": {
+            "anyOf": [
+              {
+                "enum": [
+                  "notEvaluated",
+                  "researchOnly",
+                  "validated"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluationstatus"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -1454,6 +1497,43 @@
               }
             ],
             "title": "Runtime"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "enum": [
+                  "melody_conditioned_variable_rhythm_harmonization",
+                  "harmony_only_pretraining"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task"
+          },
+          "trained": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trained"
+          },
+          "unavailableReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailablereason"
           }
         },
         "required": [

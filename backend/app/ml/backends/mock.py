@@ -38,6 +38,7 @@ class MockHarmonyBackend:
             "available": True,
             "mock": True,
             "trained": False,
+            "task": None,
             "evaluationStatus": "notEvaluated",
             "checkpointSha256": None,
             "tokenizerSha256": TOKENIZER_SHA256,
