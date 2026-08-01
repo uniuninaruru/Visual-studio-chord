@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version: 0.4.0](https://img.shields.io/badge/version-0.4.0-6f42c1.svg)](CHANGELOG.md)
 
-## 🎹 インストール不要。ブラウザで開くだけです
+## 🎹 インストール不要。ブラウザで開くだけです！！　2026/08/02
 
 ### → **[https://uniuninaruru.github.io/Visual-studio-chord/](https://uniuninaruru.github.io/Visual-studio-chord/)**
 
