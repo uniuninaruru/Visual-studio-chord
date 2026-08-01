@@ -14,6 +14,16 @@ import type {
   ServerPreferenceFeedback,
 } from "./inferenceTypes";
 
+/**
+ * Set for the published static build, where no backend exists to find.
+ *
+ * Without it the app probes `/api/health`, `/api/device`, and `/api/models`
+ * twelve times across fourteen seconds before its backoff gives up — requests
+ * that can only 404 on a static host — and then reports that a local server is
+ * stopped, to a visitor who never ran one.
+ */
+const BROWSER_ONLY_BUILD = import.meta.env.VITE_PUBLIC_BUILD === "1";
+
 const API_TIMEOUT_MS = 1_600;
 const INFERENCE_TIMEOUT_MS = 30_000;
 const SERVER_FEATURE_ENTRY_LIMIT = 128;
@@ -501,6 +511,13 @@ async function postJson<T>(path: string, body: unknown, signal?: AbortSignal): P
 }
 
 export async function detectLocalBackend(): Promise<BackendConnection> {
+  if (BROWSER_ONLY_BUILD) {
+    return {
+      state: "browser",
+      reason: "browser-only",
+      message: "このアプリはブラウザの中だけで動いています。曲データはどこにも送信されません。",
+    };
+  }
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
