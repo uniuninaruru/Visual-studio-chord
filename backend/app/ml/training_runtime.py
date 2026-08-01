@@ -5,10 +5,13 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import math
 import os
 import re
 import tempfile
-from collections.abc import Iterable, Sequence
+import warnings
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -59,6 +62,10 @@ class TrainOptions:
     seed: str = "1729"
     device: DeviceChoice = "auto"
     max_steps: int | None = None
+    # Opting in does not make a run non-deterministic; it only allows one to
+    # proceed instead of raising. Whether it actually was is observed, recorded,
+    # and gates what the resulting artifact is allowed to become.
+    allow_nondeterministic: bool = False
 
     def validate(self) -> None:
         if self.epochs < 1:
@@ -117,7 +124,11 @@ def train_reference_model(
     cublas_workspace_config = prepare_deterministic_environment()
     torch = _import_torch()
     device, device_fallback = _select_device(torch, options.device)
-    _configure_determinism(torch, options.seed)
+    _configure_determinism(
+        torch,
+        options.seed,
+        strict=not options.allow_nondeterministic,
+    )
     model = build_harmony_forge_model(config, torch_module=torch).to(device)
     initial_checkpoint = None
     if initial_model_directory is not None:
@@ -138,63 +149,70 @@ def train_reference_model(
 
     step = 0
     loss_sum = 0.0
-    model.train()
-    for epoch in range(options.epochs):
-        ordered = _deterministic_order(
-            train_rows,
-            seed=options.seed,
-            epoch=epoch,
-        )
-        for rows in _batches(ordered, options.batch_size):
-            plans = [
-                curriculum_mask(
-                    row["inputs"]["barIndex"],
-                    seed=options.seed,
-                    epoch=epoch,
-                    example_id=row["windowId"],
+    # Spans training and validation: the flag describes the whole run that
+    # produced these weights and these metrics, not one phase of it.
+    with _recorded_nondeterministic_operations() as nondeterministic_operations:
+        model.train()
+        for epoch in range(options.epochs):
+            ordered = _deterministic_order(
+                train_rows,
+                seed=options.seed,
+                epoch=epoch,
+            )
+            for rows in _batches(ordered, options.batch_size):
+                plans = [
+                    curriculum_mask(
+                        row["inputs"]["barIndex"],
+                        seed=options.seed,
+                        epoch=epoch,
+                        example_id=row["windowId"],
+                    )
+                    for row in rows
+                ]
+                batch = build_masked_batch(
+                    rows,
+                    plans,
+                    torch_module=torch,
+                    device=device,
                 )
-                for row in rows
-            ]
-            batch = build_masked_batch(
-                rows,
-                plans,
-                torch_module=torch,
-                device=device,
-            )
-            optimizer.zero_grad(set_to_none=True)
-            outputs = model(batch)
-            loss, _ = factorized_active_head_loss(
-                outputs,
-                batch,
-                torch_module=torch,
-            )
-            if not bool(torch.isfinite(loss)):
-                raise TrainingRuntimeError("training loss became non-finite")
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(
-                model.parameters(),
-                options.gradient_clipping_norm,
-            )
-            optimizer.step()
-            step += 1
-            loss_sum += float(loss.detach().cpu())
+                optimizer.zero_grad(set_to_none=True)
+                outputs = model(batch)
+                loss, _ = factorized_active_head_loss(
+                    outputs,
+                    batch,
+                    torch_module=torch,
+                )
+                if not bool(torch.isfinite(loss)):
+                    raise TrainingRuntimeError("training loss became non-finite")
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(),
+                    options.gradient_clipping_norm,
+                )
+                optimizer.step()
+                step += 1
+                loss_sum += float(loss.detach().cpu())
+                if options.max_steps is not None and step >= options.max_steps:
+                    break
             if options.max_steps is not None and step >= options.max_steps:
                 break
-        if options.max_steps is not None and step >= options.max_steps:
-            break
 
-    if step == 0:
-        raise TrainingRuntimeError("training completed without an optimizer step")
-    evaluation = evaluate_model_rows(
-        model,
-        validation_rows,
-        torch_module=torch,
-        device=device,
-        batch_size=options.batch_size,
-    )
+        if step == 0:
+            raise TrainingRuntimeError("training completed without an optimizer step")
+        evaluation = evaluate_model_rows(
+            model,
+            validation_rows,
+            torch_module=torch,
+            device=device,
+            batch_size=options.batch_size,
+        )
     training_run = {
         "schemaVersion": TRAINING_RUN_SCHEMA_VERSION,
-        "deterministic": True,
+        # Observed, not asserted. Previously this was the constant True, which
+        # made it a tautology: the writer always claimed determinism and the
+        # reader always demanded it, so the field could never be wrong and never
+        # said anything. It now reports what the run actually did.
+        "deterministic": not nondeterministic_operations,
         # Recorded here as well as in the manifest so the declared objective is
         # inside the hashed provenance chain, not a label attached beside it.
         "task": task,
@@ -241,6 +259,11 @@ def train_reference_model(
         "evaluationStatus": manifest.evaluation_status,
         "device": device,
         "fallbackReason": device_fallback,
+        "deterministic": not nondeterministic_operations,
+        # Named for the operator running the command. The artifact records the
+        # verdict; which kernels produced it is diagnostics, so it is reported
+        # here rather than added to the hashed contract.
+        "nondeterministicOperations": sorted(nondeterministic_operations),
         "steps": step,
         "epochs": options.epochs,
         "meanTrainingLoss": loss_sum / step,
@@ -629,18 +652,30 @@ def evaluate_model_rows(
     metrics: dict[str, Any] = {}
     for head, values in aggregates.items():
         count = values["count"]
+        nll = None if count == 0 else values["loss"] / count
         metrics[head] = {
             "count": count,
-            "nll": None if count == 0 else values["loss"] / count,
+            "nll": nll,
+            "normalizedNll": (
+                None if nll is None else nll / HEAD_MAXIMUM_NLL[head]
+            ),
             "accuracy": None if count == 0 else values["correct"] / count,
         }
-    active_nll = [
-        metric["nll"]
-        for metric in metrics.values()
-        if metric["nll"] is not None
-    ]
-    metrics["primaryMeanNormalizedNll"] = (
-        None if not active_nll else sum(active_nll) / len(active_nll)
+    active = [metric for metric in metrics.values() if metric["nll"] is not None]
+    # Two headline figures because they answer different questions, and the one
+    # that used to be here answered neither honestly: it was named
+    # primaryMeanNormalizedNll but performed no normalization, averaging
+    # multi-class cross-entropy in nats with a per-label binary cross-entropy
+    # whose scale is an order of magnitude smaller. The raw mean is kept under a
+    # name that describes it, and the normalized figure the old name promised is
+    # computed for real.
+    metrics["meanActiveHeadNll"] = (
+        None if not active else sum(m["nll"] for m in active) / len(active)
+    )
+    metrics["meanNormalizedActiveHeadNll"] = (
+        None
+        if not active
+        else sum(m["normalizedNll"] for m in active) / len(active)
     )
     return metrics
 
@@ -893,7 +928,27 @@ def _select_device(
     )
 
 
-def _configure_determinism(torch: Any, seed: str) -> None:
+_NONDETERMINISTIC_OPERATION = re.compile(
+    r"(\w+) does not have a deterministic implementation"
+)
+
+# The loss a predictor of maximum ignorance would incur on each head: a uniform
+# distribution over the head's vocabulary. Dividing by it puts every head on one
+# scale, which the raw values are not — `extensions` is a per-label binary
+# cross-entropy bounded by log 2, while `root` ranges up to log 12.
+HEAD_MAXIMUM_NLL: dict[str, float] = {
+    "event": math.log(len(EVENT_VOCABULARY)),
+    "root": math.log(12),
+    "quality": math.log(len(QUALITY_VOCABULARY)),
+    # The inversion head is a 5-way classifier (model.py:86); there is no
+    # shared vocabulary tuple to take a length from.
+    "inversion": math.log(5),
+    "bass": math.log(12),
+    "extensions": math.log(2),
+}
+
+
+def _configure_determinism(torch: Any, seed: str, *, strict: bool) -> None:
     integer_seed = int.from_bytes(
         hashlib.sha256(seed.encode()).digest()[:8],
         "big",
@@ -901,10 +956,39 @@ def _configure_determinism(torch: Any, seed: str) -> None:
     torch.manual_seed(integer_seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(integer_seed)
-    torch.use_deterministic_algorithms(True)
+    # warn_only changes only what happens when an operation has no deterministic
+    # kernel: raise, or warn and continue. Operations that do have one are still
+    # selected in both modes, so the two differ in tolerance, not in intent.
+    torch.use_deterministic_algorithms(True, warn_only=not strict)
     if hasattr(torch.backends, "cudnn"):
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
+
+
+@contextmanager
+def _recorded_nondeterministic_operations() -> Iterator[set[str]]:
+    """Collect the operations torch reports as having no deterministic kernel.
+
+    This is what makes the recorded `deterministic` flag an observation rather
+    than a declaration, and the evidence differs by mode. Under strict mode
+    nothing can warn, because torch raises instead — so completing the run is
+    itself the proof. Under warn_only the proof is that this set stayed empty.
+    Either way the flag is derived from what actually happened.
+    """
+
+    observed: set[str] = set()
+    with warnings.catch_warnings(record=True) as caught:
+        # Not for de-duplication — torch re-emits this warning on every call.
+        # It overrides whatever the ambient configuration is: under -W ignore,
+        # PYTHONWARNINGS, or a pytest filterwarnings entry the warning would be
+        # swallowed and the run recorded as deterministic when it was not, which
+        # is precisely the false claim this flag exists to prevent.
+        warnings.simplefilter("always")
+        yield observed
+        for entry in caught:
+            match = _NONDETERMINISTIC_OPERATION.search(str(entry.message))
+            if match is not None:
+                observed.add(match.group(1))
 
 
 def prepare_deterministic_environment() -> str:

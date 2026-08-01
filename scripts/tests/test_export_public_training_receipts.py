@@ -228,7 +228,7 @@ class PublicTrainingReceiptTests(unittest.TestCase):
                     "nll": 0.5,
                     "accuracy": 0.75,
                 },
-                "primaryMeanNormalizedNll": 0.5,
+                "meanActiveHeadNll": 0.5,
             },
         }
         training_bytes = _json_bytes(training_run)
@@ -753,7 +753,7 @@ class PublicTrainingReceiptTests(unittest.TestCase):
                 "nll": -999,
                 "accuracy": 42,
             }
-            run["metrics"]["primaryMeanNormalizedNll"] = -999
+            run["metrics"]["meanActiveHeadNll"] = -999
             training.write_bytes(_json_bytes(run))
             artifact_manifest = json.loads(manifest.read_text(encoding="utf-8"))
             artifact_manifest["trainingRunSha256"] = _sha256(training.read_bytes())
@@ -782,7 +782,7 @@ class PublicTrainingReceiptTests(unittest.TestCase):
             head: {"count": 0, "nll": None, "accuracy": None}
             for head in MODULE.METRIC_HEADS
         }
-        empty_metrics["primaryMeanNormalizedNll"] = None
+        empty_metrics["meanActiveHeadNll"] = None
 
         self.assertEqual(
             MODULE._public_metrics(empty_metrics, "metrics"),
@@ -796,7 +796,7 @@ class PublicTrainingReceiptTests(unittest.TestCase):
                 for head in MODULE.METRIC_HEADS
                 if head != "event"
             },
-            "primaryMeanNormalizedNll": 0,
+            "meanActiveHeadNll": 0,
         }
         self.assertEqual(
             MODULE._public_metrics(boundary_metrics, "metrics"),
@@ -808,7 +808,7 @@ class PublicTrainingReceiptTests(unittest.TestCase):
             head: {"count": 1, "nll": 0.5, "accuracy": 0.5}
             for head in MODULE.METRIC_HEADS
         }
-        baseline["primaryMeanNormalizedNll"] = 0.5
+        baseline["meanActiveHeadNll"] = 0.5
         mutations = {
             "negative nll": (
                 lambda metrics: metrics["event"].__setitem__("nll", -0.1),
@@ -823,14 +823,14 @@ class PublicTrainingReceiptTests(unittest.TestCase):
             ),
             "negative primary": (
                 lambda metrics: metrics.__setitem__(
-                    "primaryMeanNormalizedNll",
+                    "meanActiveHeadNll",
                     -0.1,
                 ),
-                "primaryMeanNormalizedNll must be finite",
+                "meanActiveHeadNll must be finite",
             ),
             "inconsistent primary": (
                 lambda metrics: metrics.__setitem__(
-                    "primaryMeanNormalizedNll",
+                    "meanActiveHeadNll",
                     0.4,
                 ),
                 "does not match the mean",

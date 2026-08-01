@@ -6,6 +6,10 @@ const frontendPort = Number.parseInt(process.env.MTC_FRONTEND_PORT ?? "5173", 10
 
 export default defineConfig({
   plugins: [react()],
+  // Root by default, so the Docker image and the dev server are unchanged.
+  // GitHub Pages serves this repository under /<repo-name>/, and asset URLs are
+  // baked in at build time, so that deployment sets VITE_BASE instead.
+  base: process.env.VITE_BASE ?? "/",
   define: {
     __BUILD_NODE_VERSION__: JSON.stringify(process.versions.node),
   },
