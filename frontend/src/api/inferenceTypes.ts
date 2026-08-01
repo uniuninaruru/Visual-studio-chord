@@ -72,7 +72,17 @@ export interface NeuralHarmonyPreviewMetadata {
 
 export type BackendConnection =
   | { state: "checking" }
-  | { state: "browser"; message: string; reason: "unreachable" | "api-mismatch" }
+  | {
+      state: "browser";
+      message: string;
+      /**
+       * `browser-only` is a build that never had a backend to reach, so it is
+       * distinct from one that looked and failed. Retries key off
+       * `unreachable`, and a message about a stopped server is wrong for a
+       * visitor who never started one.
+       */
+      reason: "unreachable" | "api-mismatch" | "browser-only";
+    }
   | {
       state: "connected";
       health: HealthResponse;

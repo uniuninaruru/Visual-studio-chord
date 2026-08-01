@@ -7,6 +7,35 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Fixed — the published build talked about a server the visitor never had
+
+Everyone who opened the published site was told **the local AI server is
+stopped**. That is accurate for someone running the Docker setup who forgot to
+start it, and wrong for a visitor who only opened a link: they never had a local
+AI server, and "stopped" reads as something broken, or as something they are
+expected to start.
+
+The same build also probed `/api/health`, `/api/device`, and `/api/models`
+**twelve times across fourteen seconds** looking for a backend that cannot
+exist. The backoff gives up, so it was harmless — and pointless.
+
+A build-time `VITE_PUBLIC_BUILD` flag now makes the published build:
+
+- issue **no probe at all**, settling the connection state immediately;
+- report a `browser-only` reason — retries key off `unreachable`, so
+  distinguishing the two stops the retry schedule by itself;
+- say only what is true for the reader: the app runs entirely in the browser and
+  the song is never sent anywhere.
+
+**The Docker and native setups are unchanged**, and someone who forgot to start
+the backend still gets told exactly that. Checked against the built bundles: the
+published build contains neither the old message nor the probing code, and the
+normal build contains neither the new message nor the flag.
+
+Four tests in `frontend/tests/browserOnlyBuild.test.ts`. Removing the early
+return, restoring the old message, and reusing the `unreachable` reason each
+make them fail.
+
 ### Added — nothing to install; it runs in the browser 🎹
 
 **<https://uniuninaruru.github.io/Visual-studio-chord/>**
