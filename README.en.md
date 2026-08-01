@@ -5,6 +5,22 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version: 0.4.0](https://img.shields.io/badge/version-0.4.0-6f42c1.svg)](CHANGELOG.en.md)
 
+## 🎹 Nothing to install. Just open it
+
+### → **[https://uniuninaruru.github.io/Visual-studio-chord/](https://uniuninaruru.github.io/Visual-studio-chord/)**
+
+**No Docker. No terminal, no ZIP to download, no command to type.** Open the
+link and a chord progression and melody are generated on the spot. Phones and
+tablets too — it is the same link.
+
+Composing, editing, playback, and MIDI export **all run inside your browser**.
+Your song is never sent anywhere ([section 8 has the
+details](#8-what-is-stored-where-and-what-is-sent)).
+
+<sub>Running it yourself, with a GPU or the neural feature, is covered by the Docker and native setups below.</sub>
+
+---
+
 Visual studio chord is a local-first composition workspace that generates and
 edits chord progressions, melodies, voicings, and additional parts. You can
 regenerate only a selected range, audition A/B/C candidates, keep playback
