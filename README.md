@@ -678,8 +678,8 @@ python -m pip install --requirement backend/requirements-acceleration-directml.l
 先頭3つは用途に応じてPyTorch 2.13.0とSafeTensors 0.8.0を含みます。
 DirectML lockはONNX ranker専用なので両方を含みません。現在のPyPI版PyTorchは
 LinuxのCPU実行でもCUDA 13依存を配布bundleへ含めるため、CPU lockとDocker imageの
-download／保存容量は大きくなります。実行deviceがCPUであることは変わりません。
-未検証の別indexや手書きhashへ差し替えず、今後公式CPU wheel sourceを
+download／保存容量は大きくなります。実行デバイスがCPUであることは変わりません。
+未検証の別indexや手書きhashへ差し替えず、今後公式にCPU wheel sourceを
 lock設定へ安全に固定できた時点で分離します。
 
 CUDA や外部モデルは必須ではありません。Docker標準構成は移植性を優先したCPU版で、固定済みニューラルruntimeも含みますが、validな学習済みcheckpointをread-only mountしない限りHarmonyForgeはavailableになりません。GPU版Dockerは任意構成で、CUDA利用にはホスト側ドライバーと NVIDIA Container Toolkit が必要です。
