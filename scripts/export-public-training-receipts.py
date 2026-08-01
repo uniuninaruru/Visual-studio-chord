@@ -1750,7 +1750,11 @@ def _public_metrics(value: Any, label: str) -> dict[str, Any]:
     """
 
     metrics = _required_mapping(value, label)
-    allowed = {*METRIC_HEADS, "primaryMeanNormalizedNll"}
+    # Optional rather than required: it was introduced after the first local
+    # training runs, and a receipt for one of those should still be exportable
+    # instead of failing on a field that did not exist when it was produced.
+    optional = {"meanNormalizedActiveHeadNll"}
+    allowed = {*METRIC_HEADS, "meanActiveHeadNll", *optional}
     fields = set(metrics)
     unknown = fields - allowed
     if unknown:
@@ -1761,7 +1765,7 @@ def _public_metrics(value: Any, label: str) -> dict[str, Any]:
             f"{label} contains metrics not approved for publication: "
             + ", ".join(sorted(unknown))
         )
-    missing = allowed - fields
+    missing = allowed - optional - fields
     if missing:
         raise ReceiptExportError(
             f"{label} is missing runtime metrics: " + ", ".join(sorted(missing))
@@ -1817,16 +1821,16 @@ def _public_metrics(value: Any, label: str) -> dict[str, Any]:
     if factor_count > counts["event"]:
         raise ReceiptExportError(f"{label} factor-head count cannot exceed event count")
 
-    primary = metrics["primaryMeanNormalizedNll"]
+    primary = metrics["meanActiveHeadNll"]
     if not active_nll:
         if primary is not None:
             raise ReceiptExportError(
-                f"{label}.primaryMeanNormalizedNll must be null when no head is active"
+                f"{label}.meanActiveHeadNll must be null when no head is active"
             )
     else:
         primary = _required_bounded_number(
             primary,
-            f"{label}.primaryMeanNormalizedNll",
+            f"{label}.meanActiveHeadNll",
             minimum=0,
         )
         expected_primary = sum(active_nll) / len(active_nll)
@@ -1837,10 +1841,18 @@ def _public_metrics(value: Any, label: str) -> dict[str, Any]:
             abs_tol=1e-12,
         ):
             raise ReceiptExportError(
-                f"{label}.primaryMeanNormalizedNll does not match "
+                f"{label}.meanActiveHeadNll does not match "
                 "the mean of active head NLL values"
             )
-    result["primaryMeanNormalizedNll"] = primary
+    result["meanActiveHeadNll"] = primary
+    # Copied only when the run recorded it, so a receipt for an older run
+    # keeps the shape that run actually had.
+    if "meanNormalizedActiveHeadNll" in metrics:
+        result["meanNormalizedActiveHeadNll"] = _required_bounded_number(
+            metrics["meanNormalizedActiveHeadNll"],
+            f"{label}.meanNormalizedActiveHeadNll",
+            minimum=0,
+        ) if active_nll else None
     return result
 
 
