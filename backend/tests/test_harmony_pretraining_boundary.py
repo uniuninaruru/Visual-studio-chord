@@ -335,7 +335,7 @@ def test_evaluation_receipt_preserves_warm_start_lineage(
     )
     monkeypatch.setattr(
         "app.ml.training_runtime.evaluate_model_rows",
-        lambda *_args, **_kwargs: {"primaryMeanNormalizedNll": 0.5},
+        lambda *_args, **_kwargs: {"meanActiveHeadNll": 0.5},
     )
 
     receipt = evaluate_checkpoint(

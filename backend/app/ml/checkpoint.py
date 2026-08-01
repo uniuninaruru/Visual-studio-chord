@@ -406,8 +406,21 @@ def load_training_run_contract_bytes(data: bytes) -> dict[str, Any]:
     else:
         raise CheckpointInvalidError("unsupported training run schema version")
 
+    if not isinstance(normalized["deterministic"], bool):
+        raise CheckpointInvalidError("training run deterministic flag is invalid")
     if normalized["deterministic"] is not True:
-        raise CheckpointInvalidError("training run must be deterministic")
+        # A non-deterministic run is a legitimate local experiment — MPS has no
+        # deterministic kernel for embedding backward, so it is the only way to
+        # use that GPU at all — but it cannot be reproduced from its recipe.
+        # Publishing the manifest instead of the weights depends on a third
+        # party recomputing the same hash, so a run that cannot support that
+        # claim is confined to pre-training, the same place the task boundary
+        # already confines weights that cannot do the serving job.
+        if normalized["task"] != PRETRAINING_TASK:
+            raise CheckpointInvalidError(
+                f"a non-deterministic training run may only produce a "
+                f"{PRETRAINING_TASK!r} artifact, not {normalized['task']!r}"
+            )
     for field in (
         "sourceCommit",
         "configSha256",

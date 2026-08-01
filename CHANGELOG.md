@@ -6,6 +6,80 @@
 
 ## 未リリース
 
+### 修正 — 指標名が実態と一致していなかった
+
+`primaryMeanNormalizedNll` は名前に反して**正規化していませんでした**。単なる平均で、
+しかも単位の違う量を混ぜていました — root / quality / bass / inversion は多クラス
+cross-entropy（nat）、extensions だけが label 単位の binary cross-entropy です。
+未学習時点で extensions の NLL は 0.048、root は 2.01 と桁が2つ違います。
+この数値は `scripts/export-public-training-receipts.py` が**公開receiptに載せる**ため、
+名前と中身の不一致が外に出ます。
+
+- `meanActiveHeadNll` — 旧 `primaryMeanNormalizedNll` と**同じ値**を、実態どおりの
+  名前で記録します。値を変えていないので、これまでの測定と比較できます。
+- `meanNormalizedActiveHeadNll` — 旧名が約束していた正規化を実際に行います。
+  各 head の NLL を、その head の語彙に対する一様分布の NLL（`log k`、
+  extensions は binary なので `log 2`）で割ってから平均します。
+- head ごとにも `normalizedNll` を記録します。
+
+キー名を変えたのは、値の意味が違うものが同じ名前で並ぶのを避けるためです。
+receipt exporter では新しい項目を**任意**にしてあり、この変更より前に作った
+training run でも receipt を出せます。
+
+実測 checkpoint での効果（8 epoch 目）:
+
+| head | NLL | 正規化NLL |
+| --- | --- | --- |
+| root | 1.8805 | **0.7568** |
+| quality | 1.4739 | 0.5316 |
+| inversion | 0.3067 | 0.1905 |
+| bass | 0.3273 | 0.1317 |
+| event | 0.1020 | 0.0928 |
+| extensions | 0.0404 | 0.0583 |
+
+平均 0.2936 に対し、実際に学習が必要な root は 0.757。**自明に解ける4 head が
+平均を押し下げている**ことが、正規化して初めて数字に出ます。
+
+### 未修正 — 学習目的関数の宣言と実装の不一致
+
+`configs/models/harmonyforge-bimask-base-v1.yaml` は
+`objective: mean_normalized_active_head_cross_entropy` と宣言していますが、
+`factorized_active_head_loss` は正規化しない単純平均で、extensions の
+binary cross-entropy を同じ平均に混ぜています。**指標と同じ不一致が損失側にも
+あります。**
+
+こちらは修正すると学習挙動が変わり、既存の測定結果が比較できなくなるため、
+今回は変更していません。判断は別途必要です。
+
+
+### 修正 — 決定性の記録を宣言から観測へ
+
+`training-run.json` の `deterministic` は、書き手が常に `True` を書き、読み手が
+`True` を要求していました。**同語反復で、間違えようがない代わりに何も語っていません
+でした**。重みではなくmanifestを公開し、第三者が同じhashを再計算して再現を検証する、
+という配布方針はこの項目が実態を表していることに依存します。
+
+- `deterministic` は、非決定的カーネルが実際に使われたかの**観測結果**になりました。
+  保証の出どころはモードで異なります。厳格モードでは torch が例外を投げるため
+  **完走したこと自体が証明**であり、`warn_only` では**警告が1つも出なかったこと**が
+  証明です。どちらも実態から導出されます。
+- `--allow-nondeterministic` を追加しました。決定的カーネルが無い演算で停止せず
+  継続します。Apple Metal には決定的な embedding backward が無く
+  （`index_put_with_accumulate_mps`）、このGPUで学習する唯一の方法です。
+  **フラグは非決定的にするのではなく、非決定的でも進めることを許すだけ**で、
+  実際にどうだったかは記録され、成果物の資格を決めます。
+- **非決定的な run は `harmony_only_pretraining` しか作れません。** レシピからの
+  再現を主張できない run は、公開される推論用成果物にはなれません。task境界と
+  同じ形で、非決定的な重みは2つの独立したゲートで推論経路に到達しません。
+- 環境側の警告抑制（`-W ignore`、`PYTHONWARNINGS`、pytestのfilterwarnings）が
+  あると警告が消え、非決定的な run が「決定的」と記録されます。実機のMPSカーネルで
+  この失敗を再現したうえで、`simplefilter("always")` で上書きしています。
+
+`backend/tests/test_training_determinism_record.py` に12件。記録を定数へ戻す、
+ガードを外す、厳格モードを消す、bool検査を外す、警告フィルタの上書きを外す、
+の5つの変異すべてでテストが落ちることを確認しました。
+
+
 ### 追加 — 和声専用・非公開ローカル学習パイプライン
 
 最初に学習する重みは、公開用のメロディ条件付きモデルではなく、**非公開・ローカル

@@ -7,6 +7,77 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Fixed — a metric whose name did not match what it computed
+
+`primaryMeanNormalizedNll` performed **no normalization**. It was a plain mean,
+and it averaged incommensurable quantities: root/quality/bass/inversion are
+multi-class cross-entropy in nats, while extensions is a per-label binary
+cross-entropy. Untrained, extensions sits at 0.048 and root at 2.01 — two orders
+of magnitude apart. `scripts/export-public-training-receipts.py` publishes this
+number, so the mismatch between name and content reached public receipts.
+
+- `meanActiveHeadNll` records the **same value** the old key did, under a name
+  that describes it. Nothing about the number changed, so earlier measurements
+  remain comparable.
+- `meanNormalizedActiveHeadNll` performs the normalization the old name
+  promised: each head's NLL divided by the NLL of a uniform predictor over that
+  head's vocabulary (`log k`, and `log 2` for the binary extensions labels),
+  then averaged.
+- Each head also records its own `normalizedNll`.
+
+The key was renamed rather than redefined so that two different quantities never
+appear under one name. The new field is **optional** in the receipt exporter, so
+a run recorded before this change can still be exported.
+
+Measured on a real checkpoint (epoch 8): the mean is 0.2936, while `root` — the
+head that actually has to be learned — sits at 0.757 of maximum uncertainty.
+Normalizing is what makes visible that four trivially-solved heads were pulling
+the headline down.
+
+### Not fixed — the declared training objective disagrees with the implementation
+
+`configs/models/harmonyforge-bimask-base-v1.yaml` declares
+`objective: mean_normalized_active_head_cross_entropy`, but
+`factorized_active_head_loss` computes an unnormalized mean and mixes the
+extensions binary cross-entropy into it. **The same mismatch the metric had
+exists in the loss.**
+
+Changing it alters training behaviour and would make existing measurements
+incomparable, so it is left as a decision to take deliberately.
+
+
+### Fixed — the determinism record is now an observation, not a declaration
+
+`deterministic` in `training-run.json` was the constant `True` in the writer
+while the reader demanded `True`. **It was a tautology: it could not be wrong,
+and so it said nothing.** Publishing a manifest instead of weights — so a third
+party can recompute the same hash and verify the reproduction — depends on that
+field describing what actually happened.
+
+- `deterministic` is now derived from whether a non-deterministic kernel was
+  actually used. The evidence differs by mode: under strict mode torch raises,
+  so **completing the run is itself the proof**; under `warn_only` the proof is
+  that **nothing warned**. Both come from the run rather than from an assertion.
+- Added `--allow-nondeterministic`, which continues instead of stopping when an
+  operation has no deterministic kernel. Apple Metal has no deterministic
+  embedding backward (`index_put_with_accumulate_mps`), so this is the only way
+  to train on that GPU. **The flag does not make a run non-deterministic; it
+  only lets one proceed**, and what actually happened is recorded and decides
+  what the artifact may become.
+- **A non-deterministic run may only produce a `harmony_only_pretraining`
+  artifact.** A run that cannot support the reproduce-from-recipe claim cannot
+  become the published inference artifact. Together with the task boundary, two
+  independent gates keep such weights out of the serving path.
+- Ambient warning suppression (`-W ignore`, `PYTHONWARNINGS`, a pytest
+  filterwarnings entry) would drop the warning and record a non-deterministic
+  run as deterministic. That failure was reproduced against a real MPS kernel
+  before being overridden with `simplefilter("always")`.
+
+Twelve tests in `backend/tests/test_training_determinism_record.py`. Reverting
+the record to a constant, removing the guard, dropping strict mode, dropping the
+boolean check, and dropping the filter override each make them fail.
+
+
 ### Added — a harmony-only, private-local training pipeline
 
 The first weights this project trains are a **private, local-only harmony
