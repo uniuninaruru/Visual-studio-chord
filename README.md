@@ -5,6 +5,22 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version: 0.4.0](https://img.shields.io/badge/version-0.4.0-6f42c1.svg)](CHANGELOG.md)
 
+## 🎹 インストール不要。ブラウザで開くだけです
+
+### → **[https://uniuninaruru.github.io/Visual-studio-chord/](https://uniuninaruru.github.io/Visual-studio-chord/)**
+
+**Dockerは要りません。ターミナルも、ZIPのダウンロードも、コマンドの入力も要りません。**
+上のリンクを開けば、その場でコード進行とメロディが生成されます。
+
+スマートフォンでもタブレットでも、リンクを開くだけです。
+
+曲づくりも、編集も、再生も、MIDI書き出しも、**すべてあなたのブラウザの中で動きます**。
+曲データがどこかへ送られることはありません（[詳しくは第8節](#8-何がどこに保存され何が送られるのか)）。
+
+<sub>手元の環境で動かしたい方、GPUやニューラル機能を使いたい方は、この下のDocker版・ネイティブ版へどうぞ。</sub>
+
+---
+
 **コード進行とメロディを自動で作ってくれる、作曲の練習・アイデア出し用のアプリです。**
 
 キーと雰囲気を選んで「生成」を押すと、音楽理論に沿った曲が1曲できます。
