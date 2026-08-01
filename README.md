@@ -9,7 +9,7 @@
 
 ### → **[https://uniuninaruru.github.io/Visual-studio-chord/](https://uniuninaruru.github.io/Visual-studio-chord/)**
 
-**Dockerは要りません。ターミナルも、ZIPのダウンロードも、コマンドの入力も要らなくなりました！！。**
+**Dockerは要りません。ターミナルも、ZIPのダウンロードも、コマンドの入力も要らなくなりました！！**
 上のリンクを開けば、その場でコード進行とメロディが生成されます。
 
 スマートフォンでもタブレットでも、リンクを開くだけです。
