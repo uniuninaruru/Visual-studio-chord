@@ -236,9 +236,41 @@ network.
   remains undoable.
 - Cancel, timeout, checkpoint rejection, or inference failure does not publish
   a partial candidate.
-- Project data and local inference remain on the computer.
+- Songs stay in the browser; see section 8 for exactly what is sent and when.
 - A missing neural model falls back to the empirical corpus, browser ranking,
   and deterministic theory workflow.
+
+## 8. What is stored where, and what is sent
+
+**The song itself never leaves the browser, under any launch method.** Chord and
+melody generation, editing, playback, and MIDI export all run in browser
+JavaScript. Songs are kept in `localStorage`, falling back to session memory
+when that is unavailable. Preference learning is stored the same way, trying
+IndexedDB, then `localStorage`, then memory.
+
+Only when the backend is running are two things sent to it:
+
+- **Candidate ranking** — per-candidate feature values (degree n-grams,
+  harmonic-function ratios, and similar) together with the learned preference
+  weights. These are not the notes themselves, but **for a short song of five
+  chords or fewer a feature name is the chord progression**.
+- **Neural inference**, and only if a checkpoint has been installed — the
+  selected range, the melody, and any locked chords.
+
+With no backend running, neither is sent. `Browser mode` in the header means no
+request is being made.
+
+The backend's preference state lives **in process memory only** and is never
+written to disk; it is lost when the server stops.
+
+### Using it with the browser alone
+
+Generation, editing, playback, MIDI export, and preference learning all work
+without starting the backend. Only two things become unavailable:
+
+- **candidate ordering** by the 909-song empirical model — this changes the
+  order A/B/C are shown in, not the music itself;
+- the neural harmony preview, which needs a checkpoint that is not shipped.
 
 ## What is included
 
@@ -274,6 +306,29 @@ It does **not** include a trained HarmonyForge checkpoint. The normal product
 continues to use the deterministic theory engine and an empirical chord
 language model built from aggregate POP909 annotations. The optional mock is an
 integration fixture and is visibly labeled `MOCK`, untrained, and unevaluated.
+
+### Neural development is paused
+
+With apologies to anyone who was looking forward to it: **work on the neural
+harmony feature is currently stopped**, and there is no date that can honestly
+be promised.
+
+Harmony-only pre-training was run locally. Those weights cannot be loaded by the
+inference path by design — they were never conditioned on a melody, so serving
+them would make the interface claim a capability the model does not have.
+Reaching something usable needs melody-conditioned training and a quality
+evaluation, and the work paused before that.
+
+Being honest about why: the model is too large for the data. Against 909 songs
+and roughly five thousand windows, four of the six output heads never moved off
+the trivial majority prediction, and generalization stopped improving after five
+epochs. Getting to a quality worth shipping at this data scale needs a design
+rethink, not more epochs.
+
+**Nothing about the app is missing because of this.** Generation, editing,
+playback, and MIDI export all run on the music-theory engine and the empirical
+model. The neural feature was always additive, and everything that worked before
+still works.
 
 ## Technical contents
 
