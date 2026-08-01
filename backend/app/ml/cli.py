@@ -141,6 +141,17 @@ def build_train_parser() -> argparse.ArgumentParser:
         default="auto",
     )
     parser.add_argument("--max-steps", type=int)
+    parser.add_argument(
+        "--allow-nondeterministic",
+        action="store_true",
+        help=(
+            "Continue when an operation has no deterministic kernel instead of "
+            "stopping. Apple Metal needs this: it has no deterministic embedding "
+            "backward, so training raises there otherwise. The run records "
+            "whether it actually stayed deterministic, and one that did not can "
+            "only produce a harmony_only_pretraining artifact."
+        ),
+    )
     return parser
 
 
@@ -162,6 +173,7 @@ def train_main(argv: Sequence[str] | None = None) -> int:
             seed=arguments.seed,
             device=arguments.device,
             max_steps=arguments.max_steps,
+            allow_nondeterministic=arguments.allow_nondeterministic,
         ),
     )
     print(json.dumps(result, ensure_ascii=True, sort_keys=True))
