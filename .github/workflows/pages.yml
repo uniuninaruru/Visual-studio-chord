@@ -37,6 +37,9 @@ jobs:
           # Pages serves this under /<repo>/, and Vite bakes asset URLs in at
           # build time, so the base cannot be decided later.
           VITE_BASE: /${{ github.event.repository.name }}/
+          # No backend exists here, so do not spend fourteen seconds looking for
+          # one and do not tell a visitor their local server is stopped.
+          VITE_PUBLIC_BUILD: "1"
         run: pnpm --filter @visual-studio-chord/frontend build
       - name: Serve the app for unknown paths
         # Pages has no rewrite rules. Copying index.html to 404.html makes a
