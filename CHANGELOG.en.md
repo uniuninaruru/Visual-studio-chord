@@ -7,6 +7,40 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Added — nothing to install; it runs in the browser 🎹
+
+**<https://uniuninaruru.github.io/Visual-studio-chord/>**
+
+**No Docker. No terminal, no ZIP, no commands.** Open the link and a chord
+progression and melody are generated on the spot, on a phone or tablet just as
+well.
+
+Until now the first thing asked of anyone who wanted to try it was "install
+Docker Desktop". For someone who only wanted to hear one progression that is far
+too much, and most of them were lost there.
+
+**Technically the server was never needed.** Generation, editing, playback, and
+MIDI export are all browser-side TypeScript, and `useBackendConnection` degrades
+to browser-only rather than failing when no backend is present. Served as a
+static site, it needs no server at all.
+
+Having no server removes, rather than fixes, everything a public deployment
+would have had to guard:
+
+- the process-wide `PreferenceStore`, which would have returned one visitor's
+  chord progressions in another visitor's response;
+- a shared token that stops being a secret the moment the frontend is public;
+- the absent rate limiting;
+- TLS termination.
+
+The only thing the published version lacks is **candidate ordering** by the
+909-song empirical model. That changes which of A/B/C is shown first; the music
+is identical. Neural harmony was already unavailable, since no checkpoint ships.
+
+The Docker and native setups remain for anyone who wants a GPU or the neural
+feature.
+
+
 ### Fixed — a metric whose name did not match what it computed
 
 `primaryMeanNormalizedNll` performed **no normalization**. It was a plain mean,
