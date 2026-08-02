@@ -84,6 +84,27 @@ export class CompositionTransport {
     }).toDestination();
   }
 
+  /**
+   * Sound one chord on its own, outside the timeline.
+   *
+   * Auditioning a reharmonization candidate has to be possible while the piece
+   * is stopped, and it must not disturb a piece that is playing, so this
+   * triggers the chord synth directly rather than scheduling anything on the
+   * transport. It deliberately ignores the track mix: the point is to hear the
+   * candidate, and silencing it because the chord track happens to be muted
+   * would look like a broken button.
+   */
+  async auditionChord(midis: readonly number[], seconds = 1.2): Promise<void> {
+    if (midis.length === 0) return;
+    await this.initialize();
+    this.chordSynth?.triggerAttackRelease(
+      [...midis].map(midiToFrequency),
+      seconds,
+      undefined,
+      0.5,
+    );
+  }
+
   configure(
     composition: GeneratedComposition,
     loop: PlaybackLoop,

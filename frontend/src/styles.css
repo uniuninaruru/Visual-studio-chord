@@ -2126,6 +2126,7 @@ button.voice-chip {
 }
 
 .variation-panel,
+.reharmonization-panel,
 .preference-panel,
 .history-panel {
   margin-bottom: 18px;
@@ -2136,6 +2137,7 @@ button.voice-chip {
 }
 
 .variation-panel-heading,
+.reharmonization-heading,
 .preference-panel-heading,
 .history-panel-heading {
   display: flex;
@@ -2762,4 +2764,81 @@ button.voice-chip {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+.reharmonization-help {
+  max-width: 46ch;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.reharmonization-empty-state {
+  margin: 0;
+  padding: 14px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-medium);
+  color: var(--color-text-muted);
+  font-size: 0.86rem;
+}
+
+.reharmonization-candidates {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reharmonization-candidate {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-medium);
+  background: var(--color-surface-raised, var(--color-surface));
+}
+
+.reharmonization-candidate.is-auditioning {
+  border-color: var(--color-accent);
+}
+
+.reharmonization-candidate-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.reharmonization-symbol {
+  font-size: 1.05rem;
+}
+
+.reharmonization-technique {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.reharmonization-score {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.86rem;
+}
+
+.reharmonization-explanation {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.reharmonization-warning {
+  margin: 0;
+  color: var(--color-warning, var(--color-text-muted));
+  font-size: 0.78rem;
+}
+
+.reharmonization-actions {
+  display: flex;
+  gap: 8px;
 }
