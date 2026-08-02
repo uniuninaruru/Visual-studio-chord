@@ -9,6 +9,8 @@ export interface PlaybackController {
   play: () => Promise<void>;
   pause: () => void;
   stop: () => void;
+  /** Sound one chord outside the timeline, for auditioning a candidate. */
+  auditionChord: (midis: readonly number[]) => void;
 }
 
 export interface PlaybackControllerOptions {
@@ -103,5 +105,21 @@ export function usePlaybackController(
     useComposerStore.getState().setPlaybackStatus("stopped");
   }, []);
 
-  return { play, pause, stop };
+  /**
+   * Sound one chord without touching the timeline, so a reharmonization
+   * candidate can be heard while the piece is stopped or playing.
+   */
+  const auditionChord = useCallback((midis: readonly number[]) => {
+    void transportRef.current?.auditionChord(midis).catch(() => {
+      onAudioError({
+        title: "候補を試聴できませんでした",
+        message: "ブラウザまたはOSがAudioContextの開始を拒否しました。曲データは変更されていません。",
+        remedy: "ページの音声許可と出力デバイスを確認し、もう一度押してください。",
+        canRetry: true,
+        diagnosticCode: "AUDIO_CONTEXT_START_FAILED",
+      });
+    });
+  }, [onAudioError]);
+
+  return { play, pause, stop, auditionChord };
 }
