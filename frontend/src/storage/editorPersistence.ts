@@ -475,3 +475,50 @@ export function clearEditorSnapshot(storage: StorageLike = getSafeStorage()): bo
   const historyRemoved = removeStoredValue(EDITOR_HISTORY_STORAGE_KEY, storage);
   return currentRemoved && historyRemoved;
 }
+
+/**
+ * Serializes a history sidecar without deciding where it goes.
+ *
+ * The Web Storage writer builds this same payload inline. Exposing it lets the
+ * IndexedDB path reuse the exact snapshot shape, so a record written by one and
+ * read by the other cannot drift apart.
+ */
+export function serializeHistoryState(
+  historyState: PersistedHistoryState,
+): string | null {
+  const active = historyState.history[historyState.historyIndex];
+  if (!active) return null;
+  const snapshot: PersistedHistorySnapshot = {
+    version: EDITOR_STORAGE_VERSION,
+    historyRevision: historyState.historyRevision,
+    activeHistoryId: active.id,
+    history: historyState.history,
+    historyIndex: historyState.historyIndex,
+  };
+  try {
+    return JSON.stringify(snapshot);
+  } catch {
+    // A history that will not serialize cannot be stored anywhere, and the
+    // caller reports the session-only state rather than throwing at an edit.
+    return null;
+  }
+}
+
+/**
+ * Reads a serialized sidecar back, applying the same recovery the Web Storage
+ * loader applies, so a malformed record degrades instead of throwing.
+ */
+export function parseHistorySnapshotJson(json: string): {
+  history: PersistedHistoryEntry[];
+  activeHistoryId: string | null;
+  historyRevision?: number;
+  recovered: boolean;
+} | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  return recoverHistorySnapshot(parsed);
+}
