@@ -223,6 +223,17 @@ export interface VoiceLeadingSettings {
   enabled: boolean;
   /** Overrides the profile the style would otherwise pick. */
   profile?: "classical" | "jazz" | "pop" | "electronic";
+  /**
+   * Chooses every voicing at once instead of one chord at a time.
+   *
+   * The chord-at-a-time writer takes the cheapest move from the previous chord
+   * and never revisits it, so a voicing that is locally best can leave the next
+   * chord with only bad options. Searching the whole sequence trades a slightly
+   * worse single transition for a cheaper progression.
+   *
+   * Absent keeps the sequential writer, and therefore the existing output.
+   */
+  optimizeSequence?: boolean;
 }
 
 /**
