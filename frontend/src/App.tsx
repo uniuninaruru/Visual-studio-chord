@@ -3,6 +3,7 @@ import { ChordLane } from "./features/editor/ChordLane";
 import { AutoFixPanel } from "./features/autoFix/AutoFixPanel";
 import { DiagnosticsPanel } from "./features/diagnostics";
 import { InspectorPanel } from "./features/editor/InspectorPanel";
+import { ReharmonizationPanel } from "./features/editor/ReharmonizationPanel";
 import { SettingsPanel } from "./features/generator/SettingsPanel";
 import { HistoryPanel } from "./features/history/HistoryPanel";
 import { OnboardingTutorial } from "./features/onboarding/OnboardingTutorial";
@@ -19,6 +20,7 @@ import { useCandidateRanking } from "./hooks/useCandidateRanking";
 import { useDiagnostics } from "./hooks/useDiagnostics";
 import { useEditorKeyboardShortcuts } from "./hooks/useEditorKeyboardShortcuts";
 import { usePlaybackController } from "./hooks/usePlaybackController";
+import { useReharmonization } from "./hooks/useReharmonization";
 import { usePreferenceLearning } from "./hooks/usePreferenceLearning";
 import { useProjectImportExport } from "./hooks/useProjectImportExport";
 import { usePreferenceProfile } from "./hooks/usePreferenceProfile";
@@ -290,6 +292,7 @@ export default function App() {
     play: handlePlay,
     pause: handlePause,
     stop: handleStop,
+    auditionChord,
   } = usePlaybackController({
     playbackComposition: store.committedComposition,
     playbackLoopRange: store.playbackLoopRange,
@@ -343,6 +346,15 @@ export default function App() {
 
 
 
+
+  const reharmonization = useReharmonization(
+    { composition, chord: selectedChord, lockedBars: store.lockedBars },
+    {
+      onAudition: auditionChord,
+      onApply: (chordId, edit) => store.editChord(chordId, edit),
+      onToast: setToast,
+    },
+  );
 
   const handleAuditionVariation = (index: number | null) => {
     if (!store.auditionPreviewVariation(index)) return;
@@ -535,6 +547,14 @@ export default function App() {
               onBarSelect={handleBarSelect}
               onChordSelect={handleChordSelect}
               onToggleLock={store.toggleBarLock}
+            />
+            <ReharmonizationPanel
+              chord={selectedChord}
+              candidates={reharmonization.candidates}
+              unavailableReason={reharmonization.unavailableReason}
+              auditioningSymbol={reharmonization.auditioningSymbol}
+              onAudition={reharmonization.audition}
+              onApply={reharmonization.apply}
             />
             <PianoRoll
               composition={composition}
