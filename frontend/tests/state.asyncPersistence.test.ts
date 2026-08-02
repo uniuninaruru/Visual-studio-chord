@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  EDITOR_HISTORY_STORAGE_KEY,
+  EDITOR_HISTORY_RECORD,
   EDITOR_STORAGE_KEY,
   loadEditorSnapshotWithStatus,
 } from "../src/storage";
@@ -29,7 +29,7 @@ describe("asynchronous editor history persistence", () => {
     useComposerStore.getState().generateComposition({ seed: "queue-latest" });
 
     const historyWritesBeforeIdle = setItem.mock.calls.filter(
-      ([key]) => key === EDITOR_HISTORY_STORAGE_KEY,
+      ([key]) => key === EDITOR_HISTORY_RECORD,
     );
     expect(historyWritesBeforeIdle).toHaveLength(0);
     expect(useComposerStore.getState().projectSaveStatus).toBe("saving");
@@ -41,11 +41,11 @@ describe("asynchronous editor history persistence", () => {
     await vi.runAllTimersAsync();
 
     const historyWritesAfterIdle = setItem.mock.calls.filter(
-      ([key]) => key === EDITOR_HISTORY_STORAGE_KEY,
+      ([key]) => key === EDITOR_HISTORY_RECORD,
     );
     expect(historyWritesAfterIdle).toHaveLength(1);
     const historySidecar = JSON.parse(
-      localStorage.getItem(EDITOR_HISTORY_STORAGE_KEY) ?? "null",
+      localStorage.getItem(EDITOR_HISTORY_RECORD) ?? "null",
     );
     expect(
       historySidecar.history[historySidecar.historyIndex].composition.settings.seed,
@@ -60,7 +60,7 @@ describe("asynchronous editor history persistence", () => {
       key: string,
       value: string,
     ) {
-      if (key === EDITOR_HISTORY_STORAGE_KEY) {
+      if (key === EDITOR_HISTORY_RECORD) {
         throw new Error("history quota exceeded");
       }
       nativeSetItem.call(this, key, value);
@@ -77,7 +77,7 @@ describe("asynchronous editor history persistence", () => {
     await vi.runAllTimersAsync();
 
     expect(useComposerStore.getState().projectSaveStatus).toBe("partial");
-    expect(localStorage.getItem(EDITOR_HISTORY_STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem(EDITOR_HISTORY_RECORD)).toBeNull();
     expect(
       JSON.parse(localStorage.getItem(EDITOR_STORAGE_KEY) ?? "null")
         .composition.settings.seed,

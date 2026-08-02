@@ -27,7 +27,11 @@ import {
   getSafeStorageMode,
   loadEditorSnapshotWithStatus,
   saveEditorCurrentSnapshot,
-  saveEditorHistoryState,
+  serializeHistoryState,
+  parseHistorySnapshotJson,
+  migrateEditorHistoryToDatabase,
+  EditorDatabase,
+  EDITOR_HISTORY_RECORD,
   type PersistedHistoryState,
   type PersistedEditorSnapshot,
   type StoragePersistenceMode,
@@ -169,6 +173,17 @@ export interface ComposerStoreActions {
 export type ComposerStore = ComposerStoreState & ComposerStoreActions;
 
 const storage = getSafeStorage();
+
+/**
+ * The history sidecar lives here rather than in Web Storage.
+ *
+ * History is unbounded and every entry holds a whole composition: a 48-bar
+ * arranged piece serializes to roughly 180KB, so a 5MB quota is reached in
+ * under thirty edits. That is a certainty over a long session, not a risk.
+ * The current project stays in Web Storage because hydration below is
+ * synchronous and the first paint depends on it.
+ */
+const historyDatabase = new EditorDatabase();
 let historySerial = 0;
 let noteSerial = 0;
 
@@ -1242,31 +1257,83 @@ function flushPendingHistorySave(): void {
   pendingHistorySave = null;
   if (!pending) return;
 
-  let projectSaveStatus: ProjectSaveStatus;
-  try {
-    const history = saveEditorHistoryState(
-      persistentHistoryState(pending.state, pending.historyRevision),
-      storage,
-    );
-    projectSaveStatus = pending.currentMode === "memory"
-      ? "session"
-      : !history.historySaved || history.historyMode === "memory"
-        ? "partial"
-        : "saved";
-  } catch {
-    projectSaveStatus = pending.currentMode === "memory" ? "session" : "partial";
-  }
+  // Already off the edit call stack, and the status was always published
+  // asynchronously, so awaiting a database write changes the timing of nothing
+  // the user can observe.
+  void (async () => {
+    let projectSaveStatus: ProjectSaveStatus;
+    try {
+      const serialized = serializeHistoryState(
+        persistentHistoryState(pending.state, pending.historyRevision),
+      );
+      const mode = serialized === null
+        ? "memory"
+        : await historyDatabase.write(EDITOR_HISTORY_RECORD, serialized);
+      projectSaveStatus = pending.currentMode === "memory"
+        ? "session"
+        : mode === "memory"
+          ? "partial"
+          : "saved";
+    } catch {
+      projectSaveStatus = pending.currentMode === "memory" ? "session" : "partial";
+    }
 
-  const current = useComposerStore.getState();
-  if (
-    pending.revision === persistenceRevision
-    && !current.projectPersistenceBlocked
-  ) {
-    useComposerStore.setState({ projectSaveStatus });
-  }
+    const current = useComposerStore.getState();
+    if (
+      pending.revision === persistenceRevision
+      && !current.projectPersistenceBlocked
+    ) {
+      useComposerStore.setState({ projectSaveStatus });
+    }
 
-  if (pendingHistorySave) scheduleHistorySave();
+    if (pendingHistorySave) scheduleHistorySave();
+  })();
 }
+
+/**
+ * Carries the Web Storage sidecar across and adopts whatever the database holds.
+ *
+ * Runs after hydration, so the app has already painted from the synchronously
+ * loaded project. The adopted history is only taken while the session is still
+ * pristine: once an edit has bumped the revision, the in-memory history is
+ * newer than anything on disk and replacing it would discard real work.
+ */
+async function restoreHistoryFromDatabase(): Promise<void> {
+  try {
+    await migrateEditorHistoryToDatabase(historyDatabase, storage);
+    const stored = await historyDatabase.read(EDITOR_HISTORY_RECORD);
+    if (stored === null) return;
+    const recovered = parseHistorySnapshotJson(stored);
+    if (!recovered || recovered.history.length === 0) return;
+    if (historyPersistenceRevision !== 0) return;
+
+    const state = useComposerStore.getState();
+    if (state.projectPersistenceBlocked) return;
+    const index = recovered.activeHistoryId
+      ? recovered.history.findIndex((entry) => entry.id === recovered.activeHistoryId)
+      : -1;
+    useComposerStore.setState({
+      // Same normalization hydration applies: a stored entry may omit the
+      // display name, which falls back to the action that produced it.
+      history: recovered.history.map((entry) => ({
+        ...entry,
+        name: entry.name?.trim() || entry.action,
+      })),
+      historyIndex: index >= 0 ? index : recovered.history.length - 1,
+      projectSaveStatus: state.projectSaveStatus === "partial"
+        ? "saved"
+        : state.projectSaveStatus,
+    });
+  } catch {
+    // The project itself is already loaded; a history that will not come back
+    // leaves the session-only state the status bar already reports.
+  }
+}
+
+// Started here rather than from a component: hydration is a module-scope
+// concern already, and a React effect would run after the first edit is
+// possible, which is exactly when adopting stored history becomes unsafe.
+void restoreHistoryFromDatabase();
 
 useComposerStore.subscribe((state, previous) => {
   const changed =
