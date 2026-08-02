@@ -173,7 +173,11 @@ function compositionFingerprint(settings: GeneratorSettings): string {
       : []),
     ...(settings.phraseGrammar?.enabled ? ["phrase-grammar"] : []),
     ...(settings.voiceLeading?.enabled
-      ? ["voice-leading", settings.voiceLeading.profile ?? "auto"]
+      ? [
+        "voice-leading",
+        settings.voiceLeading.profile ?? "auto",
+        ...(settings.voiceLeading.optimizeSequence ? ["sequence"] : []),
+      ]
       : []),
     ...(settings.functionalHarmony?.enabled
       ? ["functional-harmony", settings.functionalHarmony.exploration ?? 0]
@@ -420,6 +424,7 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
       mode: copiedSettings.mode,
       style: copiedSettings.style,
       profileName: copiedSettings.voiceLeading.profile,
+      optimizeSequence: copiedSettings.voiceLeading.optimizeSequence,
     });
   }
 
