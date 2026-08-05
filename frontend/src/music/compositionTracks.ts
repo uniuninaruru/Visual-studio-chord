@@ -1,4 +1,5 @@
 import type {
+  ArpeggioSettings,
   BassRegisterSettings,
   DynamicsSettings,
   CompositionVoiceRole,
@@ -7,7 +8,7 @@ import type {
   TimeSignature,
 } from "../types/music";
 import { midiToNoteName } from "./scales";
-import { metricStrength } from "./time";
+import { metricStrength, ticksPerBeat } from "./time";
 
 export type CompositionTrackRole =
   | "bass"
@@ -159,11 +160,92 @@ export function bassRegisterPitch(
   return pitch;
 }
 
+/** Default step: eighth notes. */
+const DEFAULT_ARPEGGIO_RATE = 2;
+
+/** Default hold: most of the step, leaving a little separation. */
+const DEFAULT_ARPEGGIO_GATE = 0.9;
+
+/**
+ * The order the voicing's pitches are visited.
+ *
+ * "upDown" turns without repeating either end, so a four-note voicing gives a
+ * six-step cycle rather than eight with the top and bottom struck twice.
+ */
+function arpeggioOrder(
+  pitches: readonly number[],
+  pattern: NonNullable<ArpeggioSettings["pattern"]>,
+): number[] {
+  if (pattern === "down") return [...pitches].reverse();
+  if (pattern === "upDown") {
+    if (pitches.length < 3) return [...pitches];
+    return [...pitches, ...[...pitches].slice(1, -1).reverse()];
+  }
+  return [...pitches];
+}
+
+/**
+ * Spreads one chord's pitches across its own duration.
+ *
+ * Every chord sounded all of its notes at once for its full length. That is a
+ * texture, not the texture, and using it for every chord of every piece is a
+ * large part of why playback sounds like a chord chart rather than a
+ * performance.
+ *
+ * The steps tile the chord exactly: the remainder goes to the earliest steps,
+ * so the figure stays in time and the last note ends where the chord ends
+ * rather than drifting. A chord too short to hold even one whole step is left
+ * as a block, because an arpeggio nobody can hear is just a quieter chord.
+ */
+export function arpeggiateChord(
+  pitches: readonly number[],
+  startTick: number,
+  durationTick: number,
+  ticksPerStep: number,
+  settings: ArpeggioSettings | undefined,
+): { midi: number; startTick: number; durationTick: number }[] {
+  const block = pitches.map((midi) => ({ midi, startTick, durationTick }));
+  if (!settings?.enabled || pitches.length === 0) return block;
+  if (!Number.isFinite(ticksPerStep) || ticksPerStep < 1) return block;
+
+  const steps = Math.floor(durationTick / ticksPerStep);
+  if (steps < 2) return block;
+
+  const requested = settings.gate ?? DEFAULT_ARPEGGIO_GATE;
+  const gate = Number.isFinite(requested)
+    ? Math.min(1, Math.max(0.05, requested))
+    : DEFAULT_ARPEGGIO_GATE;
+  const order = arpeggioOrder(pitches, settings.pattern ?? "up");
+
+  // Integer ticks, and the chord's length is not always a whole number of
+  // steps, so the leftover is handed to the earliest steps one tick at a time.
+  const base = Math.floor(durationTick / steps);
+  let remainder = durationTick - base * steps;
+
+  const notes: { midi: number; startTick: number; durationTick: number }[] = [];
+  let tick = startTick;
+  for (let step = 0; step < steps; step += 1) {
+    const extra = remainder > 0 ? 1 : 0;
+    remainder -= extra;
+    const span = base + extra;
+    notes.push({
+      midi: order[step % order.length] as number,
+      startTick: tick,
+      durationTick: Math.max(1, Math.round(span * gate)),
+    });
+    tick += span;
+  }
+  return notes;
+}
+
 export function buildCompositionTracks(
   composition: GeneratedComposition,
 ): CompositionTrack[] {
   const bassNotes: NoteEvent[] = [];
   const chordNotes: NoteEvent[] = [];
+  const arpeggioRate = composition.settings.arpeggio?.rate ?? DEFAULT_ARPEGGIO_RATE;
+  const ticksPerStep = ticksPerBeat(composition.settings.timeSignature, composition.ppq)
+    / (Number.isFinite(arpeggioRate) && arpeggioRate > 0 ? arpeggioRate : DEFAULT_ARPEGGIO_RATE);
   for (const chord of composition.chords) {
     const pitches = [...chord.notes].sort((left, right) => left - right);
     const bass = pitches[0];
@@ -181,16 +263,27 @@ export function buildCompositionTracks(
       );
     }
     const upper = pitches.slice(1);
-    for (const [index, midi] of upper.entries()) {
+    const top = upper[upper.length - 1];
+    // The bass is deliberately left sustained under the figure: a bass line
+    // that arpeggiates along with the right hand leaves the harmony with no
+    // foundation at all.
+    const figure = arpeggiateChord(
+      upper,
+      chord.startTick,
+      chord.durationTick,
+      ticksPerStep,
+      composition.settings.arpeggio,
+    );
+    for (const [index, note] of figure.entries()) {
       chordNotes.push(
         chordNote(
           composition,
           chord.id,
-          chord.startTick,
-          chord.durationTick,
-          midi,
+          note.startTick,
+          note.durationTick,
+          note.midi,
           `right-${index}`,
-          index === upper.length - 1 ? "top" : "inner",
+          note.midi === top ? "top" : "inner",
         ),
       );
     }
