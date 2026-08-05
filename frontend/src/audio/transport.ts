@@ -1,4 +1,5 @@
 import * as Tone from "tone";
+import { VelocityFilterSynth } from "./velocityFilterSynth";
 import {
   buildCompositionTracks,
   type CompositionTrack,
@@ -40,6 +41,49 @@ function midiToFrequency(midi: number): number {
  * is the data scheduled for that boundary. Notes that are already sounding are
  * left alone until their natural release.
  */
+/**
+ * Voice presets.
+ *
+ * `baseFrequency` is the cutoff a note at *full* velocity starts from, and the
+ * filter opens VELOCITY_OCTAVES below that as velocity falls. Chords are struck
+ * at 78 and the melody at 92, so in practice nothing ever reaches the stated
+ * figure -- measured, a chord note sits at about half of it. The numbers here
+ * are therefore chosen an octave high on purpose; read at face value the mix
+ * would be muffled rather than warm.
+ */
+const CHORD_PRESET = {
+  volume: -14,
+  oscillator: { type: "triangle8" as const },
+  envelope: { attack: 0.02, decay: 0.25, sustain: 0.35, release: 0.8 },
+  filter: { type: "lowpass" as const, rolloff: -12 as const, Q: 1 },
+  filterEnvelope: {
+    attack: 0.03, decay: 0.4, sustain: 0.45, release: 1.2,
+    baseFrequency: 620, octaves: 2.6,
+  },
+};
+
+const MELODY_PRESET = {
+  volume: -9,
+  oscillator: { type: "sine" as const },
+  envelope: { attack: 0.01, decay: 0.1, sustain: 0.22, release: 0.24 },
+  filter: { type: "lowpass" as const, rolloff: -12 as const, Q: 1.2 },
+  filterEnvelope: {
+    attack: 0.008, decay: 0.16, sustain: 0.5, release: 0.3,
+    baseFrequency: 1250, octaves: 2.4,
+  },
+};
+
+const BASS_PRESET = {
+  volume: -12,
+  oscillator: { type: "triangle" as const },
+  envelope: { attack: 0.012, decay: 0.2, sustain: 0.3, release: 0.55 },
+  filter: { type: "lowpass" as const, rolloff: -24 as const, Q: 1.4 },
+  filterEnvelope: {
+    attack: 0.012, decay: 0.22, sustain: 0.3, release: 0.6,
+    baseFrequency: 240, octaves: 2.2,
+  },
+};
+
 export class CompositionTransport {
   private readonly transport = Tone.getTransport();
   private composition: GeneratedComposition | null = null;
@@ -112,22 +156,10 @@ export class CompositionTransport {
   async initialize(): Promise<void> {
     await Tone.start();
     const bus = this.ensureBus();
-    this.chordSynth ??= new Tone.PolySynth(Tone.Synth, {
-      volume: -14,
-      oscillator: { type: "triangle8" },
-      envelope: { attack: 0.02, decay: 0.25, sustain: 0.35, release: 0.8 },
-    }).connect(bus);
-    this.melodySynth ??= new Tone.PolySynth(Tone.Synth, {
-      volume: -9,
-      oscillator: { type: "sine" },
-      envelope: { attack: 0.01, decay: 0.1, sustain: 0.22, release: 0.24 },
-    }).connect(bus);
+    this.chordSynth ??= new Tone.PolySynth(VelocityFilterSynth, CHORD_PRESET).connect(bus);
+    this.melodySynth ??= new Tone.PolySynth(VelocityFilterSynth, MELODY_PRESET).connect(bus);
     this.ensureVoiceSynths(this.composition?.voices ?? []);
-    this.bassSynth ??= new Tone.PolySynth(Tone.Synth, {
-      volume: -12,
-      oscillator: { type: "triangle" },
-      envelope: { attack: 0.012, decay: 0.2, sustain: 0.3, release: 0.55 },
-    }).connect(bus);
+    this.bassSynth ??= new Tone.PolySynth(VelocityFilterSynth, BASS_PRESET).connect(bus);
   }
 
   /**
@@ -447,22 +479,39 @@ export class CompositionTransport {
     const bus = this.ensureBus();
     switch (instrument) {
       case "bass":
-        return new Tone.PolySynth(Tone.Synth, {
+        return new Tone.PolySynth(VelocityFilterSynth, {
           volume: -13,
           oscillator: { type: "triangle" },
           envelope: { attack: 0.01, decay: 0.16, sustain: 0.18, release: 0.18 },
+          filter: { type: "lowpass", rolloff: -24, Q: 1.4 },
+          filterEnvelope: {
+            attack: 0.01, decay: 0.18, sustain: 0.25, release: 0.2,
+            baseFrequency: 240, octaves: 2.2,
+          },
         }).connect(bus);
       case "pluck":
-        return new Tone.PolySynth(Tone.Synth, {
+        return new Tone.PolySynth(VelocityFilterSynth, {
           volume: -15,
           oscillator: { type: "square8" },
           envelope: { attack: 0.006, decay: 0.14, sustain: 0.05, release: 0.12 },
+          // A plucked note is bright at the attack and dulls immediately, so
+          // the filter decays with the amplitude rather than sustaining.
+          filter: { type: "lowpass", rolloff: -12, Q: 2 },
+          filterEnvelope: {
+            attack: 0.004, decay: 0.12, sustain: 0.12, release: 0.12,
+            baseFrequency: 900, octaves: 2.8,
+          },
         }).connect(bus);
       case "softLead":
-        return new Tone.PolySynth(Tone.Synth, {
+        return new Tone.PolySynth(VelocityFilterSynth, {
           volume: -13,
           oscillator: { type: "sine4" },
           envelope: { attack: 0.025, decay: 0.15, sustain: 0.2, release: 0.3 },
+          filter: { type: "lowpass", rolloff: -12, Q: 1.1 },
+          filterEnvelope: {
+            attack: 0.02, decay: 0.2, sustain: 0.5, release: 0.35,
+            baseFrequency: 1100, octaves: 2.2,
+          },
         }).connect(bus);
     }
   }
