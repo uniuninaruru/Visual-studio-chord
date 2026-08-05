@@ -1,4 +1,5 @@
 import type {
+  BassRegisterSettings,
   CompositionVoiceRole,
   GeneratedComposition,
   NoteEvent,
@@ -55,6 +56,37 @@ function chordNote(
  * legacy project files compatible while giving playback, MIDI and the editor a
  * single track vocabulary.
  */
+/** Default top of the bass register: C3, the top of a comfortable bass range. */
+const DEFAULT_BASS_CEILING = 48;
+/** Default bottom: E1, the low E of a five-string bass. */
+const DEFAULT_BASS_FLOOR = 28;
+
+/**
+ * Drops a sounding pitch into the bass register without changing which note it is.
+ *
+ * Close-position voicings put their lowest note around D3-F3, so the bass track
+ * sings in the tenor range and the mix has nothing under about 147 Hz. Moving by
+ * whole octaves keeps the pitch class, and therefore the inversion the voicing
+ * chose: an inverted chord still sounds its third or fifth in the bass, an
+ * octave or two lower.
+ *
+ * Stops before crossing the floor, so a pitch that cannot reach the register
+ * without going under it stays where the last whole octave left it.
+ */
+export function bassRegisterPitch(
+  midi: number,
+  settings: BassRegisterSettings | undefined,
+): number {
+  if (!settings?.enabled) return midi;
+  const ceiling = settings.ceiling ?? DEFAULT_BASS_CEILING;
+  const floor = settings.floor ?? DEFAULT_BASS_FLOOR;
+  let pitch = midi;
+  while (pitch > ceiling && pitch - 12 >= floor) {
+    pitch -= 12;
+  }
+  return pitch;
+}
+
 export function buildCompositionTracks(
   composition: GeneratedComposition,
 ): CompositionTrack[] {
@@ -70,7 +102,7 @@ export function buildCompositionTracks(
           chord.id,
           chord.startTick,
           chord.durationTick,
-          bass,
+          bassRegisterPitch(bass, composition.settings.bassRegister),
           "left",
         ),
       );

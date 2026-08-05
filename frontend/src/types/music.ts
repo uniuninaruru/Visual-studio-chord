@@ -217,6 +217,34 @@ export interface HarmonicRhythmSettings {
 }
 
 /**
+ * Where the bass/left-hand track sounds.
+ *
+ * Chords are voiced in close position, so their lowest note lands around
+ * MIDI 50-53 (D3-F3) — measured across every style preset. That is a tenor, not
+ * a bass: there is no energy below roughly 147 Hz anywhere in the piece, while a
+ * pop bass line lives around MIDI 28-48. Worse, the lowest note of an inverted
+ * chord is often the fifth or the third, so the "bass" is whichever tone the
+ * voicer happened to put at the bottom.
+ *
+ * Enabling this drops that note by whole octaves until it reaches a real bass
+ * register. Octaves are used rather than a fixed pitch so the inversion the
+ * voicing expresses is preserved: only the register changes, never which note
+ * is in the bass.
+ *
+ * Absent leaves the lowest sounding pitch exactly where the voicer put it.
+ */
+export interface BassRegisterSettings {
+  enabled: boolean;
+  /**
+   * Highest MIDI note the bass may sound. Defaults to 48 (C3), the top of a
+   * comfortable electric-bass register.
+   */
+  ceiling?: number;
+  /** Lowest MIDI note to drop to. Defaults to 28 (E1), a five-string bass low E. */
+  floor?: number;
+}
+
+/**
  * Four-part voice leading. Off keeps the note-set voicer.
  */
 export interface VoiceLeadingSettings {
@@ -474,6 +502,7 @@ export interface GeneratorSettings {
    * weighted by style. Omitted keeps the original note-set voicer.
    */
   voiceLeading?: VoiceLeadingSettings;
+  bassRegister?: BassRegisterSettings;
   /**
    * Plans each phrase's structural notes — start, climax, cadence — before the
    * line is written. Requires a phrase plan; omitted keeps the purely
