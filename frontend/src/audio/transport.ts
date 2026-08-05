@@ -1,4 +1,8 @@
 import * as Tone from "tone";
+import {
+  buildCompositionTracks,
+  type CompositionTrack,
+} from "../music/compositionTracks";
 import type {
   CompositionVoice,
   CompositionVoiceInstrument,
@@ -44,6 +48,16 @@ export class CompositionTransport {
   private melodySynth: Tone.PolySynth | null = null;
   private bassSynth: Tone.PolySynth | null = null;
   private readonly voiceSynths = new Map<string, Tone.PolySynth>();
+  /**
+   * The rendered bass and chord tracks for the configured composition.
+   *
+   * Playback used to walk composition.chords and build its own block chords,
+   * while MIDI export and the piano roll read buildCompositionTracks. Two
+   * renderers meant any change to how a chord sounds had to be made twice, and
+   * a change made once produced a file that did not match what was heard.
+   * Built in configure so it is not rebuilt per scheduling window.
+   */
+  private renderedTracks: readonly CompositionTrack[] = [];
   private schedulerEventId: number | null = null;
   private schedulerStepTicks = 1;
   private lastScheduledTick: number | null = null;
@@ -123,6 +137,7 @@ export class CompositionTransport {
     );
 
     this.composition = composition;
+    this.renderedTracks = buildCompositionTracks(composition);
     if (this.chordSynth && this.melodySynth) {
       this.ensureVoiceSynths(composition.voices ?? []);
     }
@@ -251,46 +266,34 @@ export class CompositionTransport {
           windowStart + this.schedulerStepTicks,
         );
 
-        for (const chord of composition.chords) {
-          if (chord.startTick < windowStart || chord.startTick >= windowEnd) {
-            continue;
-          }
-          const offset = secondsForTicks(
-            chord.startTick - windowStart,
-            composition.settings.bpm,
-            composition.ppq,
-          );
-          const duration = secondsForTicks(
-            Math.min(chord.durationTick * 0.94, this.loop.endTick - chord.startTick),
-            composition.settings.bpm,
-            composition.ppq,
-          );
-          const pitches = [...chord.notes].sort((left, right) => left - right);
-          const eventTime = time + (chord.startTick === windowStart ? 0 : offset);
-          if (pitches.length <= 1 && this.trackIsAudible("track-chords")) {
-            this.chordSynth.triggerAttackRelease(
-              pitches.map(midiToFrequency),
-              duration,
-              eventTime,
-              0.48,
+        // Scheduled from the rendered tracks, the same source MIDI export and
+        // the piano roll read, so what is heard is what is written out.
+        for (const track of this.renderedTracks) {
+          if (track.role === "melody") continue;
+          if (!this.trackIsAudible(track.id)) continue;
+          const synth = track.role === "bass" ? this.bassSynth : this.chordSynth;
+          for (const note of track.notes) {
+            if (note.startTick < windowStart || note.startTick >= windowEnd) {
+              continue;
+            }
+            const offset = secondsForTicks(
+              note.startTick - windowStart,
+              composition.settings.bpm,
+              composition.ppq,
             );
-          } else {
-            if (this.trackIsAudible("track-bass")) {
-              this.bassSynth.triggerAttackRelease(
-                midiToFrequency(pitches[0] as number),
-                duration,
-                eventTime,
-                0.5,
-              );
-            }
-            if (this.trackIsAudible("track-chords")) {
-              this.chordSynth.triggerAttackRelease(
-                pitches.slice(1).map(midiToFrequency),
-                duration,
-                eventTime,
-                0.43,
-              );
-            }
+            const duration = secondsForTicks(
+              Math.min(note.durationTick * 0.94, this.loop.endTick - note.startTick),
+              composition.settings.bpm,
+              composition.ppq,
+            );
+            synth.triggerAttackRelease(
+              midiToFrequency(note.midi),
+              duration,
+              time + (note.startTick === windowStart ? 0 : offset),
+              // Reads the note's own velocity. The literals this replaced meant
+              // chord dynamics could never be heard however they were generated.
+              Math.max(0.08, Math.min(1, note.velocity / 127)),
+            );
           }
         }
 
