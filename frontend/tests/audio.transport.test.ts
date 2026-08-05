@@ -114,10 +114,13 @@ describe("CompositionTransport", () => {
     audioMocks.transport.ticks = 480;
     audioMocks.scheduler?.(1);
 
-    const chordSynth = audioMocks.synths[0];
-    expect(chordSynth?.triggerAttackRelease).toHaveBeenCalledTimes(1);
-    const frequencies = chordSynth?.triggerAttackRelease.mock.calls[0]?.[0] as number[];
-    expect(frequencies[0]).toBeCloseTo(523.251, 3);
+    // A one-note chord renders as a bass-track note. Playback used to
+    // special-case it to the chord synth while MIDI export already put it on
+    // the bass track; scheduling from the rendered tracks removed that
+    // divergence, so the assertions follow what is exported.
+    const bassSynth = audioMocks.synths[2];
+    expect(bassSynth?.triggerAttackRelease).toHaveBeenCalledTimes(1);
+    expect(bassSynth?.triggerAttackRelease.mock.calls[0]?.[0]).toBeCloseTo(523.251, 3);
   });
 
   it("uses the scheduled callback tick instead of the look-ahead transport position", async () => {
@@ -147,14 +150,14 @@ describe("CompositionTransport", () => {
     audioMocks.tickAssignments.length = 0;
     audioMocks.scheduler?.(2);
 
-    const chordSynth = audioMocks.synths[0];
-    expect(chordSynth?.triggerAttackRelease).toHaveBeenCalledTimes(2);
-    expect(chordSynth?.triggerAttackRelease.mock.calls[0]?.[0]).toEqual([
-      expect.closeTo(261.626, 3),
-    ]);
-    expect(chordSynth?.triggerAttackRelease.mock.calls[1]?.[0]).toEqual([
-      expect.closeTo(293.665, 3),
-    ]);
+    // A one-note chord renders as a bass-track note. Playback used to
+    // special-case it to the chord synth while MIDI export already put it on
+    // the bass track; scheduling from the rendered tracks removed that
+    // divergence, so the assertions follow what is exported.
+    const bassSynth = audioMocks.synths[2];
+    expect(bassSynth?.triggerAttackRelease).toHaveBeenCalledTimes(2);
+    expect(bassSynth?.triggerAttackRelease.mock.calls[0]?.[0]).toBeCloseTo(261.626, 3);
+    expect(bassSynth?.triggerAttackRelease.mock.calls[1]?.[0]).toBeCloseTo(293.665, 3);
   });
 
   it("splits piano hands and applies built-in track solo/mute", async () => {
@@ -223,11 +226,10 @@ describe("CompositionTransport", () => {
 
     audioMocks.scheduler?.(4.25);
 
-    const chordSynth = audioMocks.synths[0];
-    expect(chordSynth?.triggerAttackRelease).toHaveBeenCalledTimes(1);
-    expect(chordSynth?.triggerAttackRelease.mock.calls[0]?.[0]).toEqual([
-      expect.closeTo(523.251, 3),
-    ]);
+    // One-note chord, so it renders onto the bass track; see the note above.
+    const bassSynth = audioMocks.synths[2];
+    expect(bassSynth?.triggerAttackRelease).toHaveBeenCalledTimes(1);
+    expect(bassSynth?.triggerAttackRelease.mock.calls[0]?.[0]).toBeCloseTo(523.251, 3);
     expect(ticksSeen).toEqual([oldComposition.ticksPerBar, newComposition.ticksPerBar]);
     expect(audioMocks.tickAssignments).toEqual([]);
     expect(audioMocks.transport.pause).toHaveBeenCalledWith(4.25);
