@@ -234,6 +234,21 @@ export interface HarmonicRhythmSettings {
  * Absent leaves the lowest sounding pitch exactly where the voicer put it.
  */
 /**
+ * Colour tones on the ordinary generation path.
+ *
+ * Measured across all eight styles at sixteen bars, every chord the default
+ * path produced was a plain triad, and harmony.complexity "advanced" never
+ * exceeded four notes. Absent leaves that vocabulary exactly as it was.
+ */
+export interface TensionSettings {
+  enabled: boolean;
+  /** 0..1. Share of eligible chords that take a colour tone. Defaults to 0.5. */
+  rate?: number;
+  /** Highest colour tone to reach for. Defaults to "13". */
+  ceiling?: "9" | "11" | "13";
+}
+
+/**
  * How hard the chord and bass tracks are struck.
  *
  * Their velocity is otherwise a single literal, identical on every note of
@@ -504,6 +519,7 @@ export interface GeneratorSettings {
    */
   harmonicRhythm?: HarmonicRhythmSettings;
   dynamics?: DynamicsSettings;
+  tensions?: TensionSettings;
   /**
    * Phrase grammar. Omitted means the fixed four-bar phrasing every
    * composition used before it existed.

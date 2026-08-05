@@ -83,6 +83,7 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
     voiceLeading: settings.voiceLeading ? { ...settings.voiceLeading } : undefined,
     bassRegister: settings.bassRegister ? { ...settings.bassRegister } : undefined,
     dynamics: settings.dynamics ? { ...settings.dynamics } : undefined,
+    tensions: settings.tensions ? { ...settings.tensions } : undefined,
     melodicSkeleton: settings.melodicSkeleton
       ? { ...settings.melodicSkeleton }
       : undefined,
@@ -176,6 +177,13 @@ function compositionFingerprint(settings: GeneratorSettings): string {
     ...(settings.phraseGrammar?.enabled ? ["phrase-grammar"] : []),
     ...(settings.dynamics?.enabled
       ? ["dynamics", settings.dynamics.depth ?? "default"]
+      : []),
+    ...(settings.tensions?.enabled
+      ? [
+        "tensions",
+        settings.tensions.rate ?? "default",
+        settings.tensions.ceiling ?? "default",
+      ]
       : []),
     ...(settings.bassRegister?.enabled
       ? [

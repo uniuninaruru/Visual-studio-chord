@@ -444,7 +444,13 @@ export interface CreateDiatonicChordOptions {
   id: string;
   previousNotes?: readonly number[];
   seventh?: boolean;
-  voiceLeadingStrength?: number;
+  voiceLeadingStrength?: number;  /**
+   * Chooses colour tones from the quality this degree resolves to.
+   *
+   * The triad and the seventh on one degree take different tables, and the
+   * caller does not know which it is asking for until `seventh` is applied.
+   */
+  tensionsFor?: (quality: ChordQuality) => readonly Tension[];
 }
 
 export function createDiatonicChordEvent(
@@ -453,16 +459,17 @@ export function createDiatonicChordEvent(
   const definition = options.seventh
     ? getDiatonicSeventhChordDefinition(options.key, options.mode, options.degree)
     : getDiatonicChordDefinition(options.key, options.mode, options.degree);
-  const voicing = voiceChord(
-    definition.root,
-    definition.quality,
-    options.previousNotes,
-    undefined,
-    options.voiceLeadingStrength,
-  );
+  const tensions = resolveAvoidNotes(definition.quality, options.tensionsFor?.(definition.quality) ?? []);
+  const voicing = voiceExtendedChord({
+    root: definition.root,
+    quality: definition.quality,
+    tensions,
+    previousNotes: options.previousNotes,
+    voiceLeadingStrength: options.voiceLeadingStrength,
+  });
   return {
     id: options.id,
-    symbol: definition.symbol,
+    symbol: `${definition.symbol}${tensionSuffix(tensions)}`,
     romanNumeral: romanNumeralForChordQuality(
       options.degree,
       options.mode,
@@ -476,7 +483,15 @@ export function createDiatonicChordEvent(
     durationTick: options.durationTick,
     notes: voicing.notes,
     inversion: voicing.inversion,
-    source: "diatonic",
+    // Declared, not merely sounded: validateComposition widens the permitted
+    // pitch classes from this field, so a voicing that carries a colour tone
+    // without naming it is rejected as containing a foreign tone.
+    ...(tensions.length > 0 ? { tensions } : {}),
+    // A colour tone takes the chord out of the plain diatonic contract
+    // validateComposition enforces, which requires the symbol to be exactly the
+    // scale's own spelling. Reporting it as diatonic would make the piece fail
+    // its own validation.
+    source: tensions.length === 0 ? "diatonic" : "other",
   };
 }
 
@@ -583,7 +598,7 @@ export function rootForStep(
   return semitoneToPitchClass(pitchClassToSemitone(diatonic) + alteration);
 }
 
-function tensionSuffix(tensions: readonly Tension[]): string {
+export function tensionSuffix(tensions: readonly Tension[]): string {
   return tensions.length === 0 ? "" : `(${tensions.join(",")})`;
 }
 
