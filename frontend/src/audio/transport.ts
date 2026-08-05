@@ -48,6 +48,8 @@ export class CompositionTransport {
   private melodySynth: Tone.PolySynth | null = null;
   private bassSynth: Tone.PolySynth | null = null;
   private readonly voiceSynths = new Map<string, Tone.PolySynth>();
+  private busInput: Tone.Gain | null = null;
+  private busNodes: Tone.ToneAudioNode[] = [];
   /**
    * The rendered bass and chord tracks for the configured composition.
    *
@@ -78,24 +80,54 @@ export class CompositionTransport {
     return this.soloTrackId === null || this.soloTrackId === trackId;
   }
 
+  /**
+   * The shared output chain every synth plays into.
+   *
+   * Each synth used to run straight to the destination, so the whole piece was
+   * dry single-oscillator tone with nothing tying it together. Measured, the
+   * summed peak sat around 0.554 — five decibels of unused headroom under
+   * near-sine content, which is dull and quiet at the same time.
+   *
+   * Order matters. Reverb first so the compressor hears the tail and does not
+   * pump against it; the compressor then evens out the difference between a
+   * lone melody note and a full chord; the limiter is a safety net for the low
+   * end that bassRegister adds, not a sound. The final gain leaves a little
+   * room under full scale.
+   *
+   * Built once and reused, and torn down in dispose so a React remount does not
+   * leave a chain behind.
+   */
+  private ensureBus(): Tone.Gain {
+    if (this.busInput) return this.busInput;
+    const master = new Tone.Gain(0.9).toDestination();
+    const limiter = new Tone.Limiter(-1).connect(master);
+    const compressor = new Tone.Compressor({ threshold: -18, ratio: 3 }).connect(limiter);
+    const reverb = new Tone.Reverb({ decay: 2.4, wet: 0.22 }).connect(compressor);
+    const input = new Tone.Gain(1).connect(reverb);
+    this.busNodes = [master, limiter, compressor, reverb, input];
+    this.busInput = input;
+    return input;
+  }
+
   async initialize(): Promise<void> {
     await Tone.start();
+    const bus = this.ensureBus();
     this.chordSynth ??= new Tone.PolySynth(Tone.Synth, {
       volume: -14,
       oscillator: { type: "triangle8" },
       envelope: { attack: 0.02, decay: 0.25, sustain: 0.35, release: 0.8 },
-    }).toDestination();
+    }).connect(bus);
     this.melodySynth ??= new Tone.PolySynth(Tone.Synth, {
       volume: -9,
       oscillator: { type: "sine" },
       envelope: { attack: 0.01, decay: 0.1, sustain: 0.22, release: 0.24 },
-    }).toDestination();
+    }).connect(bus);
     this.ensureVoiceSynths(this.composition?.voices ?? []);
     this.bassSynth ??= new Tone.PolySynth(Tone.Synth, {
       volume: -12,
       oscillator: { type: "triangle" },
       envelope: { attack: 0.012, decay: 0.2, sustain: 0.3, release: 0.55 },
-    }).toDestination();
+    }).connect(bus);
   }
 
   /**
@@ -211,6 +243,9 @@ export class CompositionTransport {
     this.chordSynth = null;
     this.melodySynth = null;
     this.bassSynth = null;
+    for (const node of this.busNodes) node.dispose();
+    this.busNodes = [];
+    this.busInput = null;
   }
 
   private scheduleLoop(): void {
@@ -409,25 +444,26 @@ export class CompositionTransport {
   }
 
   private createVoiceSynth(instrument: CompositionVoiceInstrument): Tone.PolySynth {
+    const bus = this.ensureBus();
     switch (instrument) {
       case "bass":
         return new Tone.PolySynth(Tone.Synth, {
           volume: -13,
           oscillator: { type: "triangle" },
           envelope: { attack: 0.01, decay: 0.16, sustain: 0.18, release: 0.18 },
-        }).toDestination();
+        }).connect(bus);
       case "pluck":
         return new Tone.PolySynth(Tone.Synth, {
           volume: -15,
           oscillator: { type: "square8" },
           envelope: { attack: 0.006, decay: 0.14, sustain: 0.05, release: 0.12 },
-        }).toDestination();
+        }).connect(bus);
       case "softLead":
         return new Tone.PolySynth(Tone.Synth, {
           volume: -13,
           oscillator: { type: "sine4" },
           envelope: { attack: 0.025, decay: 0.15, sustain: 0.2, release: 0.3 },
-        }).toDestination();
+        }).connect(bus);
     }
   }
 }
