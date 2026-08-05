@@ -3,17 +3,33 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const audioMocks = vi.hoisted(() => {
   type Scheduler = (time: number) => void;
 
-  class FakePolySynth {
-    triggerAttackRelease = vi.fn();
-    releaseAll = vi.fn();
+  class FakeNode {
     dispose = vi.fn();
+    destination = false;
+    target: unknown = null;
 
-    constructor() {
-      audioMocks.synths.push(this);
+    constructor(readonly kind: string, readonly options?: unknown) {
+      audioMocks.nodes.push(this as unknown as FakeNode);
     }
 
     toDestination() {
+      this.destination = true;
       return this;
+    }
+
+    connect(target: unknown) {
+      this.target = target;
+      return this;
+    }
+  }
+
+  class FakePolySynth extends FakeNode {
+    triggerAttackRelease = vi.fn();
+    releaseAll = vi.fn();
+
+    constructor() {
+      super("polySynth");
+      audioMocks.synths.push(this);
     }
   }
 
@@ -48,10 +64,12 @@ const audioMocks = vi.hoisted(() => {
   };
 
   return {
+    FakeNode,
     FakePolySynth,
     transport,
     scheduler: null as Scheduler | null,
     synths: [] as FakePolySynth[],
+    nodes: [] as FakeNode[],
     startAudio: vi.fn(async () => undefined),
     tickAssignments,
   };
@@ -62,6 +80,26 @@ vi.mock("tone", () => ({
   start: audioMocks.startAudio,
   PolySynth: audioMocks.FakePolySynth,
   Synth: class FakeSynth {},
+  Gain: class extends audioMocks.FakeNode {
+    constructor(gain?: number) {
+      super("gain", gain);
+    }
+  },
+  Limiter: class extends audioMocks.FakeNode {
+    constructor(threshold?: number) {
+      super("limiter", threshold);
+    }
+  },
+  Compressor: class extends audioMocks.FakeNode {
+    constructor(options?: unknown) {
+      super("compressor", options);
+    }
+  },
+  Reverb: class extends audioMocks.FakeNode {
+    constructor(options?: unknown) {
+      super("reverb", options);
+    }
+  },
 }));
 
 import { CompositionTransport } from "../src/audio/transport";
@@ -80,6 +118,7 @@ describe("CompositionTransport", () => {
   beforeEach(() => {
     audioMocks.scheduler = null;
     audioMocks.synths.length = 0;
+    audioMocks.nodes.length = 0;
     audioMocks.transport.ticks = 0;
     audioMocks.tickAssignments.length = 0;
     audioMocks.transport.getTicksAtTime.mockImplementation(() => audioMocks.transport.ticks);
@@ -300,5 +339,147 @@ describe("CompositionTransport", () => {
     expect(counterSynth?.triggerAttackRelease).toHaveBeenCalledTimes(1);
     expect(counterSynth?.triggerAttackRelease.mock.calls[0]?.[0]).toBeCloseTo(195.998, 3);
     expect(mutedSynth?.triggerAttackRelease).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The shared output chain.
+ *
+ * Every synth used to run straight to the destination, which is why the piece
+ * sounded like several separate instruments in separate rooms. These pin that
+ * the chain exists, that it is the only route out, and that a React remount
+ * does not leave a copy of it behind.
+ */
+describe("effects bus", () => {
+  beforeEach(() => {
+    audioMocks.synths.length = 0;
+    audioMocks.nodes.length = 0;
+    audioMocks.scheduler = null;
+  });
+
+  /** Follows connect() from a node until it reaches the destination. */
+  function chainFrom(node: { target: unknown; destination: boolean }): string[] {
+    const path: string[] = [];
+    let current: typeof node | null = node;
+    while (current) {
+      const kind = (current as unknown as { kind: string }).kind;
+      if (kind !== "polySynth") path.push(kind);
+      if (current.destination) return path;
+      current = current.target as typeof node | null;
+      if (path.length > 10) break;
+    }
+    return path;
+  }
+
+  /**
+   * A piece carrying an additional voice per instrument, so every branch of
+   * createVoiceSynth runs. Without one, the bus is only ever requested from
+   * initialize and a chain rebuilt per request would look identical; without
+   * all three, a single branch left on toDestination() goes unnoticed.
+   */
+  function withVoice() {
+    const piece = composition();
+    const lead = piece.notes[0]!;
+    const instruments = ["softLead", "bass", "pluck"] as const;
+    piece.voices = instruments.map((instrument, index) => ({
+      id: `voice-${instrument}`,
+      name: instrument,
+      role: "countermelody" as const,
+      instrument,
+      color: "#58c7d9",
+      midiChannel: 2 + index,
+      notes: [{ ...lead, id: `note-${instrument}`, startTick: 0, midi: 55 + index }],
+    }));
+    return piece;
+  }
+
+  async function started(transport = new CompositionTransport()) {
+    const piece = withVoice();
+    transport.configure(piece, { startTick: 0, endTick: piece.totalTicks }, () => {});
+    await transport.play();
+    audioMocks.scheduler?.(0);
+    return transport;
+  }
+
+  it("routes every synth to the destination through the chain", async () => {
+    await started();
+
+    expect(audioMocks.synths.length).toBeGreaterThan(0);
+    for (const synth of audioMocks.synths) {
+      // Reaching the destination is not enough: it has to arrive via the bus,
+      // in this order. Reverb before the compressor so the compressor does not
+      // pump against the tail; the limiter last, as a ceiling and not a sound.
+      expect(chainFrom(synth)).toEqual(["gain", "reverb", "compressor", "limiter", "gain"]);
+    }
+  });
+
+  it("gives no synth a private route to the destination", async () => {
+    await started();
+
+    // The mutation this catches is one synth left on toDestination(): it would
+    // still be audible, still pass every scheduling test, and simply skip the
+    // effects. Only the master gain may end the chain.
+    const direct = audioMocks.nodes.filter((node) => node.destination);
+    expect(direct).toHaveLength(1);
+    expect(direct[0]?.kind).toBe("gain");
+    for (const synth of audioMocks.synths) {
+      expect(synth.destination).toBe(false);
+    }
+  });
+
+  it("builds one chain and shares it, however many synths there are", async () => {
+    await started();
+
+    // Six by now: chord, melody, bass, and one per additional voice.
+    expect(audioMocks.synths.length).toBe(6);
+    expect(audioMocks.nodes.filter((node) => node.kind === "reverb")).toHaveLength(1);
+    expect(audioMocks.nodes.filter((node) => node.kind === "compressor")).toHaveLength(1);
+    expect(audioMocks.nodes.filter((node) => node.kind === "limiter")).toHaveLength(1);
+    // All three synths land on the same input node.
+    const inputs = new Set(audioMocks.synths.map((synth) => synth.target));
+    expect(inputs.size).toBe(1);
+  });
+
+  it("leaves the master with headroom rather than running at full scale", async () => {
+    await started();
+
+    const master = audioMocks.nodes.find((node) => node.destination);
+    expect(master?.options).toBeLessThan(1);
+    expect(master?.options).toBeGreaterThan(0.5);
+  });
+
+  it("tears the chain down on dispose and builds a fresh one after", async () => {
+    // A remount that reuses a disposed chain is silence; one that leaks a chain
+    // per mount stacks reverb until the mix collapses.
+    const transport = await started();
+    const first = audioMocks.nodes.filter((node) => node.kind !== "polySynth");
+    const firstSynths = [...audioMocks.synths];
+    expect(first.length).toBeGreaterThan(0);
+
+    transport.dispose();
+    // Twice, because a StrictMode remount runs cleanup twice. Disposing a node
+    // that is already gone must not happen at all.
+    transport.dispose();
+    for (const node of first) {
+      expect(node.dispose).toHaveBeenCalledTimes(1);
+    }
+
+    // The same instance, because that is what a remount reuses. Forgetting to
+    // clear the handle leaves it pointing at a chain that has been torn down,
+    // and the second mount plays into nothing.
+    await started(transport);
+    const second = audioMocks.nodes.filter(
+      (node) => node.kind === "reverb" && !first.includes(node),
+    );
+    expect(second).toHaveLength(1);
+    expect(second[0]?.dispose).not.toHaveBeenCalled();
+    const rebuilt = audioMocks.synths.filter((entry) => !firstSynths.includes(entry));
+    expect(rebuilt.length).toBeGreaterThan(0);
+    for (const synth of rebuilt) {
+      expect(chainFrom(synth)).toEqual(["gain", "reverb", "compressor", "limiter", "gain"]);
+      // Specifically the new chain. Reusing a disposed one still type-checks.
+      expect((synth.target as { target: unknown } | null)?.target).toBe(second[0]);
+      expect(first).not.toContain(synth.target);
+    }
   });
 });
