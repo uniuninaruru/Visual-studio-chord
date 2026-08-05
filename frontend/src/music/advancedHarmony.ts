@@ -5,6 +5,7 @@ import type {
   Mode,
   NeoRiemannianTransformation,
   PitchClassName,
+  Tension,
 } from "../types/music";
 import {
   createDiatonicChordEvent,
@@ -13,6 +14,9 @@ import {
   getDiatonicSeventhChordDefinition,
   romanNumeralForChordQuality,
   voiceChord,
+  resolveAvoidNotes,
+  tensionSuffix,
+  voiceExtendedChord,
 } from "./chords";
 import {
   harmonyFunctionForDegree,
@@ -49,7 +53,17 @@ export interface CreateAdvancedChordOptions {
   previousNotes?: readonly number[];
   voiceLeadingStrength?: number;
   /** Deterministically selects sus2 or sus4. */
-  suspension?: 2 | 4;
+  suspension?: 2 | 4;  /**
+   * Chooses colour tones from the quality the chord actually ends up being.
+   *
+   * A callback rather than a list, because `kind` can change the quality out
+   * from under the caller: a secondary dominant on a minor degree is a
+   * dominant seventh, and a suspension has no third at all. Choosing from the
+   * degree's diatonic quality put an eleventh on a sus4 -- the note the
+   * suspension already is -- and read the minor table for a chord built as a
+   * dominant.
+   */
+  tensionsFor?: (quality: ChordQuality) => readonly Tension[];
 }
 
 export interface CreateNeoRiemannianChordOptions {
@@ -157,16 +171,17 @@ function buildEvent(
     "source" | "specialKind" | "targetDegree" | "borrowedFromMode" | "explanation"
   >,
 ): ChordEvent {
-  const voicing = voiceChord(
+  const tensions = resolveAvoidNotes(quality, options.tensionsFor?.(quality) ?? []);
+  const voicing = voiceExtendedChord({
     root,
     quality,
-    options.previousNotes,
-    undefined,
-    options.voiceLeadingStrength,
-  );
+    tensions,
+    previousNotes: options.previousNotes,
+    voiceLeadingStrength: options.voiceLeadingStrength,
+  });
   return {
     id: options.id,
-    symbol: formatChordSymbol(root, quality),
+    symbol: `${formatChordSymbol(root, quality)}${tensionSuffix(tensions)}`,
     romanNumeral,
     function: harmonyFunction,
     degree: options.degree,
@@ -176,6 +191,9 @@ function buildEvent(
     durationTick: options.durationTick,
     notes: voicing.notes,
     inversion: voicing.inversion,
+    // See createDiatonicChordEvent: validation widens the permitted pitch
+    // classes from this field, so the colour tones have to be declared.
+    ...(tensions.length > 0 ? { tensions } : {}),
     ...metadata,
   };
 }
@@ -235,6 +253,7 @@ export function createAdvancedChordEvent(
       previousNotes: options.previousNotes,
       seventh: options.kind === "seventh",
       voiceLeadingStrength: options.voiceLeadingStrength,
+      tensionsFor: options.tensionsFor,
     });
   }
 

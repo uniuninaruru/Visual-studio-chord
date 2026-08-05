@@ -1,4 +1,9 @@
 import * as Tone from "tone";
+import { VelocityFilterSynth } from "./velocityFilterSynth";
+import {
+  buildCompositionTracks,
+  type CompositionTrack,
+} from "../music/compositionTracks";
 import type {
   CompositionVoice,
   CompositionVoiceInstrument,
@@ -36,6 +41,49 @@ function midiToFrequency(midi: number): number {
  * is the data scheduled for that boundary. Notes that are already sounding are
  * left alone until their natural release.
  */
+/**
+ * Voice presets.
+ *
+ * `baseFrequency` is the cutoff a note at *full* velocity starts from, and the
+ * filter opens VELOCITY_OCTAVES below that as velocity falls. Chords are struck
+ * at 78 and the melody at 92, so in practice nothing ever reaches the stated
+ * figure -- measured, a chord note sits at about half of it. The numbers here
+ * are therefore chosen an octave high on purpose; read at face value the mix
+ * would be muffled rather than warm.
+ */
+const CHORD_PRESET = {
+  volume: -14,
+  oscillator: { type: "triangle8" as const },
+  envelope: { attack: 0.02, decay: 0.25, sustain: 0.35, release: 0.8 },
+  filter: { type: "lowpass" as const, rolloff: -12 as const, Q: 1 },
+  filterEnvelope: {
+    attack: 0.03, decay: 0.4, sustain: 0.45, release: 1.2,
+    baseFrequency: 620, octaves: 2.6,
+  },
+};
+
+const MELODY_PRESET = {
+  volume: -9,
+  oscillator: { type: "sine" as const },
+  envelope: { attack: 0.01, decay: 0.1, sustain: 0.22, release: 0.24 },
+  filter: { type: "lowpass" as const, rolloff: -12 as const, Q: 1.2 },
+  filterEnvelope: {
+    attack: 0.008, decay: 0.16, sustain: 0.5, release: 0.3,
+    baseFrequency: 1250, octaves: 2.4,
+  },
+};
+
+const BASS_PRESET = {
+  volume: -12,
+  oscillator: { type: "triangle" as const },
+  envelope: { attack: 0.012, decay: 0.2, sustain: 0.3, release: 0.55 },
+  filter: { type: "lowpass" as const, rolloff: -24 as const, Q: 1.4 },
+  filterEnvelope: {
+    attack: 0.012, decay: 0.22, sustain: 0.3, release: 0.6,
+    baseFrequency: 240, octaves: 2.2,
+  },
+};
+
 export class CompositionTransport {
   private readonly transport = Tone.getTransport();
   private composition: GeneratedComposition | null = null;
@@ -44,6 +92,18 @@ export class CompositionTransport {
   private melodySynth: Tone.PolySynth | null = null;
   private bassSynth: Tone.PolySynth | null = null;
   private readonly voiceSynths = new Map<string, Tone.PolySynth>();
+  private busInput: Tone.Gain | null = null;
+  private busNodes: Tone.ToneAudioNode[] = [];
+  /**
+   * The rendered bass and chord tracks for the configured composition.
+   *
+   * Playback used to walk composition.chords and build its own block chords,
+   * while MIDI export and the piano roll read buildCompositionTracks. Two
+   * renderers meant any change to how a chord sounds had to be made twice, and
+   * a change made once produced a file that did not match what was heard.
+   * Built in configure so it is not rebuilt per scheduling window.
+   */
+  private renderedTracks: readonly CompositionTrack[] = [];
   private schedulerEventId: number | null = null;
   private schedulerStepTicks = 1;
   private lastScheduledTick: number | null = null;
@@ -64,24 +124,42 @@ export class CompositionTransport {
     return this.soloTrackId === null || this.soloTrackId === trackId;
   }
 
+  /**
+   * The shared output chain every synth plays into.
+   *
+   * Each synth used to run straight to the destination, so the whole piece was
+   * dry single-oscillator tone with nothing tying it together. Measured, the
+   * summed peak sat around 0.554 — five decibels of unused headroom under
+   * near-sine content, which is dull and quiet at the same time.
+   *
+   * Order matters. Reverb first so the compressor hears the tail and does not
+   * pump against it; the compressor then evens out the difference between a
+   * lone melody note and a full chord; the limiter is a safety net for the low
+   * end that bassRegister adds, not a sound. The final gain leaves a little
+   * room under full scale.
+   *
+   * Built once and reused, and torn down in dispose so a React remount does not
+   * leave a chain behind.
+   */
+  private ensureBus(): Tone.Gain {
+    if (this.busInput) return this.busInput;
+    const master = new Tone.Gain(0.9).toDestination();
+    const limiter = new Tone.Limiter(-1).connect(master);
+    const compressor = new Tone.Compressor({ threshold: -18, ratio: 3 }).connect(limiter);
+    const reverb = new Tone.Reverb({ decay: 2.4, wet: 0.22 }).connect(compressor);
+    const input = new Tone.Gain(1).connect(reverb);
+    this.busNodes = [master, limiter, compressor, reverb, input];
+    this.busInput = input;
+    return input;
+  }
+
   async initialize(): Promise<void> {
     await Tone.start();
-    this.chordSynth ??= new Tone.PolySynth(Tone.Synth, {
-      volume: -14,
-      oscillator: { type: "triangle8" },
-      envelope: { attack: 0.02, decay: 0.25, sustain: 0.35, release: 0.8 },
-    }).toDestination();
-    this.melodySynth ??= new Tone.PolySynth(Tone.Synth, {
-      volume: -9,
-      oscillator: { type: "sine" },
-      envelope: { attack: 0.01, decay: 0.1, sustain: 0.22, release: 0.24 },
-    }).toDestination();
+    const bus = this.ensureBus();
+    this.chordSynth ??= new Tone.PolySynth(VelocityFilterSynth, CHORD_PRESET).connect(bus);
+    this.melodySynth ??= new Tone.PolySynth(VelocityFilterSynth, MELODY_PRESET).connect(bus);
     this.ensureVoiceSynths(this.composition?.voices ?? []);
-    this.bassSynth ??= new Tone.PolySynth(Tone.Synth, {
-      volume: -12,
-      oscillator: { type: "triangle" },
-      envelope: { attack: 0.012, decay: 0.2, sustain: 0.3, release: 0.55 },
-    }).toDestination();
+    this.bassSynth ??= new Tone.PolySynth(VelocityFilterSynth, BASS_PRESET).connect(bus);
   }
 
   /**
@@ -123,6 +201,7 @@ export class CompositionTransport {
     );
 
     this.composition = composition;
+    this.renderedTracks = buildCompositionTracks(composition);
     if (this.chordSynth && this.melodySynth) {
       this.ensureVoiceSynths(composition.voices ?? []);
     }
@@ -196,6 +275,9 @@ export class CompositionTransport {
     this.chordSynth = null;
     this.melodySynth = null;
     this.bassSynth = null;
+    for (const node of this.busNodes) node.dispose();
+    this.busNodes = [];
+    this.busInput = null;
   }
 
   private scheduleLoop(): void {
@@ -251,46 +333,34 @@ export class CompositionTransport {
           windowStart + this.schedulerStepTicks,
         );
 
-        for (const chord of composition.chords) {
-          if (chord.startTick < windowStart || chord.startTick >= windowEnd) {
-            continue;
-          }
-          const offset = secondsForTicks(
-            chord.startTick - windowStart,
-            composition.settings.bpm,
-            composition.ppq,
-          );
-          const duration = secondsForTicks(
-            Math.min(chord.durationTick * 0.94, this.loop.endTick - chord.startTick),
-            composition.settings.bpm,
-            composition.ppq,
-          );
-          const pitches = [...chord.notes].sort((left, right) => left - right);
-          const eventTime = time + (chord.startTick === windowStart ? 0 : offset);
-          if (pitches.length <= 1 && this.trackIsAudible("track-chords")) {
-            this.chordSynth.triggerAttackRelease(
-              pitches.map(midiToFrequency),
-              duration,
-              eventTime,
-              0.48,
+        // Scheduled from the rendered tracks, the same source MIDI export and
+        // the piano roll read, so what is heard is what is written out.
+        for (const track of this.renderedTracks) {
+          if (track.role === "melody") continue;
+          if (!this.trackIsAudible(track.id)) continue;
+          const synth = track.role === "bass" ? this.bassSynth : this.chordSynth;
+          for (const note of track.notes) {
+            if (note.startTick < windowStart || note.startTick >= windowEnd) {
+              continue;
+            }
+            const offset = secondsForTicks(
+              note.startTick - windowStart,
+              composition.settings.bpm,
+              composition.ppq,
             );
-          } else {
-            if (this.trackIsAudible("track-bass")) {
-              this.bassSynth.triggerAttackRelease(
-                midiToFrequency(pitches[0] as number),
-                duration,
-                eventTime,
-                0.5,
-              );
-            }
-            if (this.trackIsAudible("track-chords")) {
-              this.chordSynth.triggerAttackRelease(
-                pitches.slice(1).map(midiToFrequency),
-                duration,
-                eventTime,
-                0.43,
-              );
-            }
+            const duration = secondsForTicks(
+              Math.min(note.durationTick * 0.94, this.loop.endTick - note.startTick),
+              composition.settings.bpm,
+              composition.ppq,
+            );
+            synth.triggerAttackRelease(
+              midiToFrequency(note.midi),
+              duration,
+              time + (note.startTick === windowStart ? 0 : offset),
+              // Reads the note's own velocity. The literals this replaced meant
+              // chord dynamics could never be heard however they were generated.
+              Math.max(0.08, Math.min(1, note.velocity / 127)),
+            );
           }
         }
 
@@ -406,25 +476,43 @@ export class CompositionTransport {
   }
 
   private createVoiceSynth(instrument: CompositionVoiceInstrument): Tone.PolySynth {
+    const bus = this.ensureBus();
     switch (instrument) {
       case "bass":
-        return new Tone.PolySynth(Tone.Synth, {
+        return new Tone.PolySynth(VelocityFilterSynth, {
           volume: -13,
           oscillator: { type: "triangle" },
           envelope: { attack: 0.01, decay: 0.16, sustain: 0.18, release: 0.18 },
-        }).toDestination();
+          filter: { type: "lowpass", rolloff: -24, Q: 1.4 },
+          filterEnvelope: {
+            attack: 0.01, decay: 0.18, sustain: 0.25, release: 0.2,
+            baseFrequency: 240, octaves: 2.2,
+          },
+        }).connect(bus);
       case "pluck":
-        return new Tone.PolySynth(Tone.Synth, {
+        return new Tone.PolySynth(VelocityFilterSynth, {
           volume: -15,
           oscillator: { type: "square8" },
           envelope: { attack: 0.006, decay: 0.14, sustain: 0.05, release: 0.12 },
-        }).toDestination();
+          // A plucked note is bright at the attack and dulls immediately, so
+          // the filter decays with the amplitude rather than sustaining.
+          filter: { type: "lowpass", rolloff: -12, Q: 2 },
+          filterEnvelope: {
+            attack: 0.004, decay: 0.12, sustain: 0.12, release: 0.12,
+            baseFrequency: 900, octaves: 2.8,
+          },
+        }).connect(bus);
       case "softLead":
-        return new Tone.PolySynth(Tone.Synth, {
+        return new Tone.PolySynth(VelocityFilterSynth, {
           volume: -13,
           oscillator: { type: "sine4" },
           envelope: { attack: 0.025, decay: 0.15, sustain: 0.2, release: 0.3 },
-        }).toDestination();
+          filter: { type: "lowpass", rolloff: -12, Q: 1.1 },
+          filterEnvelope: {
+            attack: 0.02, decay: 0.2, sustain: 0.5, release: 0.35,
+            baseFrequency: 1100, octaves: 2.2,
+          },
+        }).connect(bus);
     }
   }
 }

@@ -217,6 +217,88 @@ export interface HarmonicRhythmSettings {
 }
 
 /**
+ * Where the bass/left-hand track sounds.
+ *
+ * Chords are voiced in close position, so their lowest note lands around
+ * MIDI 50-53 (D3-F3) — measured across every style preset. That is a tenor, not
+ * a bass: there is no energy below roughly 147 Hz anywhere in the piece, while a
+ * pop bass line lives around MIDI 28-48. Worse, the lowest note of an inverted
+ * chord is often the fifth or the third, so the "bass" is whichever tone the
+ * voicer happened to put at the bottom.
+ *
+ * Enabling this drops that note by whole octaves until it reaches a real bass
+ * register. Octaves are used rather than a fixed pitch so the inversion the
+ * voicing expresses is preserved: only the register changes, never which note
+ * is in the bass.
+ *
+ * Absent leaves the lowest sounding pitch exactly where the voicer put it.
+ */
+/**
+ * Breaks the chord track into a running figure instead of a block.
+ *
+ * Every chord sounded all of its notes at once for the chord's full length,
+ * which is the one texture a keyboard player almost never uses for a whole
+ * piece. Absent leaves the block chords exactly as they were.
+ */
+export interface ArpeggioSettings {
+  enabled: boolean;
+  /**
+   * Steps per beat. 2 is eighth notes, the default; 4 is sixteenths. A step
+   * shorter than one tick is refused rather than rounded to nothing.
+   */
+  rate?: number;
+  /** Defaults to "up". */
+  pattern?: "up" | "down" | "upDown";
+  /**
+   * 0..1. How much of its step each note holds. Defaults to 0.9, which leaves
+   * a little separation; 1 is fully legato.
+   */
+  gate?: number;
+}
+
+/**
+ * Colour tones on the ordinary generation path.
+ *
+ * Measured across all eight styles at sixteen bars, every chord the default
+ * path produced was a plain triad, and harmony.complexity "advanced" never
+ * exceeded four notes. Absent leaves that vocabulary exactly as it was.
+ */
+export interface TensionSettings {
+  enabled: boolean;
+  /** 0..1. Share of eligible chords that take a colour tone. Defaults to 0.5. */
+  rate?: number;
+  /** Highest colour tone to reach for. Defaults to "13". */
+  ceiling?: "9" | "11" | "13";
+}
+
+/**
+ * How hard the chord and bass tracks are struck.
+ *
+ * Their velocity is otherwise a single literal, identical on every note of
+ * every bar, which is the flat mechanical delivery a real player never
+ * produces. Absent leaves that literal exactly as it was.
+ */
+export interface DynamicsSettings {
+  enabled: boolean;
+  /**
+   * 0..1. How far the weakest position falls below the strongest. Defaults to
+   * 0.35, which spreads the chord track over roughly 56-78.
+   */
+  depth?: number;
+}
+
+export interface BassRegisterSettings {
+  enabled: boolean;
+  /**
+   * Highest MIDI note the bass may sound. Defaults to 48 (C3), the top of a
+   * comfortable electric-bass register.
+   */
+  ceiling?: number;
+  /** Lowest MIDI note to drop to. Defaults to 28 (E1), a five-string bass low E. */
+  floor?: number;
+}
+
+/**
  * Four-part voice leading. Off keeps the note-set voicer.
  */
 export interface VoiceLeadingSettings {
@@ -459,6 +541,9 @@ export interface GeneratorSettings {
    * composition behaved before harmonic rhythm existed.
    */
   harmonicRhythm?: HarmonicRhythmSettings;
+  dynamics?: DynamicsSettings;
+  tensions?: TensionSettings;
+  arpeggio?: ArpeggioSettings;
   /**
    * Phrase grammar. Omitted means the fixed four-bar phrasing every
    * composition used before it existed.
@@ -474,6 +559,7 @@ export interface GeneratorSettings {
    * weighted by style. Omitted keeps the original note-set voicer.
    */
   voiceLeading?: VoiceLeadingSettings;
+  bassRegister?: BassRegisterSettings;
   /**
    * Plans each phrase's structural notes — start, climax, cadence — before the
    * line is written. Requires a phrase plan; omitted keeps the purely

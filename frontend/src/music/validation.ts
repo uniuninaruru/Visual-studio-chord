@@ -28,7 +28,7 @@ import {
   normalizePitchClass,
   pitchClassToSemitone,
 } from "./scales";
-import { ticksPerBar } from "./time";
+import { ticksPerBar, ticksPerBeat } from "./time";
 
 function result(issues: ValidationIssue[]): ValidationResult {
   const errors = issues.filter((issue) => issue.severity === "error");
@@ -156,6 +156,75 @@ export function validateGeneratorSettings(settings: GeneratorSettings): Validati
           error(
             `settings.harmony.${name}`,
             `Harmony ${name} must be between 0 and 1.`,
+          ),
+        );
+      }
+    }
+  }
+  if (settings.harmonicRhythm) {
+    const rhythm = settings.harmonicRhythm;
+    // Only positive integers reach the planner. Everything else falls through
+    // to one chord per bar, so a caller asking for 2.5 changes per bar, or for
+    // zero, silently receives the default and is never told.
+    for (const [name, value] of Object.entries({
+      changesPerBar: rhythm.changesPerBar,
+      barsPerChord: rhythm.barsPerChord,
+    })) {
+      if (value !== undefined && (!Number.isInteger(value) || value < 1)) {
+        issues.push(
+          error(
+            `settings.harmonicRhythm.${name}`,
+            `Harmonic rhythm ${name} must be a positive integer.`,
+          ),
+        );
+      }
+    }
+    if (
+      rhythm.cadentialAcceleration !== undefined
+      && typeof rhythm.cadentialAcceleration !== "boolean"
+    ) {
+      issues.push(
+        error(
+          "settings.harmonicRhythm.cadentialAcceleration",
+          "Harmonic rhythm cadentialAcceleration must be boolean.",
+        ),
+      );
+    }
+    // Holding a chord across bars and subdividing the bar are opposite
+    // requests. The planner resolves it by taking barsPerChord and dropping
+    // changesPerBar entirely, which is worse than refusing: half the request
+    // disappears and the result looks deliberate.
+    if ((rhythm.barsPerChord ?? 1) > 1 && (rhythm.changesPerBar ?? 1) > 1) {
+      issues.push(
+        error(
+          "settings.harmonicRhythm.conflict",
+          "Harmonic rhythm cannot set barsPerChord above 1 together with changesPerBar above 1.",
+        ),
+      );
+    }
+    if (["4/4", "3/4", "6/8"].includes(settings.timeSignature)) {
+      const barTicks = ticksPerBar(settings.timeSignature);
+      // cadentialAcceleration doubles the rate over the closing bars, so the
+      // peak rate is what has to fit, not the nominal one.
+      const peak = (rhythm.changesPerBar ?? 1) * (rhythm.cadentialAcceleration ? 2 : 1);
+      if (Number.isInteger(rhythm.changesPerBar ?? 1) && peak > barTicks) {
+        // Slots are integer ticks and are split to tile the bar exactly, so
+        // past one chord per tick the remainder runs out and the surplus slots
+        // come back zero length. Measured at 4/4: changesPerBar 3000 produced
+        // 4320 chords of zero duration.
+        issues.push(
+          error(
+            "settings.harmonicRhythm.changesPerBar",
+            `Harmonic rhythm changesPerBar is too high for a ${settings.timeSignature} bar; chords would have no duration.`,
+          ),
+        );
+      } else if (peak > 1 && barTicks / peak < ticksPerBeat(settings.timeSignature) / 4) {
+        // Shorter than a sixteenth note. Legal, and tiles correctly, but it is
+        // a rhythm part rather than a harmonic rhythm, so it is worth saying.
+        issues.push(
+          warning(
+            "settings.harmonicRhythm.changesPerBar",
+            "Harmonic rhythm changes faster than a sixteenth note.",
           ),
         );
       }

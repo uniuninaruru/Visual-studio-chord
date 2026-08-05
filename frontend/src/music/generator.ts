@@ -81,6 +81,10 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
       ? { ...settings.functionalHarmony }
       : undefined,
     voiceLeading: settings.voiceLeading ? { ...settings.voiceLeading } : undefined,
+    bassRegister: settings.bassRegister ? { ...settings.bassRegister } : undefined,
+    dynamics: settings.dynamics ? { ...settings.dynamics } : undefined,
+    tensions: settings.tensions ? { ...settings.tensions } : undefined,
+    arpeggio: settings.arpeggio ? { ...settings.arpeggio } : undefined,
     melodicSkeleton: settings.melodicSkeleton
       ? { ...settings.melodicSkeleton }
       : undefined,
@@ -172,6 +176,31 @@ function compositionFingerprint(settings: GeneratorSettings): string {
         ]
       : []),
     ...(settings.phraseGrammar?.enabled ? ["phrase-grammar"] : []),
+    ...(settings.dynamics?.enabled
+      ? ["dynamics", settings.dynamics.depth ?? "default"]
+      : []),
+    ...(settings.arpeggio?.enabled
+      ? [
+        "arpeggio",
+        settings.arpeggio.rate ?? "default",
+        settings.arpeggio.pattern ?? "default",
+        settings.arpeggio.gate ?? "default",
+      ]
+      : []),
+    ...(settings.tensions?.enabled
+      ? [
+        "tensions",
+        settings.tensions.rate ?? "default",
+        settings.tensions.ceiling ?? "default",
+      ]
+      : []),
+    ...(settings.bassRegister?.enabled
+      ? [
+        "bass-register",
+        settings.bassRegister.ceiling ?? "default",
+        settings.bassRegister.floor ?? "default",
+      ]
+      : []),
     ...(settings.voiceLeading?.enabled
       ? [
         "voice-leading",

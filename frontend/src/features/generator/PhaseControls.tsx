@@ -2,10 +2,15 @@ import { PROGRESSION_TEMPLATES } from "../../music";
 import type { GeneratorSettingsPatch } from "../../state";
 import type {
   GeneratorSettings,
+  ArpeggioSettings,
+  TensionSettings,
   GrooveTemplateName,
   MelodyScaleName,
   SongFormId,
 } from "../../types/music";
+
+type ArpeggioPattern = NonNullable<ArpeggioSettings["pattern"]>;
+type TensionCeiling = NonNullable<TensionSettings["ceiling"]>;
 
 interface PhaseControlsProps {
   settings: GeneratorSettings;
@@ -493,6 +498,144 @@ export function PhaseControls({ settings, onPatch }: PhaseControlsProps) {
                 <option value={7}>7（7対4）</option>
               </select>
             </label>
+          )}
+        </div>
+      </details>
+      <details className="phase-card">
+        <summary>
+          <span className="phase-badge">E</span>
+          <span><strong>演奏の表情</strong><small>強弱・音域・分散和音・テンション</small></span>
+        </summary>
+        <div className="phase-body">
+          <Toggle
+            label="強弱をつける"
+            description="小節の中の位置と、和音の中の声部で弾く強さを変えます"
+            checked={settings.dynamics?.enabled ?? false}
+            onChange={(enabled) => onPatch({
+              dynamics: { enabled, depth: settings.dynamics?.depth ?? 0.35 },
+            })}
+          />
+          {settings.dynamics?.enabled && (
+            <label className="field">
+              <span>強弱の幅</span>
+              <select
+                value={settings.dynamics.depth ?? 0.35}
+                onChange={(event) => onPatch({
+                  dynamics: { enabled: true, depth: Number(event.target.value) },
+                })}
+              >
+                <option value={0.2}>控えめ</option>
+                <option value={0.35}>標準</option>
+                <option value={0.6}>はっきり</option>
+                <option value={0.85}>大きく</option>
+              </select>
+            </label>
+          )}
+          <Toggle
+            label="ベースを低い音域で鳴らす"
+            description="和音の最低音をベースらしい高さまで下げます。転回はそのまま保ちます"
+            checked={settings.bassRegister?.enabled ?? false}
+            onChange={(enabled) => onPatch({ bassRegister: { enabled } })}
+          />
+          <Toggle
+            label="和音を分散させて弾く"
+            description="一度に鳴らさず順に弾きます。ベースは支えとして伸ばしたままにします"
+            checked={settings.arpeggio?.enabled ?? false}
+            onChange={(enabled) => onPatch({
+              arpeggio: {
+                enabled,
+                rate: settings.arpeggio?.rate ?? 2,
+                pattern: settings.arpeggio?.pattern ?? "up",
+              },
+            })}
+          />
+          {settings.arpeggio?.enabled && (
+            <>
+              <label className="field">
+                <span>弾く向き</span>
+                <select
+                  value={settings.arpeggio.pattern ?? "up"}
+                  onChange={(event) => onPatch({
+                    arpeggio: {
+                      ...settings.arpeggio,
+                      enabled: true,
+                      pattern: event.target.value as ArpeggioPattern,
+                    },
+                  })}
+                >
+                  <option value="up">低い音から上へ</option>
+                  <option value="down">高い音から下へ</option>
+                  <option value="upDown">上って下りる</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>細かさ</span>
+                <select
+                  value={settings.arpeggio.rate ?? 2}
+                  onChange={(event) => onPatch({
+                    arpeggio: {
+                      ...settings.arpeggio,
+                      enabled: true,
+                      rate: Number(event.target.value),
+                    },
+                  })}
+                >
+                  <option value={1}>1拍にひとつ</option>
+                  <option value={2}>8分音符</option>
+                  <option value={4}>16分音符</option>
+                </select>
+              </label>
+            </>
+          )}
+          <Toggle
+            label="テンションを加える"
+            description="9th や 13th の色を足します。和音ごとに濁らない音だけを選びます"
+            checked={settings.tensions?.enabled ?? false}
+            onChange={(enabled) => onPatch({
+              tensions: {
+                enabled,
+                rate: settings.tensions?.rate ?? 0.5,
+                ceiling: settings.tensions?.ceiling ?? "13",
+              },
+            })}
+          />
+          {settings.tensions?.enabled && (
+            <>
+              <label className="field">
+                <span>どのくらいの和音に足すか</span>
+                <select
+                  value={settings.tensions.rate ?? 0.5}
+                  onChange={(event) => onPatch({
+                    tensions: {
+                      ...settings.tensions,
+                      enabled: true,
+                      rate: Number(event.target.value),
+                    },
+                  })}
+                >
+                  <option value={0.25}>ときどき</option>
+                  <option value={0.5}>半分ほど</option>
+                  <option value={1}>すべて</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>どこまで高い音を使うか</span>
+                <select
+                  value={settings.tensions.ceiling ?? "13"}
+                  onChange={(event) => onPatch({
+                    tensions: {
+                      ...settings.tensions,
+                      enabled: true,
+                      ceiling: event.target.value as TensionCeiling,
+                    },
+                  })}
+                >
+                  <option value="9">9th まで</option>
+                  <option value="11">11th まで</option>
+                  <option value="13">13th まで</option>
+                </select>
+              </label>
+            </>
           )}
         </div>
       </details>
