@@ -11,6 +11,7 @@ import type {
   ProgressionTemplate,
   StylePresetId,
   TimeSignature,
+  TensionSettings,
 } from "../types/music";
 import {
   canCreateHarmonyCandidate,
@@ -29,6 +30,7 @@ import {
   type FunctionalChordCandidate,
 } from "./functionalHarmony";
 import { chordSlotsFor } from "./harmonicRhythm";
+import { chooseTensions } from "./tensions";
 import { getProgressionTemplate } from "./progressions";
 import { cadenceDegrees, cadenceDominantPosition } from "./harmonyFunctions";
 import { createSeededRandom, deriveSeed, hashSeed, type Seed } from "./random";
@@ -54,6 +56,7 @@ export interface ProgressionGeneratorSettings {
   functionalHarmony?: FunctionalHarmonySettings;
   /** Chord change rate. Omitted means one chord per bar. */
   harmonicRhythm?: HarmonicRhythmSettings;
+  tensions?: TensionSettings;
   /** Named progression to use instead of the seeded style pick. */
   progressionId?: string;
   /**
@@ -442,6 +445,8 @@ export function generateProgression(
             suspension: hashSeed(deriveSeed(settings.seed, "suspension", slotIndex)) % 2 === 0
               ? 2
               : 4,
+            tensionsFor: (quality) =>
+              chooseTensions(quality, settings.tensions, settings.seed, slotIndex),
           }),
     );
   }

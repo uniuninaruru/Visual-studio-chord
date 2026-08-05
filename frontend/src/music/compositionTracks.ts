@@ -1,9 +1,14 @@
 import type {
+  ArpeggioSettings,
+  BassRegisterSettings,
+  DynamicsSettings,
   CompositionVoiceRole,
   GeneratedComposition,
   NoteEvent,
+  TimeSignature,
 } from "../types/music";
 import { midiToNoteName } from "./scales";
+import { metricStrength, ticksPerBeat } from "./time";
 
 export type CompositionTrackRole =
   | "bass"
@@ -26,6 +31,68 @@ export interface CompositionTrack {
   sourceVoiceId?: string;
 }
 
+/** The velocity every chord and bass note was struck with, unconditionally. */
+const BASE_CHORD_VELOCITY = 78;
+
+/** Default spread: the weakest position lands about a third below the strongest. */
+const DEFAULT_DYNAMICS_DEPTH = 0.35;
+
+/** Where a note sits inside its chord, lowest to highest. */
+export type ChordVoicePosition = "bass" | "inner" | "top";
+
+/**
+ * How strongly each voice of a chord is struck relative to the others.
+ *
+ * A keyboard player does not press every key of a chord equally. The outer
+ * voices carry the frame -- the bass states the harmony's foundation and the
+ * top is the line the ear follows -- while the inner voices fill between them
+ * and are played lighter. Weighting them equally is what makes a block chord
+ * sound like a button being pressed.
+ */
+const VOICE_PROMINENCE: Readonly<Record<ChordVoicePosition, number>> = {
+  bass: 1,
+  inner: 0.55,
+  top: 0.95,
+};
+
+/**
+ * How hard a chord or bass note is struck.
+ *
+ * Measured before this existed: every note of every chord in every style came
+ * out at exactly 78, so the two tracks had no dynamics whatsoever and playback
+ * was as even as the sequencer grid it came from.
+ *
+ * Two things decide it, because one is not enough. The bar carries a weighting
+ * -- downbeat strongest, then the half-bar, then beats, then offbeats -- and
+ * metricStrength is the same curve the melody generator already phrases
+ * against, so the two agree about where the weight falls. But with one chord
+ * per bar every chord starts on a downbeat, and metric position alone would
+ * change nothing at all on the default path. Position within the chord is what
+ * reaches it.
+ *
+ * depth 0 reproduces the flat literal exactly, which is what makes leaving it
+ * off safe.
+ */
+export function dynamicVelocity(
+  tickWithinBar: number,
+  timeSignature: TimeSignature,
+  position: ChordVoicePosition,
+  settings: DynamicsSettings | undefined,
+  base: number = BASE_CHORD_VELOCITY,
+): number {
+  if (!settings?.enabled) return base;
+  // Math.min/Math.max pass NaN straight through, so a non-finite depth would
+  // reach the multiply and leave the note with a velocity of NaN.
+  const requested = settings.depth ?? DEFAULT_DYNAMICS_DEPTH;
+  const depth = Number.isFinite(requested)
+    ? Math.min(1, Math.max(0, requested))
+    : DEFAULT_DYNAMICS_DEPTH;
+  const strength = metricStrength(tickWithinBar, timeSignature) * VOICE_PROMINENCE[position];
+  const scaled = Math.round(base * (1 - depth * (1 - strength)));
+  // MIDI velocity 0 means note-off, so the floor is 1 and not 0.
+  return Math.min(127, Math.max(1, scaled));
+}
+
 function chordNote(
   composition: GeneratedComposition,
   chordId: string,
@@ -33,15 +100,22 @@ function chordNote(
   durationTick: number,
   midi: number,
   suffix: string,
+  position: ChordVoicePosition,
 ): NoteEvent {
+  const barIndex = Math.floor(startTick / composition.ticksPerBar);
   return {
     id: `${chordId}-${suffix}-${midi}`,
     midi,
     noteName: midiToNoteName(midi),
     startTick,
     durationTick,
-    velocity: 78,
-    barIndex: Math.floor(startTick / composition.ticksPerBar),
+    velocity: dynamicVelocity(
+      startTick - barIndex * composition.ticksPerBar,
+      composition.settings.timeSignature,
+      position,
+      composition.settings.dynamics,
+    ),
+    barIndex,
     role: "chordTone",
   };
 }
@@ -55,11 +129,123 @@ function chordNote(
  * legacy project files compatible while giving playback, MIDI and the editor a
  * single track vocabulary.
  */
+/** Default top of the bass register: C3, the top of a comfortable bass range. */
+const DEFAULT_BASS_CEILING = 48;
+/** Default bottom: E1, the low E of a five-string bass. */
+const DEFAULT_BASS_FLOOR = 28;
+
+/**
+ * Drops a sounding pitch into the bass register without changing which note it is.
+ *
+ * Close-position voicings put their lowest note around D3-F3, so the bass track
+ * sings in the tenor range and the mix has nothing under about 147 Hz. Moving by
+ * whole octaves keeps the pitch class, and therefore the inversion the voicing
+ * chose: an inverted chord still sounds its third or fifth in the bass, an
+ * octave or two lower.
+ *
+ * Stops before crossing the floor, so a pitch that cannot reach the register
+ * without going under it stays where the last whole octave left it.
+ */
+export function bassRegisterPitch(
+  midi: number,
+  settings: BassRegisterSettings | undefined,
+): number {
+  if (!settings?.enabled) return midi;
+  const ceiling = settings.ceiling ?? DEFAULT_BASS_CEILING;
+  const floor = settings.floor ?? DEFAULT_BASS_FLOOR;
+  let pitch = midi;
+  while (pitch > ceiling && pitch - 12 >= floor) {
+    pitch -= 12;
+  }
+  return pitch;
+}
+
+/** Default step: eighth notes. */
+const DEFAULT_ARPEGGIO_RATE = 2;
+
+/** Default hold: most of the step, leaving a little separation. */
+const DEFAULT_ARPEGGIO_GATE = 0.9;
+
+/**
+ * The order the voicing's pitches are visited.
+ *
+ * "upDown" turns without repeating either end, so a four-note voicing gives a
+ * six-step cycle rather than eight with the top and bottom struck twice.
+ */
+function arpeggioOrder(
+  pitches: readonly number[],
+  pattern: NonNullable<ArpeggioSettings["pattern"]>,
+): number[] {
+  if (pattern === "down") return [...pitches].reverse();
+  if (pattern === "upDown") {
+    if (pitches.length < 3) return [...pitches];
+    return [...pitches, ...[...pitches].slice(1, -1).reverse()];
+  }
+  return [...pitches];
+}
+
+/**
+ * Spreads one chord's pitches across its own duration.
+ *
+ * Every chord sounded all of its notes at once for its full length. That is a
+ * texture, not the texture, and using it for every chord of every piece is a
+ * large part of why playback sounds like a chord chart rather than a
+ * performance.
+ *
+ * The steps tile the chord exactly: the remainder goes to the earliest steps,
+ * so the figure stays in time and the last note ends where the chord ends
+ * rather than drifting. A chord too short to hold even one whole step is left
+ * as a block, because an arpeggio nobody can hear is just a quieter chord.
+ */
+export function arpeggiateChord(
+  pitches: readonly number[],
+  startTick: number,
+  durationTick: number,
+  ticksPerStep: number,
+  settings: ArpeggioSettings | undefined,
+): { midi: number; startTick: number; durationTick: number }[] {
+  const block = pitches.map((midi) => ({ midi, startTick, durationTick }));
+  if (!settings?.enabled || pitches.length === 0) return block;
+  if (!Number.isFinite(ticksPerStep) || ticksPerStep < 1) return block;
+
+  const steps = Math.floor(durationTick / ticksPerStep);
+  if (steps < 2) return block;
+
+  const requested = settings.gate ?? DEFAULT_ARPEGGIO_GATE;
+  const gate = Number.isFinite(requested)
+    ? Math.min(1, Math.max(0.05, requested))
+    : DEFAULT_ARPEGGIO_GATE;
+  const order = arpeggioOrder(pitches, settings.pattern ?? "up");
+
+  // Integer ticks, and the chord's length is not always a whole number of
+  // steps, so the leftover is handed to the earliest steps one tick at a time.
+  const base = Math.floor(durationTick / steps);
+  let remainder = durationTick - base * steps;
+
+  const notes: { midi: number; startTick: number; durationTick: number }[] = [];
+  let tick = startTick;
+  for (let step = 0; step < steps; step += 1) {
+    const extra = remainder > 0 ? 1 : 0;
+    remainder -= extra;
+    const span = base + extra;
+    notes.push({
+      midi: order[step % order.length] as number,
+      startTick: tick,
+      durationTick: Math.max(1, Math.round(span * gate)),
+    });
+    tick += span;
+  }
+  return notes;
+}
+
 export function buildCompositionTracks(
   composition: GeneratedComposition,
 ): CompositionTrack[] {
   const bassNotes: NoteEvent[] = [];
   const chordNotes: NoteEvent[] = [];
+  const arpeggioRate = composition.settings.arpeggio?.rate ?? DEFAULT_ARPEGGIO_RATE;
+  const ticksPerStep = ticksPerBeat(composition.settings.timeSignature, composition.ppq)
+    / (Number.isFinite(arpeggioRate) && arpeggioRate > 0 ? arpeggioRate : DEFAULT_ARPEGGIO_RATE);
   for (const chord of composition.chords) {
     const pitches = [...chord.notes].sort((left, right) => left - right);
     const bass = pitches[0];
@@ -70,20 +256,34 @@ export function buildCompositionTracks(
           chord.id,
           chord.startTick,
           chord.durationTick,
-          bass,
+          bassRegisterPitch(bass, composition.settings.bassRegister),
           "left",
+          "bass",
         ),
       );
     }
-    for (const [index, midi] of pitches.slice(1).entries()) {
+    const upper = pitches.slice(1);
+    const top = upper[upper.length - 1];
+    // The bass is deliberately left sustained under the figure: a bass line
+    // that arpeggiates along with the right hand leaves the harmony with no
+    // foundation at all.
+    const figure = arpeggiateChord(
+      upper,
+      chord.startTick,
+      chord.durationTick,
+      ticksPerStep,
+      composition.settings.arpeggio,
+    );
+    for (const [index, note] of figure.entries()) {
       chordNotes.push(
         chordNote(
           composition,
           chord.id,
-          chord.startTick,
-          chord.durationTick,
-          midi,
+          note.startTick,
+          note.durationTick,
+          note.midi,
           `right-${index}`,
+          note.midi === top ? "top" : "inner",
         ),
       );
     }

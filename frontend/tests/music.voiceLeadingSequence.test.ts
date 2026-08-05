@@ -77,7 +77,11 @@ describe("sequence-wide voicing optimization", () => {
     }
     // If it never improved anything it would be cost without benefit.
     expect(improved).toBeGreaterThan(SEEDS.length);
-  });
+    // Sixty compositions at sixteen bars, each searching the voicing lattice.
+    // It runs in a few seconds alone and overruns the five-second default when
+    // the full suite is loading every core, so the budget is stated rather
+    // than inherited.
+  }, 30_000);
 
   it("leaves output untouched when it is not asked for", () => {
     for (const seed of SEEDS) {
