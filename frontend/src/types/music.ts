@@ -233,6 +233,22 @@ export interface HarmonicRhythmSettings {
  *
  * Absent leaves the lowest sounding pitch exactly where the voicer put it.
  */
+/**
+ * How hard the chord and bass tracks are struck.
+ *
+ * Their velocity is otherwise a single literal, identical on every note of
+ * every bar, which is the flat mechanical delivery a real player never
+ * produces. Absent leaves that literal exactly as it was.
+ */
+export interface DynamicsSettings {
+  enabled: boolean;
+  /**
+   * 0..1. How far the weakest position falls below the strongest. Defaults to
+   * 0.35, which spreads the chord track over roughly 56-78.
+   */
+  depth?: number;
+}
+
 export interface BassRegisterSettings {
   enabled: boolean;
   /**
@@ -487,6 +503,7 @@ export interface GeneratorSettings {
    * composition behaved before harmonic rhythm existed.
    */
   harmonicRhythm?: HarmonicRhythmSettings;
+  dynamics?: DynamicsSettings;
   /**
    * Phrase grammar. Omitted means the fixed four-bar phrasing every
    * composition used before it existed.
