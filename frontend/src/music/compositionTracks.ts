@@ -1,10 +1,13 @@
 import type {
   BassRegisterSettings,
+  DynamicsSettings,
   CompositionVoiceRole,
   GeneratedComposition,
   NoteEvent,
+  TimeSignature,
 } from "../types/music";
 import { midiToNoteName } from "./scales";
+import { metricStrength } from "./time";
 
 export type CompositionTrackRole =
   | "bass"
@@ -27,6 +30,68 @@ export interface CompositionTrack {
   sourceVoiceId?: string;
 }
 
+/** The velocity every chord and bass note was struck with, unconditionally. */
+const BASE_CHORD_VELOCITY = 78;
+
+/** Default spread: the weakest position lands about a third below the strongest. */
+const DEFAULT_DYNAMICS_DEPTH = 0.35;
+
+/** Where a note sits inside its chord, lowest to highest. */
+export type ChordVoicePosition = "bass" | "inner" | "top";
+
+/**
+ * How strongly each voice of a chord is struck relative to the others.
+ *
+ * A keyboard player does not press every key of a chord equally. The outer
+ * voices carry the frame -- the bass states the harmony's foundation and the
+ * top is the line the ear follows -- while the inner voices fill between them
+ * and are played lighter. Weighting them equally is what makes a block chord
+ * sound like a button being pressed.
+ */
+const VOICE_PROMINENCE: Readonly<Record<ChordVoicePosition, number>> = {
+  bass: 1,
+  inner: 0.55,
+  top: 0.95,
+};
+
+/**
+ * How hard a chord or bass note is struck.
+ *
+ * Measured before this existed: every note of every chord in every style came
+ * out at exactly 78, so the two tracks had no dynamics whatsoever and playback
+ * was as even as the sequencer grid it came from.
+ *
+ * Two things decide it, because one is not enough. The bar carries a weighting
+ * -- downbeat strongest, then the half-bar, then beats, then offbeats -- and
+ * metricStrength is the same curve the melody generator already phrases
+ * against, so the two agree about where the weight falls. But with one chord
+ * per bar every chord starts on a downbeat, and metric position alone would
+ * change nothing at all on the default path. Position within the chord is what
+ * reaches it.
+ *
+ * depth 0 reproduces the flat literal exactly, which is what makes leaving it
+ * off safe.
+ */
+export function dynamicVelocity(
+  tickWithinBar: number,
+  timeSignature: TimeSignature,
+  position: ChordVoicePosition,
+  settings: DynamicsSettings | undefined,
+  base: number = BASE_CHORD_VELOCITY,
+): number {
+  if (!settings?.enabled) return base;
+  // Math.min/Math.max pass NaN straight through, so a non-finite depth would
+  // reach the multiply and leave the note with a velocity of NaN.
+  const requested = settings.depth ?? DEFAULT_DYNAMICS_DEPTH;
+  const depth = Number.isFinite(requested)
+    ? Math.min(1, Math.max(0, requested))
+    : DEFAULT_DYNAMICS_DEPTH;
+  const strength = metricStrength(tickWithinBar, timeSignature) * VOICE_PROMINENCE[position];
+  const scaled = Math.round(base * (1 - depth * (1 - strength)));
+  // MIDI velocity 0 means note-off, so the floor is 1 and not 0.
+  return Math.min(127, Math.max(1, scaled));
+}
+
 function chordNote(
   composition: GeneratedComposition,
   chordId: string,
@@ -34,15 +99,22 @@ function chordNote(
   durationTick: number,
   midi: number,
   suffix: string,
+  position: ChordVoicePosition,
 ): NoteEvent {
+  const barIndex = Math.floor(startTick / composition.ticksPerBar);
   return {
     id: `${chordId}-${suffix}-${midi}`,
     midi,
     noteName: midiToNoteName(midi),
     startTick,
     durationTick,
-    velocity: 78,
-    barIndex: Math.floor(startTick / composition.ticksPerBar),
+    velocity: dynamicVelocity(
+      startTick - barIndex * composition.ticksPerBar,
+      composition.settings.timeSignature,
+      position,
+      composition.settings.dynamics,
+    ),
+    barIndex,
     role: "chordTone",
   };
 }
@@ -104,10 +176,12 @@ export function buildCompositionTracks(
           chord.durationTick,
           bassRegisterPitch(bass, composition.settings.bassRegister),
           "left",
+          "bass",
         ),
       );
     }
-    for (const [index, midi] of pitches.slice(1).entries()) {
+    const upper = pitches.slice(1);
+    for (const [index, midi] of upper.entries()) {
       chordNotes.push(
         chordNote(
           composition,
@@ -116,6 +190,7 @@ export function buildCompositionTracks(
           chord.durationTick,
           midi,
           `right-${index}`,
+          index === upper.length - 1 ? "top" : "inner",
         ),
       );
     }
