@@ -26,9 +26,13 @@ const audioMocks = vi.hoisted(() => {
   class FakePolySynth extends FakeNode {
     triggerAttackRelease = vi.fn();
     releaseAll = vi.fn();
+    voice: unknown;
+    preset: Record<string, unknown>;
 
-    constructor() {
+    constructor(voice?: unknown, preset?: Record<string, unknown>) {
       super("polySynth");
+      this.voice = voice;
+      this.preset = preset ?? {};
       audioMocks.synths.push(this);
     }
   }
@@ -80,6 +84,21 @@ vi.mock("tone", () => ({
   start: audioMocks.startAudio,
   PolySynth: audioMocks.FakePolySynth,
   Synth: class FakeSynth {},
+  // The real MonoSynth needs an audio context; only the surface the subclass
+  // touches is reproduced here.
+  MonoSynth: class FakeMonoSynth extends audioMocks.FakeNode {
+    filterEnvelope = { baseFrequency: 620 as number | string };
+    constructor() {
+      super("monoSynth");
+    }
+    static getDefaults() {
+      return {};
+    }
+    toFrequency(value: number | string) {
+      return typeof value === "number" ? value : 440;
+    }
+    protected _triggerEnvelopeAttack() {}
+  },
   Gain: class extends audioMocks.FakeNode {
     constructor(gain?: number) {
       super("gain", gain);
@@ -400,6 +419,49 @@ describe("effects bus", () => {
     audioMocks.scheduler?.(0);
     return transport;
   }
+
+  it("builds every synth as a filtered voice, with a preset that reaches it", async () => {
+    // The oscillators used to run unfiltered, so every note of a given
+    // instrument had one spectrum and only its loudness changed. A preset
+    // dropped on the floor here would look exactly like the old behaviour.
+    const { VelocityFilterSynth } = await import("../src/audio/velocityFilterSynth");
+    await started();
+
+    expect(audioMocks.synths.length).toBeGreaterThan(0);
+    for (const synth of audioMocks.synths) {
+      expect(synth.voice).toBe(VelocityFilterSynth);
+      const preset = synth.preset as {
+        filter?: { type?: string };
+        filterEnvelope?: { baseFrequency?: number; octaves?: number };
+      };
+      expect(preset.filter?.type).toBe("lowpass");
+      expect(preset.filterEnvelope?.baseFrequency).toBeGreaterThan(0);
+      expect(preset.filterEnvelope?.octaves).toBeGreaterThan(0);
+    }
+  });
+
+  it("filters each instrument in its own register, low to high", async () => {
+    // A bass and a lead filtered at the same frequency is one instrument
+    // played at two pitches. Merely being distinct is not enough either: the
+    // order has to follow the register, or the bass is the bright one.
+    // No additional voices, because ensureVoiceSynths runs between the melody
+    // and the bass and would otherwise sit at index 2.
+    const transport = new CompositionTransport();
+    const piece = composition();
+    transport.configure(piece, { startTick: 0, endTick: piece.totalTicks }, () => {});
+    await transport.play();
+
+    const cutoff = (index: number) =>
+      (audioMocks.synths[index]?.preset as { filterEnvelope?: { baseFrequency?: number } })
+        .filterEnvelope?.baseFrequency ?? 0;
+
+    expect(audioMocks.synths).toHaveLength(3);
+    // initialize builds them in this order: chord, melody, then bass.
+    const [chord, melody, bass] = [cutoff(0), cutoff(1), cutoff(2)];
+    expect(bass).toBeGreaterThan(0);
+    expect(chord).toBeGreaterThan(bass);
+    expect(melody).toBeGreaterThan(chord);
+  });
 
   it("routes every synth to the destination through the chain", async () => {
     await started();
