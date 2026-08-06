@@ -105,7 +105,7 @@ export function resolveAvoidNotes(
  * drops the fifth first and the root next, and voices colour tones above the
  * seventh so a 13th is not heard as a 6th.
  */
-function reduceStack(
+export function reduceStack(
   quality: ChordQuality,
   tensions: readonly Tension[],
   dropRoot: boolean,
