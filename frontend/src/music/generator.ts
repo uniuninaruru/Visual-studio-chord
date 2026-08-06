@@ -24,6 +24,7 @@ import { appliedDominantResolves } from "./progressionAnalysis";
 import { planPhrases, type PhrasePlanEntry } from "./phrases";
 import { planSections } from "./sections";
 import { revoiceInFourParts } from "./voiceLeading";
+import { revoiceForMelody } from "./voicingSelection";
 import type { ConcreteStylePresetId } from "./styles";
 import { deriveSeed, hashSeed, seedToString } from "./random";
 import { getScalePitchClasses, midiToNoteName } from "./scales";
@@ -85,6 +86,7 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
     dynamics: settings.dynamics ? { ...settings.dynamics } : undefined,
     tensions: settings.tensions ? { ...settings.tensions } : undefined,
     arpeggio: settings.arpeggio ? { ...settings.arpeggio } : undefined,
+    melodyVoicing: settings.melodyVoicing ? { ...settings.melodyVoicing } : undefined,
     melodicSkeleton: settings.melodicSkeleton
       ? { ...settings.melodicSkeleton }
       : undefined,
@@ -179,6 +181,7 @@ function compositionFingerprint(settings: GeneratorSettings): string {
     ...(settings.dynamics?.enabled
       ? ["dynamics", settings.dynamics.depth ?? "default"]
       : []),
+    ...(settings.melodyVoicing?.enabled ? ["melody-voicing"] : []),
     ...(settings.arpeggio?.enabled
       ? [
         "arpeggio",
@@ -474,6 +477,15 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
     skeleton,
     ppq: PPQ,
   });
+  // Voiced a second time, now that there is a melody to voice against. Safe
+  // because re-voicing moves octaves and never pitch classes, so every
+  // relationship the melody was written against still holds.
+  if (copiedSettings.melodyVoicing?.enabled) {
+    progression.chords = revoiceForMelody(progression.chords, notes, {
+      style: copiedSettings.style,
+    });
+  }
+
   const durationTick = ticksPerBar(copiedSettings.timeSignature, PPQ);
   const fingerprint = compositionFingerprint(copiedSettings);
   const totalTicks = durationTick * copiedSettings.bars;
