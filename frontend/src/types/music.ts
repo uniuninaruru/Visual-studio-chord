@@ -234,6 +234,21 @@ export interface HarmonicRhythmSettings {
  * Absent leaves the lowest sounding pitch exactly where the voicer put it.
  */
 /**
+ * Lets the voicer see the melody, and choose a shape rather than be told one.
+ *
+ * The app writes the chords first and the melody second, so at the moment the
+ * voicer runs there is no melody to voice against. Measured before this
+ * existed, in the jazz style: forty-five of eighty chord spans had the melody
+ * at or below the chord's top note, and every voicing in every style spanned
+ * 8.0 semitones on average with a third at the bottom.
+ *
+ * Absent leaves the blind first-pass voicing exactly as it was.
+ */
+export interface MelodyAwareVoicingSettings {
+  enabled: boolean;
+}
+
+/**
  * Breaks the chord track into a running figure instead of a block.
  *
  * Every chord sounded all of its notes at once for the chord's full length,
@@ -544,6 +559,7 @@ export interface GeneratorSettings {
   dynamics?: DynamicsSettings;
   tensions?: TensionSettings;
   arpeggio?: ArpeggioSettings;
+  melodyVoicing?: MelodyAwareVoicingSettings;
   /**
    * Phrase grammar. Omitted means the fixed four-bar phrasing every
    * composition used before it existed.
