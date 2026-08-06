@@ -89,6 +89,7 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
     arpeggio: settings.arpeggio ? { ...settings.arpeggio } : undefined,
     melodyVoicing: settings.melodyVoicing ? { ...settings.melodyVoicing } : undefined,
     sectionTransitions: settings.sectionTransitions ? { ...settings.sectionTransitions } : undefined,
+    songFormVariety: settings.songFormVariety ? { ...settings.songFormVariety } : undefined,
     melodicSkeleton: settings.melodicSkeleton
       ? { ...settings.melodicSkeleton }
       : undefined,
@@ -185,6 +186,7 @@ function compositionFingerprint(settings: GeneratorSettings): string {
       : []),
     ...(settings.melodyVoicing?.enabled ? ["melody-voicing"] : []),
     ...(settings.sectionTransitions?.enabled ? ["section-transitions"] : []),
+    ...(settings.songFormVariety?.variedThinSections ? ["varied-thin-sections"] : []),
     ...(settings.arpeggio?.enabled
       ? [
         "arpeggio",
@@ -423,6 +425,7 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
     finalLift: copiedSettings.songForm?.finalLift,
     polytonal: copiedSettings.songForm?.polytonal,
     melodyScale: copiedSettings.songForm?.melodyScale,
+    variedThinSections: copiedSettings.songFormVariety?.variedThinSections,
   });
 
   // Without a song form this is the original single-span path, so existing

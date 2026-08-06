@@ -241,6 +241,19 @@ export interface HarmonicRhythmSettings {
  * I from vi with nothing in between. Absent leaves the seams exactly as plain
  * as they were.
  */
+export interface SongFormVarietySettings {
+  /**
+   * Lets a section whose own tier holds a single template draw from the next
+   * tier too.
+   *
+   * Measured: exactly one progression in the catalogue is marked for a bridge,
+   * so every major-key bridge in every piece was the same four chords -- forty
+   * out of forty. Absent keeps that single answer, since widening the pool
+   * changes which template every existing piece picks.
+   */
+  variedThinSections: boolean;
+}
+
 export interface SectionTransitionSettings {
   enabled: boolean;
 }
@@ -573,6 +586,7 @@ export interface GeneratorSettings {
   arpeggio?: ArpeggioSettings;
   melodyVoicing?: MelodyAwareVoicingSettings;
   sectionTransitions?: SectionTransitionSettings;
+  songFormVariety?: SongFormVarietySettings;
   /**
    * Phrase grammar. Omitted means the fixed four-bar phrasing every
    * composition used before it existed.
