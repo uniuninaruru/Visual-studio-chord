@@ -234,6 +234,18 @@ export interface HarmonicRhythmSettings {
  * Absent leaves the lowest sounding pitch exactly where the voicer put it.
  */
 /**
+ * Approach chords at section boundaries.
+ *
+ * Measured before this existed, on a thirty-two bar verse-chorus piece: every
+ * boundary was a butt joint -- V followed straight by IVmaj7, verse landing on
+ * I from vi with nothing in between. Absent leaves the seams exactly as plain
+ * as they were.
+ */
+export interface SectionTransitionSettings {
+  enabled: boolean;
+}
+
+/**
  * Lets the voicer see the melody, and choose a shape rather than be told one.
  *
  * The app writes the chords first and the melody second, so at the moment the
@@ -560,6 +572,7 @@ export interface GeneratorSettings {
   tensions?: TensionSettings;
   arpeggio?: ArpeggioSettings;
   melodyVoicing?: MelodyAwareVoicingSettings;
+  sectionTransitions?: SectionTransitionSettings;
   /**
    * Phrase grammar. Omitted means the fixed four-bar phrasing every
    * composition used before it existed.

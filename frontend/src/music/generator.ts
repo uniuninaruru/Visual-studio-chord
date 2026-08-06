@@ -25,9 +25,10 @@ import { planPhrases, type PhrasePlanEntry } from "./phrases";
 import { planSections } from "./sections";
 import { revoiceInFourParts } from "./voiceLeading";
 import { revoiceForMelody } from "./voicingSelection";
+import { applySectionTransitions } from "./sectionTransitions";
 import type { ConcreteStylePresetId } from "./styles";
 import { deriveSeed, hashSeed, seedToString } from "./random";
-import { getScalePitchClasses, midiToNoteName } from "./scales";
+import { getScalePitchClasses, midiToNoteName, pitchClassToSemitone } from "./scales";
 import { createBars, tickToBarIndex, ticksPerBar, ticksPerBeat } from "./time";
 import { assertValidGeneratorSettings } from "./validation";
 
@@ -87,6 +88,7 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
     tensions: settings.tensions ? { ...settings.tensions } : undefined,
     arpeggio: settings.arpeggio ? { ...settings.arpeggio } : undefined,
     melodyVoicing: settings.melodyVoicing ? { ...settings.melodyVoicing } : undefined,
+    sectionTransitions: settings.sectionTransitions ? { ...settings.sectionTransitions } : undefined,
     melodicSkeleton: settings.melodicSkeleton
       ? { ...settings.melodicSkeleton }
       : undefined,
@@ -182,6 +184,7 @@ function compositionFingerprint(settings: GeneratorSettings): string {
       ? ["dynamics", settings.dynamics.depth ?? "default"]
       : []),
     ...(settings.melodyVoicing?.enabled ? ["melody-voicing"] : []),
+    ...(settings.sectionTransitions?.enabled ? ["section-transitions"] : []),
     ...(settings.arpeggio?.enabled
       ? [
         "arpeggio",
@@ -448,6 +451,23 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
       barTicks,
     );
   }
+  // Before voicing and before the melody, so the approach chord is voiced with
+  // the rest of the progression and the melody is written over it rather than
+  // around it.
+  if (copiedSettings.sectionTransitions?.enabled && sections) {
+    progression.chords = applySectionTransitions(
+      progression.chords,
+      sections.map((section) => ({ startBar: section.startBar })),
+      {
+        style: copiedSettings.style,
+        seed: copiedSettings.seed,
+        mode: copiedSettings.mode,
+        tonicSemitone: pitchClassToSemitone(copiedSettings.key),
+        ticksPerBar: ticksPerBar(copiedSettings.timeSignature, PPQ),
+      },
+    );
+  }
+
   // Re-voiced before the melody is written, since the melody scores its
   // candidates against the sounding chord tones.
   if (copiedSettings.voiceLeading?.enabled) {
