@@ -532,6 +532,12 @@ export function PhaseControls({ settings, onPatch }: PhaseControlsProps) {
             </label>
           )}
           <Toggle
+            label="セクションのつなぎに和音を置く"
+            description="Aメロ・Bメロ・サビの切れ目に、次のセクションへ向かう和音を差し込みます"
+            checked={settings.sectionTransitions?.enabled ?? false}
+            onChange={(enabled) => onPatch({ sectionTransitions: { enabled } })}
+          />
+          <Toggle
             label="メロディに合わせて和音を配置する"
             description="メロディを覆わない高さと形を、和音ごとに選び直します"
             checked={settings.melodyVoicing?.enabled ?? false}
