@@ -75,8 +75,15 @@ describe("melody-aware voicing", () => {
     const after = across({ melodyVoicing: { enabled: true } }, covered);
 
     expect(before).toBeGreaterThan(150);
-    // Measured: 198 down to 5.
-    expect(after).toBeLessThan(before / 10);
+    // Measured: 198 down to 20, from 31% of spans to 3%.
+    //
+    // Not down to nothing, and deliberately so. Keeping the top voice moving as
+    // a line and keeping it clear of the melody pull against each other -- the
+    // melody moves, so a top voice that always ducked under it would have to
+    // leap. Weighting the line took covering from 14 back to 20 and the mean
+    // top-voice leap from 4.5 semitones to 3.6, with leaps beyond a fifth
+    // falling from 9% of moves to 1%. That is the better trade.
+    expect(after).toBeLessThan(30);
   });
 
   it("removes most of the minor-ninth clashes as well", () => {
@@ -357,6 +364,105 @@ describe("choosing the shape rather than being told one", () => {
       expect(enormous.spanFit, style).toBeGreaterThan(0);
       expect(comfortable.spanFit, style).toBe(0);
     }
+  });
+
+  it("keeps the top voice moving as a line", () => {
+    // The highest note of successive chords is heard as a melody whether or not
+    // one was intended. Measured before this term existed: the register work
+    // took the mean top-voice leap from 0.9 semitones to 4.5, with one move in
+    // eleven jumping more than a fifth.
+    let leaps = 0;
+    let big = 0;
+    let total = 0;
+    for (const style of STYLES) {
+      for (const seed of SEEDS) {
+        const piece = generateComposition(
+          settings({ style, seed, melodyVoicing: { enabled: true } }),
+        );
+        let previous: number | null = null;
+        for (const chord of piece.chords) {
+          const top = Math.max(...chord.notes);
+          if (previous !== null) {
+            const leap = Math.abs(top - previous);
+            total += leap;
+            leaps += 1;
+            if (leap > 7) big += 1;
+          }
+          previous = top;
+        }
+      }
+    }
+    expect(total / leaps).toBeLessThan(4);
+    expect(big / leaps).toBeLessThan(0.04);
+  });
+
+  it("holds the actual pitch, not merely the pitch class", () => {
+    // Holding the note is what makes two chords sound joined rather than
+    // merely related. Counted as a share, because rewarding the raw number of
+    // held notes rewards adding notes -- a five-note voicing can hold more than
+    // a three-note one by existing, and measured, that alone pushed the texture
+    // from changing thickness on one chord in nine to one in five.
+    const profile = voicingProfileFor("jazz");
+    const previousNotes = [48, 55, 64];
+    const holdsTwo = scoreVoicingCandidate(
+      [48, 55, 67], "close", { style: "jazz", previousNotes }, profile, new Set(),
+    );
+    const holdsNone = scoreVoicingCandidate(
+      [49, 56, 68], "close", { style: "jazz", previousNotes }, profile, new Set(),
+    );
+    expect(holdsTwo.retention).toBeLessThan(holdsNone.retention);
+
+    // A wider voicing must not win on retention just by having more notes.
+    const bigButLoose = scoreVoicingCandidate(
+      [48, 55, 60, 64, 72], "close", { style: "jazz", previousNotes }, profile, new Set(),
+    );
+    expect(bigButLoose.retention).toBeGreaterThan(holdsTwo.retention);
+  });
+
+  it("keeps the texture from flickering between thicknesses", () => {
+    // Three notes then five then three again is not a decision, it is a
+    // wobble. A player who has settled on a way of holding the chord keeps
+    // holding it.
+    const profile = voicingProfileFor("jazz");
+    const previousNotes = [48, 55, 64];
+    const same = scoreVoicingCandidate(
+      [50, 57, 66], "close", { style: "jazz", previousNotes }, profile, new Set(),
+    );
+    const thicker = scoreVoicingCandidate(
+      [50, 57, 62, 66, 69], "close", { style: "jazz", previousNotes }, profile, new Set(),
+    );
+    expect(same.density).toBe(0);
+    expect(thicker.density).toBeGreaterThan(4);
+
+    let changes = 0;
+    let pairs = 0;
+    for (const style of STYLES) {
+      for (const seed of SEEDS) {
+        const piece = generateComposition(
+          settings({ style, seed, melodyVoicing: { enabled: true } }),
+        );
+        for (let index = 1; index < piece.chords.length; index += 1) {
+          pairs += 1;
+          if (piece.chords[index]!.notes.length !== piece.chords[index - 1]!.notes.length) {
+            changes += 1;
+          }
+        }
+      }
+    }
+    // Measured: one change in ten, down from one in five before the retention
+    // term was normalised.
+    expect(changes / pairs).toBeLessThan(0.14);
+  });
+
+  it("charges a second inside the chord by style rather than by one rule", () => {
+    // A ninth sounding against the root is the whole point of an add9, and a
+    // rock keyboard playing the same interval is a mistake.
+    const cluster = (style: GeneratorSettings["style"]) => scoreVoicingCandidate(
+      [60, 62, 64, 67], "close", { style }, voicingProfileFor(style), new Set(),
+    ).cluster;
+    expect(cluster("rock")).toBeGreaterThan(cluster("jazz") * 2);
+    expect(cluster("game-music")).toBeGreaterThan(cluster("lo-fi") * 2);
+    expect(cluster("jazz")).toBeGreaterThan(0);
   });
 
   it("weights the spacing rule like a rule, not a preference", () => {

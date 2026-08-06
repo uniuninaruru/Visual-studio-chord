@@ -34,7 +34,51 @@ export type VoicingShape =
   | "drop2Doubled"
   | "drop3Doubled"
   | "twoHandFifth"
-  | "twoHandSeventh";
+  | "twoHandSeventh"
+  | "compact";
+
+/**
+ * The same tones, folded into as little space as they will fit.
+ *
+ * reduceStack voices colour tones above the seventh so a thirteenth is not
+ * heard as a sixth, which is right for reading the chord and wrong for playing
+ * it: measured, an extended chord arrived at the voicer already eighteen
+ * semitones wide, and every shape then widened it further to nearly two
+ * octaves. At that width the low interval limits start to bite and the top of
+ * the chord starts covering the melody.
+ *
+ * So each tone above the octave is offered an octave lower, taken only where
+ * nothing already sounds at that pitch. Whether the folded version is better is
+ * left to the cost, which is the only thing that knows where the melody is.
+ */
+function compactVoicing(stack: readonly number[]): number[] | null {
+  if (stack.length < 4) return null;
+  // Folded wherever the pitch is free, and the seconds it creates are left
+  // alone on purpose.
+  //
+  // A ninth cannot come down without landing a tone from the root or the third
+  // -- that is arithmetic, not a tuning problem -- and refusing the fold on
+  // those grounds stops it happening at all: measured, declining crowded
+  // landings took the fold from applying everywhere to applying nowhere, and
+  // every structural figure went back with it, width 12.1 to 19.8 and inverted
+  // spacing 834 to 2005.
+  //
+  // The seconds are also not the fault they look like. A rootless dominant
+  // voicing puts its flat seventh a semitone from its thirteenth, and that
+  // grinding is the sound rather than a defect in it. How much a style wants of
+  // it is a matter for the cost function, which is where it now lives.
+  const folded: number[] = [];
+  for (const interval of stack) {
+    let candidate = interval;
+    while (candidate >= 12 && !folded.includes(candidate - 12)) candidate -= 12;
+    folded.push(candidate);
+  }
+  const sorted = [...folded].sort((left, right) => left - right);
+  if (new Set(sorted).size !== sorted.length) return null;
+  // Folding that saved nothing is the stack it started from.
+  if (shapeSpan(sorted) >= shapeSpan(stack)) return null;
+  return sorted;
+}
 
 /**
  * A triad as a player actually voices it: four notes, one of them doubled.
@@ -327,6 +371,7 @@ export function shapesFor(request: ShapeRequest): Array<{ shape: VoicingShape; i
     { shape: "drop3Doubled", intervals: rootDoubled ? dropVoices(rootDoubled, [3]) : null },
     { shape: "twoHandFifth", intervals: twoHandVoicing(quality, stack, "fifth") },
     { shape: "twoHandSeventh", intervals: twoHandVoicing(quality, stack, "seventh") },
+    { shape: "compact", intervals: compactVoicing(stack) },
     { shape: "drop2", intervals: dropVoices(stack, [2]) },
     { shape: "drop3", intervals: dropVoices(stack, [3]) },
     { shape: "drop24", intervals: dropVoices(stack, [2, 4]) },

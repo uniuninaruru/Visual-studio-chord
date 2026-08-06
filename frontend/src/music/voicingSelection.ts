@@ -6,6 +6,7 @@ import {
   bassCrowding,
   lowIntervalViolation,
   melodyConflict,
+  clusterCount,
   spacingInversion,
   span,
 } from "./voicingRegister";
@@ -49,8 +50,28 @@ export interface VoicingProfile {
   clarity: number;
   /** Weight on wide-at-the-bottom spacing. */
   spacing: number;
+  /**
+   * Weight on seconds inside the voicing.
+   *
+   * A ninth sounding against the root is the whole point of an add9, and a rock
+   * keyboard playing the same interval is a mistake. Folding an extended chord
+   * into playable width produces these by construction -- measured, 943 of them
+   * across eight styles once compact voicings existed -- so what they cost has
+   * to be a style decision rather than one rule for everybody.
+   */
+  cluster: number;
   /** Weight on staying near the previous voicing. */
   motion: number;
+  /**
+   * Weight on the top voice moving as a line.
+   *
+   * The highest note of successive chords is heard as a melody whether or not
+   * one was intended, so it cannot be left to fall out of the other terms.
+   * Measured before this existed: the register and spacing work took the mean
+   * top-voice leap from 0.9 semitones to 4.5, with one move in eleven jumping
+   * more than a fifth. Better voicings, worse playing.
+   */
+  topVoice: number;
   /** Weight on keeping the same shape as the previous chord. */
   coherence: number;
   /** Shapes this style will not use at all. */
@@ -67,39 +88,39 @@ export interface VoicingProfile {
  */
 export const VOICING_PROFILES: Readonly<Record<VoicingStyleId, VoicingProfile>> = {
   jazz: {
-    minSpan: 12, maxSpan: 38, melody: 3, clarity: 1.2, spacing: 0.8, motion: 0.5, coherence: 0.6,
+    minSpan: 12, maxSpan: 38, melody: 3, clarity: 1.2, spacing: 0.8, cluster: 0.35, motion: 0.5, topVoice: 1.4, coherence: 0.6,
     excluded: [],
   },
   "lo-fi": {
-    minSpan: 12, maxSpan: 38, melody: 2.4, clarity: 1.2, spacing: 0.8, motion: 0.6, coherence: 0.8,
+    minSpan: 12, maxSpan: 38, melody: 2.4, clarity: 1.2, spacing: 0.8, cluster: 0.35, motion: 0.6, topVoice: 1.2, coherence: 0.8,
     excluded: [],
   },
   ballad: {
-    minSpan: 11, maxSpan: 36, melody: 3, clarity: 1.4, spacing: 1.2, motion: 0.9, coherence: 0.9,
+    minSpan: 11, maxSpan: 36, melody: 3, clarity: 1.4, spacing: 1.2, cluster: 0.9, motion: 0.9, topVoice: 1.6, coherence: 0.9,
     // A ballad is carried by its line; a quartal stack states no quality and
     // leaves the singer nothing to sit on.
     excluded: ["quartal"],
   },
   "j-pop": {
-    minSpan: 10, maxSpan: 34, melody: 2.6, clarity: 1.2, spacing: 1, motion: 0.8, coherence: 0.8,
+    minSpan: 10, maxSpan: 34, melody: 2.6, clarity: 1.2, spacing: 1, cluster: 0.7, motion: 0.8, topVoice: 1.4, coherence: 0.8,
     excluded: ["rootlessB"],
   },
   pop: {
-    minSpan: 9, maxSpan: 32, melody: 2.6, clarity: 1.2, spacing: 1, motion: 0.9, coherence: 1,
+    minSpan: 9, maxSpan: 32, melody: 2.6, clarity: 1.2, spacing: 1, cluster: 1.1, motion: 0.9, topVoice: 1.4, coherence: 1,
     excluded: ["rootlessA", "rootlessB", "quartal"],
   },
   rock: {
-    minSpan: 7, maxSpan: 28, melody: 2, clarity: 1.4, spacing: 1, motion: 1, coherence: 1.2,
+    minSpan: 7, maxSpan: 28, melody: 2, clarity: 1.4, spacing: 1, cluster: 1.8, motion: 1, topVoice: 1.2, coherence: 1.2,
     // Rock keyboard states the chord plainly; the rootless and quartal shapes
     // both withhold the root, which is the one thing it is there to supply.
     excluded: ["rootlessA", "rootlessB", "quartal", "shell"],
   },
   edm: {
-    minSpan: 9, maxSpan: 32, melody: 2, clarity: 1.6, spacing: 1.2, motion: 0.7, coherence: 1.2,
+    minSpan: 9, maxSpan: 32, melody: 2, clarity: 1.6, spacing: 1.2, cluster: 0.9, motion: 0.7, topVoice: 1.0, coherence: 1.2,
     excluded: ["rootlessA", "rootlessB", "shell"],
   },
   "game-music": {
-    minSpan: 7, maxSpan: 28, melody: 2, clarity: 1.4, spacing: 1, motion: 1, coherence: 1.2,
+    minSpan: 7, maxSpan: 28, melody: 2, clarity: 1.4, spacing: 1, cluster: 1.8, motion: 1, topVoice: 1.2, coherence: 1.2,
     excluded: ["rootlessA", "rootlessB", "quartal", "shell"],
   },
 };
@@ -134,11 +155,15 @@ export interface VoicingChoice {
 export interface VoicingCostBreakdown {
   clarity: number;
   spacing: number;
+  cluster: number;
   melodyCovering: number;
   melodyClash: number;
   bass: number;
   spanFit: number;
   motion: number;
+  topVoice: number;
+  retention: number;
+  density: number;
   coherence: number;
   total: number;
 }
@@ -172,6 +197,7 @@ export function scoreVoicingCandidate(
   const spacing = spacingInversion(notes) * profile.spacing * 2.5;
   // Covering the melody is the fault that makes a written line disappear, so it
   // is weighted above every other consideration in every style.
+  const cluster = clusterCount(notes) * profile.cluster;
   const melodyCovering = conflict.covering * profile.melody * 2;
   const melodyClash = conflict.minorNinth * profile.melody * 4;
   const bass = bassCrowding(notes, context.bass) * 0.35;
@@ -186,8 +212,34 @@ export function scoreVoicingCandidate(
       : 0;
 
   let motion = 0;
+  let topVoice = 0;
+  let retention = 0;
+  let density = 0;
   if (context.previousNotes && context.previousNotes.length > 0) {
     const previous = context.previousNotes;
+
+    // The top voice, specifically. A step is free, a third is cheap, and a leap
+    // costs sharply -- the shape of the penalty matters more than its size,
+    // because a line that steps everywhere except once is still a line and one
+    // that leaps everywhere is not.
+    const leap = Math.abs(
+      Math.max(...notes) - Math.max(...previous),
+    );
+    topVoice = (leap <= 2 ? leap * 0.2 : 0.4 + (leap - 2) ** 1.4 * 0.35) * profile.topVoice;
+
+    // A pitch held at the same octave, not merely a pitch class reappearing
+    // somewhere. Holding the actual note is what makes two chords sound joined
+    // rather than merely related.
+    // As a share, not a count. Rewarding the raw number of held notes rewards
+    // adding notes -- a five-note voicing can hold more than a three-note one
+    // by existing -- and measured, that alone pushed the texture from changing
+    // thickness on one chord in nine to one in five.
+    const held = notes.filter((note) => previous.includes(note)).length;
+    retention = -(held / Math.max(notes.length, previous.length)) * 3.5 * profile.motion;
+
+    // Three notes then five then three again is the texture flickering. A
+    // player who has settled on a way of holding the chord keeps holding it.
+    density = Math.abs(notes.length - previous.length) * 2.8;
     // Nearest previous pitch for each note, so a voicing with a different
     // number of voices is still comparable to the one before it.
     const travel = notes.reduce((sum, note) => {
@@ -209,9 +261,12 @@ export function scoreVoicingCandidate(
     ? profile.coherence * 1.5
     : 0;
 
-  const total = clarity + spacing + melodyCovering + melodyClash
-    + bass + spanFit + motion + coherence;
-  return { clarity, spacing, melodyCovering, melodyClash, bass, spanFit, motion, coherence, total };
+  const total = clarity + spacing + cluster + melodyCovering + melodyClash
+    + bass + spanFit + motion + topVoice + retention + density + coherence;
+  return {
+    clarity, spacing, cluster, melodyCovering, melodyClash, bass, spanFit,
+    motion, topVoice, retention, density, coherence, total,
+  };
 }
 
 /**

@@ -353,6 +353,43 @@ describe("voicing shapes", () => {
     });
   });
 
+  describe("folding an extended chord into playable width", () => {
+    it("brings colour tones down where the pitch is free", () => {
+      // reduceStack voices colour tones above the seventh so a thirteenth is
+      // not heard as a sixth, which is right for reading the chord and wrong
+      // for playing it: an extended chord arrived at the voicer eighteen
+      // semitones wide and every shape then widened it further.
+      const wide = [0, 4, 10, 14, 21];
+      const compact = shapesFor({ quality: "dominant7", stack: wide })
+        .find((entry) => entry.shape === "compact");
+      expect(compact).toBeDefined();
+      expect(shapeSpan(compact!.intervals)).toBeLessThan(shapeSpan(wide));
+      // Same pitch classes, or it is a different chord.
+      expect(new Set(pitchClasses(compact!.intervals)))
+        .toEqual(new Set(pitchClasses(wide)));
+    });
+
+    it("accepts the seconds folding creates", () => {
+      // A ninth cannot come down without landing a tone from the root or the
+      // third -- arithmetic, not a tuning problem. Refusing the fold on those
+      // grounds stops it happening at all: measured, declining crowded
+      // landings took the fold from applying everywhere to nowhere, and width
+      // went from 12.1 back to 19.8 with inverted spacing from 834 to 2005.
+      const compact = shapesFor({ quality: "dominant7", stack: [0, 4, 10, 14, 21] })
+        .find((entry) => entry.shape === "compact")!;
+      const seconds = compact.intervals.filter((interval, index) =>
+        index > 0 && interval - (compact.intervals[index - 1] as number) <= 2).length;
+      expect(seconds).toBeGreaterThan(0);
+    });
+
+    it("is unavailable when there is nothing to fold", () => {
+      // A plain triad is already as compact as it gets, and offering the same
+      // pitches under a second name is not a choice.
+      expect(shape("major", "compact")).toBeUndefined();
+      expect(shape("major7", "compact")).toBeUndefined();
+    });
+  });
+
   it("gives every chord real choices", () => {
     for (const quality of ["major7", "minor7", "dominant7", "halfDiminished7"] as const) {
       expect(shapes(quality).length, quality).toBeGreaterThanOrEqual(9);

@@ -182,3 +182,28 @@ export function span(notes: readonly number[]): number {
   if (notes.length === 0) return 0;
   return Math.max(...notes) - Math.min(...notes);
 }
+
+/**
+ * Adjacent voices a tone or less apart, weighted by how low they sound.
+ *
+ * A second inside a chord is a colour in some hands and a smear in others. A
+ * ninth sounding against the root is the whole point of an add9, and a rock
+ * keyboard playing the same interval is a mistake -- so how much it costs is a
+ * style decision, and this only counts them.
+ *
+ * Weighted downward by register because the same interval that reads as colour
+ * at the top of the keyboard reads as mud at the bottom, for the same reason
+ * the low interval limits exist.
+ */
+export function clusterCount(notes: readonly number[]): number {
+  let total = 0;
+  for (let index = 1; index < notes.length; index += 1) {
+    const gap = (notes[index] as number) - (notes[index - 1] as number);
+    if (gap <= 0 || gap > 2) continue;
+    const lower = notes[index - 1] as number;
+    // Middle C and above is where a second stops being mud; below that it
+    // counts for more, up to double at the bottom of the register.
+    total += lower >= 60 ? 1 : 1 + Math.min(1, (60 - lower) / 24);
+  }
+  return total;
+}
