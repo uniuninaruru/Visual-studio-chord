@@ -166,6 +166,7 @@ export interface ComposerStoreActions {
   setSeed(seed: string | number): void;
   exportJson(): string;
   importJson(json: string): void;
+  importMelody(composition: GeneratedComposition): void;
   exportMidi(): Uint8Array;
   reset(settings?: GeneratorSettingsPatch): void;
 }
@@ -1207,6 +1208,22 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     const composition = importCompositionJson(json);
     const loopRange = { startTick: 0, endTick: composition.totalTicks };
     const update = stateAfterComposition(state, composition, "import-json", null, true);
+    set({
+      ...update,
+      selectedBarRange: null,
+      loopRange,
+      playbackLoopRange: update.pendingCommit ? state.playbackLoopRange : loopRange,
+      regenerationIteration: 0,
+      projectPersistenceBlocked: false,
+      projectRecoveryReason: null,
+    });
+  },
+  importMelody: (composition) => {
+    const state = get();
+    const loopRange = { startTick: 0, endTick: composition.totalTicks };
+    // Same path as a project import: an imported melody replaces the piece and
+    // must not leave a selection pointing at notes that no longer exist.
+    const update = stateAfterComposition(state, composition, "import-melody", null, true);
     set({
       ...update,
       selectedBarRange: null,

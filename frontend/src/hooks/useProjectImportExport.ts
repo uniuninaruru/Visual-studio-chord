@@ -1,5 +1,7 @@
 import { useCallback, useRef } from "react";
 import { importCompositionFile, midiBlob } from "../features/export";
+import { importMelodyFile, MelodyImportError } from "../music/melodyImport";
+import type { GeneratorSettings } from "../types/music";
 import type { GeneratedComposition } from "../types/music";
 import { downloadBlob } from "../utils/musicFormat";
 
@@ -15,6 +17,9 @@ export interface ProjectImportExportOptions {
   composition: GeneratedComposition;
   exportProjectJson: () => string;
   importProjectJson: (json: string) => void;
+  /** Settings an imported melody inherits for everything it does not decide. */
+  generatorSettings: GeneratorSettings;
+  importMelodyComposition: (composition: GeneratedComposition) => void;
   exportPreferenceJson: () => string;
   importPreferenceJson: (json: string) => Promise<void>;
   /** Called after a successful import so stale selections are dropped. */
@@ -29,6 +34,9 @@ export interface ProjectImportExport {
   importInputRef: React.RefObject<HTMLInputElement | null>;
   /** Attach to the hidden preference-file input. */
   preferenceImportInputRef: React.RefObject<HTMLInputElement | null>;
+  /** Attach to the hidden melody-MIDI input. */
+  melodyImportInputRef: React.RefObject<HTMLInputElement | null>;
+  importMelody: (file: File | undefined) => Promise<void>;
   exportJson: () => void;
   exportMidi: () => void;
   importProject: (file: File | undefined) => Promise<void>;
@@ -51,6 +59,8 @@ export function useProjectImportExport(
     composition,
     exportProjectJson,
     importProjectJson,
+    generatorSettings,
+    importMelodyComposition,
     exportPreferenceJson,
     importPreferenceJson,
     onImported,
@@ -60,6 +70,7 @@ export function useProjectImportExport(
 
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const preferenceImportInputRef = useRef<HTMLInputElement | null>(null);
+  const melodyImportInputRef = useRef<HTMLInputElement | null>(null);
 
   const exportJson = useCallback(() => {
     const blob = new Blob([exportProjectJson()], {
@@ -96,6 +107,31 @@ export function useProjectImportExport(
     }
   }, [importProjectJson, onImported, onToast]);
 
+  const importMelody = useCallback(async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const result = await importMelodyFile(file, generatorSettings);
+      importMelodyComposition(result.composition);
+      onImported();
+      // What it decided is worth saying: the key came from the melody's own
+      // pitch distribution and the bar count was rounded up to fit, and a user
+      // who disagrees can only correct it if they are told.
+      onToast(
+        `メロディ${result.noteCount}音を読み込み、${result.key} ${
+          result.mode === "major" ? "メジャー" : "マイナー"
+        }として${result.bars}小節にコードを付けました。`,
+      );
+    } catch (error) {
+      onToast(
+        error instanceof MelodyImportError || error instanceof Error
+          ? error.message
+          : "MIDIを読み込めませんでした。",
+      );
+    } finally {
+      if (melodyImportInputRef.current) melodyImportInputRef.current.value = "";
+    }
+  }, [generatorSettings, importMelodyComposition, onImported, onToast]);
+
   const exportPreferences = useCallback(() => {
     downloadBlob(
       new Blob([exportPreferenceJson()], { type: "application/json;charset=utf-8" }),
@@ -128,6 +164,8 @@ export function useProjectImportExport(
     exportJson,
     exportMidi,
     importProject,
+    melodyImportInputRef,
+    importMelody,
     exportPreferences,
     importPreferences,
   };
