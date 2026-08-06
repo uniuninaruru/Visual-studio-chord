@@ -138,27 +138,38 @@ function chooseProgression(
   mode: Mode,
   sectionIndex: number,
   exclude: ReadonlySet<string>,
+  widenThinTiers = false,
 ): ProgressionTemplate | undefined {
   const usable = PROGRESSION_TEMPLATES.filter((template) =>
     template.modes.includes(mode),
   );
   if (usable.length === 0) return undefined;
 
+  const gathered: ProgressionTemplate[] = [];
   for (const usage of USAGE_FOR_KIND[kind]) {
     const matching = usable.filter((template) => (template.usage ?? "any") === usage);
     const fresh = matching.filter((template) => !exclude.has(template.id));
     const pool = fresh.length > 0 ? fresh : matching;
     if (pool.length === 0) continue;
-    // Rank by a per-section hash of the id, then take the winner. Stable under
-    // catalogue growth because each id scores independently of the others.
-    const ranked = [...pool].sort((left, right) => {
-      const l = hashSeed(deriveSeed(seed, "section-progression", sectionIndex, left.id));
-      const r = hashSeed(deriveSeed(seed, "section-progression", sectionIndex, right.id));
-      return l - r || left.id.localeCompare(right.id);
-    });
-    return ranked[0];
+    gathered.push(...pool.filter((template) => !gathered.includes(template)));
+    // A tier with one template in it is not a choice, it is a constant.
+    // Measured: exactly one template in the whole catalogue is marked for a
+    // bridge, so every major-key bridge in every piece was the same four
+    // chords -- forty out of forty. Where the section's own tier can offer a
+    // real choice it is still used alone; where it cannot, the next tier is
+    // merged in rather than the section being handed the same answer forever.
+    if (!widenThinTiers || gathered.length > 1) break;
   }
-  return usable[0];
+  if (gathered.length === 0) return usable[0];
+
+  // Rank by a per-section hash of the id, then take the winner. Stable under
+  // catalogue growth because each id scores independently of the others.
+  const ranked = [...gathered].sort((left, right) => {
+    const l = hashSeed(deriveSeed(seed, "section-progression", sectionIndex, left.id));
+    const r = hashSeed(deriveSeed(seed, "section-progression", sectionIndex, right.id));
+    return l - r || left.id.localeCompare(right.id);
+  });
+  return ranked[0];
 }
 
 export interface SectionPlanOptions {
@@ -172,6 +183,8 @@ export interface SectionPlanOptions {
   /** Runs melodies in the parallel mode of each section's harmony. */
   polytonal?: boolean;
   melodyScale?: SectionEvent["melodyScale"];
+  /** Lets a section whose own usage tier holds one template draw from the next. */
+  variedThinSections?: boolean;
 }
 
 /**
@@ -224,6 +237,7 @@ export function planSections(
         options.mode,
         throughComposed ? index : 0,
         used,
+        options.variedThinSections ?? false,
       );
       progressionId = template?.id;
       if (template) {
