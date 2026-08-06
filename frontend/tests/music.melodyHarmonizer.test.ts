@@ -3,6 +3,7 @@ import { DEFAULT_GENERATOR_SETTINGS, generateComposition } from "../src/music";
 import {
   candidatesFor,
   findKey,
+  transitionCostsFor,
   harmonizeMelody,
   segmentCost,
   segmentMelody,
@@ -236,6 +237,100 @@ describe("the candidate set", () => {
   });
 });
 
+describe("the transition prior", () => {
+  it("derives the major table from the catalogue rather than inventing it", () => {
+    // 129 degree-to-degree moves across 28 documented progressions, each of
+    // which was admitted to the catalogue only because several independent
+    // sources describe it with the same name and the same degrees. A prior
+    // written by hand is a guess about how music moves; this is a count of how
+    // the progressions people actually named do move.
+    const major = transitionCostsFor("major");
+    expect(major).toHaveLength(7);
+    for (const row of major) expect(row).toHaveLength(7);
+
+    // What the catalogue plainly teaches has to come out cheaper than what it
+    // does not: ii goes to V ten times out of thirteen moves from ii.
+    const fromTwo = major[1]!;
+    expect(fromTwo[4]!).toBeLessThan(fromTwo[2]!);
+    expect(fromTwo[4]!).toBeLessThan(fromTwo[6]!);
+    // V resolves to I more than anywhere else.
+    const fromFive = major[4]!;
+    expect(fromFive[0]!).toBeLessThan(fromFive[1]!);
+    expect(fromFive[0]!).toBeLessThan(fromFive[6]!);
+  });
+
+  it("never makes a move impossible, only expensive", () => {
+    // A zero count would otherwise become an infinite cost, and the harmoniser
+    // would refuse a chord change on the grounds that no named progression
+    // happens to contain it.
+    for (const mode of ["major", "naturalMinor"] as const) {
+      for (const row of transitionCostsFor(mode)) {
+        for (const value of row) {
+          expect(Number.isFinite(value)).toBe(true);
+          expect(value).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+
+  it("counts the move from a progression's last chord back to its first", () => {
+    // A named progression is a loop, and the move that closes it is one of the
+    // moves it teaches. The 小室進行 is vi-IV-V-I, so it teaches I back to vi
+    // just as much as it teaches vi to IV -- dropping the wrap would throw away
+    // one move in four across the whole catalogue.
+    const major = transitionCostsFor("major");
+    // I to vi is taught almost entirely by wrapping loops that end on I.
+    expect(major[0]![5]!).toBeLessThan(major[0]![6]!);
+    expect(major[0]![5]!).toBeLessThan(major[1]![2]!);
+  });
+
+  it("keeps the gap between a common move and an unseen one bounded", () => {
+    // Smoothing is not a formality. Without it a move the catalogue never
+    // happens to contain costs orders of magnitude more than one it contains
+    // often, and after rescaling that single figure flattens every real
+    // distinction the counts were supposed to make.
+    for (const mode of ["major", "naturalMinor"] as const) {
+      const flat = transitionCostsFor(mode).flat();
+      // Measured at 6.7 with add-one smoothing, and above 20 without it.
+      expect(Math.max(...flat) / Math.min(...flat)).toBeLessThan(9);
+    }
+  });
+
+  it("gives a minor key its own table", () => {
+    // The catalogue holds five minor templates and eighteen moves, which is not
+    // a distribution, so this one is written and says so. What it has to state
+    // is what the shared table got wrong: measured, the harmoniser chose degree
+    // seven zero times against the 125 the source used, and degree six eight
+    // times against 161, because a table built around the major key's rare
+    // diminished vii was punishing the flat seventh and the sixth a minor key
+    // leans on hardest.
+    const minor = transitionCostsFor("naturalMinor");
+    expect(JSON.stringify(minor)).not.toBe(JSON.stringify(transitionCostsFor("major")));
+
+    // VII to i is the Aeolian cadence and must be among the cheapest arrivals
+    // at the tonic.
+    const toTonic = minor.map((row) => row[0]!);
+    expect(Math.min(...toTonic)).toBe(Math.min(toTonic[6]!, toTonic[4]!));
+    // VI to VII is the minor turnaround.
+    expect(minor[5]![6]!).toBeLessThan(minor[5]![1]!);
+  });
+
+  it("scales both tables alike, so one weight means one thing", () => {
+    // The balance between "does this chord fit the notes" and "does this chord
+    // follow the last one" is set by their relative size. A negative log runs
+    // over a far wider range than a hand-chosen figure: measured, the unscaled
+    // prior overwhelmed the fit and melody notes landing on a chord tone fell
+    // from 89% to 80%, with the tonic chosen 64 times where the source used it
+    // 191. The shape of the counts was wanted; the loudness was not.
+    const mean = (table: ReadonlyArray<readonly number[]>) => {
+      const flat = table.flat();
+      return flat.reduce((sum, value) => sum + value, 0) / flat.length;
+    };
+    expect(mean(transitionCostsFor("major")))
+      .toBeCloseTo(mean(transitionCostsFor("naturalMinor")), 6);
+  });
+});
+
 describe("harmonizing a whole melody", () => {
   function melodySitsOnChords(mode: Mode) {
     let onChord = 0;
@@ -262,6 +357,37 @@ describe("harmonizing a whole melody", () => {
     }
     return onChord / total;
   }
+
+  it("recovers a minor key's own degrees, not a major key's", () => {
+    // The failure this fixes. Measured with one shared prior: 42% of degrees
+    // matched in minor against 65% in major, because the harmoniser would not
+    // choose the flat seventh or the sixth at all -- degree seven zero times
+    // against the 125 the source used, degree six eight times against 161.
+    const used = new Map<number, number>();
+    let matched = 0;
+    let total = 0;
+    for (const style of STYLES) {
+      for (const seed of SEEDS) {
+        const composed = piece({ style, seed, mode: "naturalMinor" });
+        const result = harmonizeMelody(melodyOf(composed), {
+          bars: 16, timeSignature: composed.timeSignature, ppq: composed.ppq,
+          key: "C" as PitchClassName, mode: "naturalMinor", maxChordsPerBar: 1,
+        })!;
+        for (const chord of result.chords) {
+          used.set(chord.degree, (used.get(chord.degree) ?? 0) + 1);
+          const original = composed.chords.find((entry) => entry.startTick === chord.startTick);
+          if (!original) continue;
+          total += 1;
+          if (original.degree === chord.degree) matched += 1;
+        }
+      }
+    }
+    // Measured: 42% to 60%.
+    expect(matched / total).toBeGreaterThan(0.55);
+    // And it reaches for the degrees a minor key actually uses.
+    expect(used.get(7) ?? 0).toBeGreaterThan(50);
+    expect(used.get(6) ?? 0).toBeGreaterThan(50);
+  });
 
   it("puts the melody on a chord tone about as often as the original did", () => {
     // The measurement that matters. Recovering the exact original chord is not
