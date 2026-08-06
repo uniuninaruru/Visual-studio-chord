@@ -31,8 +31,18 @@ export type VoicingStyleId =
   | "pop" | "j-pop" | "rock" | "jazz" | "lo-fi" | "edm" | "ballad" | "game-music";
 
 export interface VoicingProfile {
-  /** How wide this style likes its chords, in semitones. */
-  preferredSpan: number;
+  /**
+   * The narrowest and widest this style's chords should be, in semitones.
+   *
+   * A range rather than a target. Aiming at a preferred width is the mistake
+   * that made the search reject the ordinary two-handed piano voicing -- a
+   * left-hand root and fifth under a close right-hand chord spans about three
+   * octaves, and a cost that pulled toward seventeen semitones rejected it
+   * outright, however cleanly it was spaced. A pianist does not aim for a
+   * width; a width is what results from voicing well.
+   */
+  minSpan: number;
+  maxSpan: number;
   /** Weight on covering or clashing with the melody. */
   melody: number;
   /** Weight on the low interval limits. */
@@ -57,39 +67,39 @@ export interface VoicingProfile {
  */
 export const VOICING_PROFILES: Readonly<Record<VoicingStyleId, VoicingProfile>> = {
   jazz: {
-    preferredSpan: 17, melody: 3, clarity: 1.2, spacing: 0.8, motion: 0.5, coherence: 0.6,
+    minSpan: 12, maxSpan: 38, melody: 3, clarity: 1.2, spacing: 0.8, motion: 0.5, coherence: 0.6,
     excluded: [],
   },
   "lo-fi": {
-    preferredSpan: 15, melody: 2.4, clarity: 1.2, spacing: 0.8, motion: 0.6, coherence: 0.8,
+    minSpan: 12, maxSpan: 38, melody: 2.4, clarity: 1.2, spacing: 0.8, motion: 0.6, coherence: 0.8,
     excluded: [],
   },
   ballad: {
-    preferredSpan: 14, melody: 3, clarity: 1.4, spacing: 1.2, motion: 0.9, coherence: 0.9,
+    minSpan: 11, maxSpan: 36, melody: 3, clarity: 1.4, spacing: 1.2, motion: 0.9, coherence: 0.9,
     // A ballad is carried by its line; a quartal stack states no quality and
     // leaves the singer nothing to sit on.
     excluded: ["quartal"],
   },
   "j-pop": {
-    preferredSpan: 13, melody: 2.6, clarity: 1.2, spacing: 1, motion: 0.8, coherence: 0.8,
+    minSpan: 10, maxSpan: 34, melody: 2.6, clarity: 1.2, spacing: 1, motion: 0.8, coherence: 0.8,
     excluded: ["rootlessB"],
   },
   pop: {
-    preferredSpan: 12, melody: 2.6, clarity: 1.2, spacing: 1, motion: 0.9, coherence: 1,
+    minSpan: 9, maxSpan: 32, melody: 2.6, clarity: 1.2, spacing: 1, motion: 0.9, coherence: 1,
     excluded: ["rootlessA", "rootlessB", "quartal"],
   },
   rock: {
-    preferredSpan: 11, melody: 2, clarity: 1.4, spacing: 1, motion: 1, coherence: 1.2,
+    minSpan: 7, maxSpan: 28, melody: 2, clarity: 1.4, spacing: 1, motion: 1, coherence: 1.2,
     // Rock keyboard states the chord plainly; the rootless and quartal shapes
     // both withhold the root, which is the one thing it is there to supply.
     excluded: ["rootlessA", "rootlessB", "quartal", "shell"],
   },
   edm: {
-    preferredSpan: 13, melody: 2, clarity: 1.6, spacing: 1.2, motion: 0.7, coherence: 1.2,
+    minSpan: 9, maxSpan: 32, melody: 2, clarity: 1.6, spacing: 1.2, motion: 0.7, coherence: 1.2,
     excluded: ["rootlessA", "rootlessB", "shell"],
   },
   "game-music": {
-    preferredSpan: 11, melody: 2, clarity: 1.4, spacing: 1, motion: 1, coherence: 1.2,
+    minSpan: 7, maxSpan: 28, melody: 2, clarity: 1.4, spacing: 1, motion: 1, coherence: 1.2,
     excluded: ["rootlessA", "rootlessB", "quartal", "shell"],
   },
 };
@@ -157,13 +167,23 @@ export function scoreVoicingCandidate(
   // instead of harmony -- so a voicing that violates it should lose to any
   // voicing that does not, however much better it fits the style otherwise.
   const clarity = lowIntervalViolation(notes) * profile.clarity * 4;
-  const spacing = spacingInversion(notes) * profile.spacing;
+  // Weighted like a rule rather than a preference, now that the metric no
+  // longer condemns a two-handed voicing for the hole it is supposed to have.
+  const spacing = spacingInversion(notes) * profile.spacing * 2.5;
   // Covering the melody is the fault that makes a written line disappear, so it
   // is weighted above every other consideration in every style.
   const melodyCovering = conflict.covering * profile.melody * 2;
   const melodyClash = conflict.minorNinth * profile.melody * 4;
   const bass = bassCrowding(notes, context.bass) * 0.35;
-  const spanFit = Math.abs(span(notes) - profile.preferredSpan) * 0.45;
+  // Only for being outside the range, and nothing for where inside it the
+  // voicing sits. A chord that is neither cramped nor unplayable has nothing
+  // left to answer for on width.
+  const width = span(notes);
+  const spanFit = width < profile.minSpan
+    ? (profile.minSpan - width) * 0.45
+    : width > profile.maxSpan
+      ? (width - profile.maxSpan) * 0.45
+      : 0;
 
   let motion = 0;
   if (context.previousNotes && context.previousNotes.length > 0) {

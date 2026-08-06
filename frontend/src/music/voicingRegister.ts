@@ -78,6 +78,30 @@ export function lowIntervalViolation(notes: readonly number[]): number {
  */
 export function spacingInversion(notes: readonly number[]): number {
   if (notes.length < 3) return 0;
+
+  // A two-handed voicing is not one stack, it is two, with a deliberate hole
+  // between them. The rule that gaps should shrink going up is a rule about
+  // what one hand does; applied across the hole it condemns exactly the
+  // voicing a pianist reaches for first. Measured: it scored fourteen
+  // semitones of "inversion" against a left-hand root and fifth under a
+  // close right-hand chord, which is the most ordinary shape there is.
+  //
+  // So a gap of an octave or more splits the voicing, and each side is judged
+  // on its own.
+  let splitAt = -1;
+  let widest = 0;
+  for (let index = 1; index < notes.length; index += 1) {
+    // Both sides must be a hand. A lone voice above a gap is not a right hand,
+    // it is a stray note an octave up, and reading it as a second hand excuses
+    // exactly the top-heavy spacing this measures.
+    if (index < 2 || notes.length - index < 2) continue;
+    const gap = (notes[index] as number) - (notes[index - 1] as number);
+    if (gap >= 12 && gap > widest) { widest = gap; splitAt = index; }
+  }
+  if (splitAt > 0) {
+    return spacingInversion(notes.slice(0, splitAt)) + spacingInversion(notes.slice(splitAt));
+  }
+
   let total = 0;
   for (let index = 2; index < notes.length; index += 1) {
     const lower = (notes[index - 1] as number) - (notes[index - 2] as number);

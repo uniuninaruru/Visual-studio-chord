@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { shapeSpan, shapesFor, type VoicingShape } from "../src/music/voicingShapes";
+import { lowIntervalViolation, spacingInversion } from "../src/music/voicingRegister";
 import { intervalsForQuality } from "../src/music/chords";
 import type { ChordQuality } from "../src/types/music";
 
@@ -258,15 +259,108 @@ describe("voicing shapes", () => {
     });
   });
 
-  it("gives a seventh chord far more to choose from than a triad", () => {
-    // The point of the catalogue: the search needs candidates. A triad has
-    // genuinely fewer real options, and claiming otherwise would put voicings
-    // in the set that no player would use.
+  describe("voicing a triad in four parts", () => {
+    it("doubles the root at the octave above", () => {
+      // Nobody plays a triad with three fingers, and the drop family needs four
+      // notes -- so without this, seven of nine shapes were unavailable on the
+      // default path and the search alternated between close and open forever.
+      expect(shape("major", "doubledRoot")).toEqual([0, 4, 7, 12]);
+      expect(shape("minor", "doubledRoot")).toEqual([0, 3, 7, 12]);
+    });
+
+    it("doubles the fifth BELOW, not above", () => {
+      // A fifth added on top leaves the widest gap at the top of the voicing,
+      // which is the one arrangement the spacing rule calls wrong. Measured:
+      // doubling upward scored nine semitones of inverted spacing on a plain
+      // triad, downward scores none.
+      expect(shape("major", "doubledFifth")).toEqual([-5, 0, 4, 7]);
+      expect(spacingInversion(shape("major", "doubledFifth")!)).toBe(0);
+      expect(spacingInversion([0, 4, 7, 19])).toBeGreaterThan(5);
+    });
+
+    it("opens the drop family to a triad", () => {
+      for (const quality of ["major", "minor"] as const) {
+        expect(shape(quality, "drop2Doubled"), quality).toBeDefined();
+        expect(shape(quality, "drop3Doubled"), quality).toBeDefined();
+        expect(shapeSpan(shape(quality, "drop3Doubled")!), quality)
+          .toBeGreaterThan(shapeSpan(shape(quality, "close")!));
+      }
+    });
+
+    it("adds no pitch class, so the chord is still that chord", () => {
+      for (const quality of ["major", "minor"] as const) {
+        const own = new Set(pitchClasses(intervalsForQuality(quality)));
+        for (const name of ["doubledRoot", "doubledFifth", "drop2Doubled", "drop3Doubled"] as const) {
+          for (const pitchClass of pitchClasses(shape(quality, name)!)) {
+            expect(own.has(pitchClass), `${quality}/${name}`).toBe(true);
+          }
+        }
+      }
+    });
+
+    it("is unavailable to a chord that already has four notes", () => {
+      for (const quality of ["major7", "minor7", "dominant7"] as const) {
+        expect(shape(quality, "doubledRoot"), quality).toBeUndefined();
+        expect(shape(quality, "doubledFifth"), quality).toBeUndefined();
+      }
+    });
+  });
+
+  describe("two hands with a hole between them", () => {
+    it("puts the foundation low and the chord two octaves above it", () => {
+      // The empty middle is not a gap in the voicing, it is the voicing: it is
+      // what keeps the low register clear and lets the right hand read as its
+      // own line rather than as the top of one stack.
+      expect(shape("major7", "twoHandFifth")).toEqual([0, 7, 28, 31, 35]);
+      // The left hand takes the seventh where there is one, because root and
+      // seventh state more than root and fifth do.
+      expect(shape("major7", "twoHandSeventh")).toEqual([0, 11, 28, 31, 35]);
+    });
+
+    it("leaves the low register clear where a close voicing does not", () => {
+      // The measurement that justifies the shape. Placed from C2, a close
+      // seventh chord violates the low interval limits and a two-handed one
+      // does not.
+      const at = (name: VoicingShape) => shape("major7", name)!.map((interval) => interval + 36);
+      expect(lowIntervalViolation(at("close"))).toBeGreaterThan(0);
+      expect(lowIntervalViolation(at("twoHandFifth"))).toBe(0);
+    });
+
+    it("is judged on each hand rather than across the hole", () => {
+      // The rule that gaps shrink going up is a rule about what ONE hand does.
+      // Applied across the hole it condemns the most ordinary shape there is --
+      // measured, fourteen semitones of "inversion" against a left-hand root
+      // and fifth under a close right-hand chord.
+      expect(spacingInversion(shape("major7", "twoHandFifth")!)).toBeLessThanOrEqual(1);
+      expect(spacingInversion(shape("minor7", "twoHandFifth")!)).toBe(0);
+    });
+
+    it("refuses to call a stack two-handed when there is no hole", () => {
+      // Without the gap this is a wide stack wearing the name.
+      const voicing = shape("major7", "twoHandFifth")!;
+      const gap = (voicing[2] as number) - (voicing[1] as number);
+      expect(gap).toBeGreaterThanOrEqual(9);
+    });
+
+    it("needs at least two notes in the right hand", () => {
+      // A right hand holding one note is not a voicing.
+      for (const quality of ["major7", "minor7", "major", "minor"] as const) {
+        const voicing = shape(quality, "twoHandFifth");
+        if (!voicing) continue;
+        expect(voicing.filter((interval) => interval >= 24).length, quality)
+          .toBeGreaterThanOrEqual(2);
+      }
+    });
+  });
+
+  it("gives every chord real choices", () => {
     for (const quality of ["major7", "minor7", "dominant7", "halfDiminished7"] as const) {
       expect(shapes(quality).length, quality).toBeGreaterThanOrEqual(9);
     }
+    // A triad used to have three. Doubling and the two-handed shapes give it
+    // as many as a seventh, which is what a player actually has available.
     for (const quality of ["major", "minor"] as const) {
-      expect(shapes(quality).length, quality).toBeGreaterThanOrEqual(3);
+      expect(shapes(quality).length, quality).toBeGreaterThanOrEqual(7);
     }
   });
 
