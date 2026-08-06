@@ -52,6 +52,7 @@ describe("expression controls", () => {
 
   const SWITCHES = [
     { text: "強弱をつける", key: "dynamics" },
+    { text: "メロディに合わせて和音を配置する", key: "melodyVoicing" },
     { text: "ベースを低い音域で鳴らす", key: "bassRegister" },
     { text: "和音を分散させて弾く", key: "arpeggio" },
     { text: "テンションを加える", key: "tensions" },
