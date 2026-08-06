@@ -25,6 +25,7 @@ interface InspectorPanelProps {
   onExportJson: () => void;
   onExportMidi: () => void;
   onImportJson: () => void;
+  onImportMelody: () => void;
   onMobileClose: () => void;
 }
 
@@ -43,6 +44,7 @@ export function InspectorPanel({
   onExportJson,
   onExportMidi,
   onImportJson,
+  onImportMelody,
   onMobileClose,
 }: InspectorPanelProps) {
   const submitChord = (value: string) => {
@@ -211,6 +213,10 @@ export function InspectorPanel({
           </button>
           <button type="button" onClick={onExportJson}><Icon name="download" /><span><strong>JSON</strong><small>編集データ</small></span></button>
           <button type="button" onClick={onImportJson}><Icon name="upload" /><span><strong>読込</strong><small>JSON</small></span></button>
+          <button type="button" onClick={onImportMelody}>
+            <Icon name="upload" />
+            <span><strong>メロディ</strong><small>MIDIから作曲</small></span>
+          </button>
         </div>
       </section>
     </aside>
