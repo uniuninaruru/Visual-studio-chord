@@ -28,7 +28,89 @@ export type VoicingShape =
   | "shell"
   | "rootlessA"
   | "rootlessB"
-  | "quartal";
+  | "quartal"
+  | "doubledRoot"
+  | "doubledFifth"
+  | "drop2Doubled"
+  | "drop3Doubled"
+  | "twoHandFifth"
+  | "twoHandSeventh";
+
+/**
+ * A triad as a player actually voices it: four notes, one of them doubled.
+ *
+ * Nobody plays a triad with three fingers. The measured consequence of
+ * pretending otherwise: the drop family needs a four-note stack, so on the
+ * default path -- where every chord is a triad -- seven of the nine shapes were
+ * unavailable and the search chose between close position and open position and
+ * nothing else. Measured over eighty chords, jazz took spread sixty-nine times
+ * and close eleven, and that alternation is what a listener hears as
+ * mechanical.
+ *
+ * Doubling adds no pitch class, so the chord stays exactly the chord it was and
+ * the drop family becomes available to it.
+ */
+function doubledStack(stack: readonly number[], which: "root" | "fifth"): number[] | null {
+  if (stack.length !== 3) return null;
+  const root = stack[0] as number;
+  const fifth = stack[2] as number;
+  // The root doubles at the octave above; the fifth doubles BELOW, because a
+  // fifth added on top leaves the widest gap at the top of the voicing, which
+  // is the one arrangement the spacing rule calls wrong. Measured: doubling it
+  // upward scored nine semitones of inverted spacing on a plain triad.
+  const added = which === "root" ? root + 12 : fifth - 12;
+  const doubled = [...stack, added].sort((left, right) => left - right);
+  if (new Set(doubled).size !== doubled.length) return null;
+  return doubled;
+}
+
+/**
+ * How a pianist actually holds a chord: two hands with a hole between them.
+ *
+ * The left hand states the foundation low and sparsely -- root and fifth, or
+ * root and seventh, never a close triad down there. The right hand carries the
+ * colour, closely voiced, an octave or more above. The empty middle is not a
+ * gap in the voicing, it is the voicing: it is what keeps the low register
+ * clear and lets the right hand read as a separate line rather than as the top
+ * of one stack.
+ *
+ * A single evenly-spread column of notes is what a synthesiser pad does, and
+ * the difference is audible immediately.
+ *
+ * The left hand takes the seventh where the chord has one, because root and
+ * seventh state more than root and fifth do -- the fifth says nothing the root
+ * has not already said.
+ */
+function twoHandVoicing(
+  quality: ChordQuality,
+  stack: readonly number[],
+  lower: "fifth" | "seventh",
+): number[] | null {
+  const intervals = intervalsForQuality(quality);
+  const fifth = intervals.find((interval) => interval === 6 || interval === 7 || interval === 8);
+  const seventh = intervals.find((interval) => interval === 10 || interval === 11);
+  const bottom = lower === "seventh" ? seventh : fifth;
+  if (bottom === undefined) return null;
+
+  const left = [0, bottom];
+  // Everything the left hand is not already stating, voiced closely and lifted
+  // clear of it. Two octaves up from the root puts the right hand above the
+  // muddy register whatever the left hand took.
+  // The right hand plays the chord, not the leftovers. It repeats the tone the
+  // left hand took where the chord is small -- which is what a pianist does,
+  // since a right hand holding one note is not a voicing.
+  const right = stack
+    .filter((interval) => interval !== 0)
+    .map((interval) => interval + 24);
+  if (right.length < 2) return null;
+
+  const voicing = [...left, ...right].sort((a, b) => a - b);
+  if (new Set(voicing).size !== voicing.length) return null;
+  // The hole is the point. Without it this is just a wide stack.
+  const gap = (right[0] as number) - bottom;
+  if (gap < 9) return null;
+  return voicing;
+}
 
 /**
  * Moves the nth voice from the top down an octave.
@@ -234,8 +316,17 @@ export interface ShapeRequest {
  */
 export function shapesFor(request: ShapeRequest): Array<{ shape: VoicingShape; intervals: number[] }> {
   const { quality, stack } = request;
+  // A triad is voiced in four parts before the drop family can touch it.
+  const rootDoubled = doubledStack(stack, "root");
+  const fifthDoubled = doubledStack(stack, "fifth");
   const built: Array<{ shape: VoicingShape; intervals: number[] | null }> = [
     { shape: "close", intervals: [...stack] },
+    { shape: "doubledRoot", intervals: rootDoubled },
+    { shape: "doubledFifth", intervals: fifthDoubled },
+    { shape: "drop2Doubled", intervals: rootDoubled ? dropVoices(rootDoubled, [2]) : null },
+    { shape: "drop3Doubled", intervals: rootDoubled ? dropVoices(rootDoubled, [3]) : null },
+    { shape: "twoHandFifth", intervals: twoHandVoicing(quality, stack, "fifth") },
+    { shape: "twoHandSeventh", intervals: twoHandVoicing(quality, stack, "seventh") },
     { shape: "drop2", intervals: dropVoices(stack, [2]) },
     { shape: "drop3", intervals: dropVoices(stack, [3]) },
     { shape: "drop24", intervals: dropVoices(stack, [2, 4]) },

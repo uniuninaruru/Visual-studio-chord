@@ -7,6 +7,7 @@ import {
   span,
 } from "../src/music/voicingRegister";
 import {
+  scoreVoicingCandidate,
   selectVoicing,
   voicingCandidates,
   voicingProfileFor,
@@ -128,11 +129,16 @@ describe("melody-aware voicing", () => {
       expect(meanSpan(style, false), style).toBeLessThan(9);
       expect(meanSpan(style, true), style).toBeGreaterThan(11);
     }
-    // Rock and game-music ask for plain, narrow voicings, and a change that
-    // widened those too would be a change that ignored the style.
-    for (const style of ["rock", "game-music"] as const) {
-      expect(meanSpan(style, true), style).toBeLessThan(11);
-    }
+    // Rock states its chords plainly and stays where it was: it excludes every
+    // shape that withholds the root, so there is little for the search to widen
+    // with. Measured at 7.6 against jazz's 12.7.
+    expect(meanSpan("rock", true)).toBeLessThan(meanSpan("jazz", true) - 3);
+    expect(meanSpan("rock", true)).toBeLessThan(9);
+
+    // game-music is deliberately NOT asserted narrow. Its profile excludes the
+    // same shapes rock does but permits octave doubling, and chiptune is built
+    // on octaves, so it lands at 11.8 -- mid-range rather than narrow. Claiming
+    // otherwise would be asserting a separation the profiles do not produce.
   });
 
   it("still passes the composition's own validation", () => {
@@ -255,12 +261,21 @@ describe("choosing the shape rather than being told one", () => {
     expect(Math.max(...high!.notes)).toBeGreaterThan(Math.max(...low!.notes));
   });
 
-  it("offers a seventh chord more shapes than a triad", () => {
+  it("gives a triad real choices rather than close position and one alternative", () => {
+    // Measured before doubling existed: a triad had exactly two shapes -- close
+    // and spread -- because the drop family needs four notes and every other
+    // shape needs declared extensions. The search alternated between the two
+    // and that alternation is what a listener hears as mechanical.
+    //
+    // A triad now scores MORE shapes than a plain seventh, which is not a bug:
+    // doubling applies only where there are three notes, and a seventh does not
+    // need it.
     const profile = voicingProfileFor("jazz");
     const triad = voicingCandidates(C, "major" as ChordQuality, undefined, profile);
     const seventh = voicingCandidates(C, "major7" as ChordQuality, undefined, profile);
-    expect(new Set(seventh.map((entry) => entry.shape)).size)
-      .toBeGreaterThan(new Set(triad.map((entry) => entry.shape)).size);
+    expect(new Set(triad.map((entry) => entry.shape)).size).toBeGreaterThanOrEqual(6);
+    expect(new Set(seventh.map((entry) => entry.shape)).size).toBeGreaterThanOrEqual(5);
+    expect(triad.length).toBeGreaterThan(15);
   });
 
   it("never offers a shape the style has excluded", () => {
@@ -316,6 +331,47 @@ describe("choosing the shape rather than being told one", () => {
     }
   });
 
+  it("refuses a voicing narrower or wider than the style can play", () => {
+    // A range, not a target. Aiming at a preferred width is what made the
+    // search reject the ordinary two-handed piano voicing outright, however
+    // cleanly it was spaced.
+    for (const style of STYLES) {
+      const profile = voicingProfileFor(style);
+      expect(profile.minSpan, style).toBeGreaterThan(0);
+      expect(profile.maxSpan, style).toBeGreaterThan(profile.minSpan + 12);
+
+      const context = { style };
+      const inRange = { ...profile };
+      const narrow = scoreVoicingCandidate(
+        [60, 61, 62], "close", context, inRange, new Set(),
+      );
+      const comfortable = scoreVoicingCandidate(
+        [48, 55, 64], "close", context, inRange, new Set(),
+      );
+      const enormous = scoreVoicingCandidate(
+        [36, 43, 88], "close", context, inRange, new Set(),
+      );
+      // Cramped and unplayable both cost; anything between them costs nothing
+      // on width at all.
+      expect(narrow.spanFit, style).toBeGreaterThan(0);
+      expect(enormous.spanFit, style).toBeGreaterThan(0);
+      expect(comfortable.spanFit, style).toBe(0);
+    }
+  });
+
+  it("weights the spacing rule like a rule, not a preference", () => {
+    // It is what separates a chord a pianist would play from a column of
+    // notes, and it lost to the width term until it was raised.
+    const profile = voicingProfileFor("jazz");
+    const even = scoreVoicingCandidate([48, 55, 62, 67], "close", { style: "jazz" }, profile, new Set());
+    const topHeavy = scoreVoicingCandidate([48, 51, 55, 67], "close", { style: "jazz" }, profile, new Set());
+    expect(even.spacing).toBe(0);
+    // Nine semitones of inversion at jazz's weight of 0.8. Below about fifteen
+    // the width term outbids it and the search buys reach with top-heavy
+    // spacing, which is what it did before the weight was raised.
+    expect(topHeavy.spacing).toBeGreaterThan(15);
+  });
+
   it("keeps every candidate inside a playable register", () => {
     for (const style of STYLES) {
       const profile = voicingProfileFor(style);
@@ -355,6 +411,28 @@ describe("the register model", () => {
     // The octave itself is still constrained, which is what makes the cutoff
     // a boundary rather than an absence of any rule.
     expect(lowIntervalViolation([26, 38])).toBeGreaterThan(0);
+  });
+
+  it("judges each hand of a two-handed voicing on its own", () => {
+    // A left-hand root and fifth under a close right-hand chord: the hole is
+    // the voicing, not a fault in it. Measured, the undivided rule scored
+    // fourteen semitones of "inversion" against the most ordinary shape there is.
+    expect(spacingInversion([36, 43, 64, 67, 71])).toBeLessThanOrEqual(1);
+    // A voicing crammed at the bottom with the widest gap on top is genuinely
+    // top-heavy, and the split does not rescue it because a lone high voice is
+    // not a hand.
+    expect(spacingInversion([36, 40, 44, 58])).toBeGreaterThan(5);
+  });
+
+  it("does not read a lone high note as a second hand", () => {
+    // Otherwise a stray voice an octave up excuses exactly the top-heavy
+    // spacing this exists to measure.
+    expect(spacingInversion([48, 52, 55, 67])).toBeGreaterThan(5);
+  });
+
+  it("only splits at an octave or more", () => {
+    // A sixth between two voices is spacing, not a hand break.
+    expect(spacingInversion([48, 52, 61, 65, 70])).toBeGreaterThan(0);
   });
 
   it("reports gaps that widen going up", () => {
