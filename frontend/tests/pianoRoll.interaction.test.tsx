@@ -2,13 +2,13 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PianoRoll } from "../src/features/pianoRoll/PianoRoll";
-import { DEFAULT_GENERATOR_SETTINGS, generateComposition } from "../src/music";
+import { MINIMAL_GENERATOR_SETTINGS, generateComposition } from "../src/music";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 const composition = generateComposition({
-  ...DEFAULT_GENERATOR_SETTINGS,
+  ...MINIMAL_GENERATOR_SETTINGS,
   seed: "piano-roll-interactions",
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_GENERATOR_SETTINGS,
+  MINIMAL_GENERATOR_SETTINGS,
   euclideanPattern,
   euclideanRhythmBar,
   euclideanRhythmName,
@@ -15,9 +15,9 @@ const show = (pattern: readonly boolean[]) =>
 
 function settings(patch: Partial<GeneratorSettings> = {}): GeneratorSettings {
   return {
-    ...DEFAULT_GENERATOR_SETTINGS,
+    ...MINIMAL_GENERATOR_SETTINGS,
     ...patch,
-    melody: { ...DEFAULT_GENERATOR_SETTINGS.melody, ...patch.melody },
+    melody: { ...MINIMAL_GENERATOR_SETTINGS.melody, ...patch.melody },
   };
 }
 
@@ -218,10 +218,10 @@ describe("euclidean rhythm in generated compositions", () => {
     // A rest rate applied on top would remove exactly the hits that make the
     // spacing recognisable.
     const sparse = generateComposition(
-      euclid({ melody: { ...DEFAULT_GENERATOR_SETTINGS.melody, density: 0.1, restRate: 0.9 } }),
+      euclid({ melody: { ...MINIMAL_GENERATOR_SETTINGS.melody, density: 0.1, restRate: 0.9 } }),
     );
     const dense = generateComposition(
-      euclid({ melody: { ...DEFAULT_GENERATOR_SETTINGS.melody, density: 1, restRate: 0 } }),
+      euclid({ melody: { ...MINIMAL_GENERATOR_SETTINGS.melody, density: 1, restRate: 0 } }),
     );
     expect(sparse.notes.map((n) => n.startTick)).toEqual(dense.notes.map((n) => n.startTick));
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_GENERATOR_SETTINGS, generateComposition } from "../src/music";
+import { MINIMAL_GENERATOR_SETTINGS, generateComposition } from "../src/music";
 import {
   candidatesFor,
   findKey,
@@ -34,7 +34,7 @@ function melodyOf(piece: { notes: ReadonlyArray<{ midi: number; startTick: numbe
 
 function piece(patch: Partial<GeneratorSettings>) {
   return generateComposition({
-    ...DEFAULT_GENERATOR_SETTINGS, bars: 16, key: "C", ...patch,
+    ...MINIMAL_GENERATOR_SETTINGS, bars: 16, key: "C", ...patch,
   } as GeneratorSettings);
 }
 

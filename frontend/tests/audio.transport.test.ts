@@ -122,11 +122,11 @@ vi.mock("tone", () => ({
 }));
 
 import { CompositionTransport } from "../src/audio/transport";
-import { DEFAULT_GENERATOR_SETTINGS, generateComposition } from "../src/music";
+import { MINIMAL_GENERATOR_SETTINGS, generateComposition } from "../src/music";
 
 function composition(timeSignature: "4/4" | "3/4" = "4/4") {
   return generateComposition({
-    ...DEFAULT_GENERATOR_SETTINGS,
+    ...MINIMAL_GENERATOR_SETTINGS,
     bars: 4,
     seed: `transport-${timeSignature}`,
     timeSignature,

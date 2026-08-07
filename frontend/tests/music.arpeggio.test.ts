@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_GENERATOR_SETTINGS, generateComposition, validateComposition } from "../src/music";
+import { MINIMAL_GENERATOR_SETTINGS, generateComposition, validateComposition } from "../src/music";
 import { arpeggiateChord, buildCompositionTracks } from "../src/music/compositionTracks";
 import type { GeneratedComposition, GeneratorSettings, TimeSignature } from "../src/types/music";
 
@@ -12,7 +12,7 @@ import type { GeneratedComposition, GeneratorSettings, TimeSignature } from "../
  */
 
 function settings(patch: Partial<GeneratorSettings>): GeneratorSettings {
-  return { ...DEFAULT_GENERATOR_SETTINGS, ...patch } as GeneratorSettings;
+  return { ...MINIMAL_GENERATOR_SETTINGS, ...patch } as GeneratorSettings;
 }
 
 function track(piece: GeneratedComposition, role: "chords" | "bass") {

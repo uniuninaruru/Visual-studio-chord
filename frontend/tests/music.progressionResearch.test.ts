@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_GENERATOR_SETTINGS,
+  MINIMAL_GENERATOR_SETTINGS,
   analyzeProgression,
   createAdvancedChordEvent,
   createNeoRiemannianChordEvent,
@@ -147,7 +147,7 @@ describe("research-grounded whole-progression planning", () => {
     let transformedSongs = 0;
     for (let seed = 0; seed < 32; seed += 1) {
       const composition = generateComposition({
-        ...DEFAULT_GENERATOR_SETTINGS,
+        ...MINIMAL_GENERATOR_SETTINGS,
         bars: 8,
         seed: `nrt-${seed}`,
         functionalHarmony: { enabled: true, exploration: 1 },
@@ -163,7 +163,7 @@ describe("research-grounded whole-progression planning", () => {
 
   it("round-trips Neo-Riemannian derivation metadata through project JSON", () => {
     const composition = generateComposition({
-      ...DEFAULT_GENERATOR_SETTINGS,
+      ...MINIMAL_GENERATOR_SETTINGS,
       bars: 8,
       seed: "nrt-1",
       functionalHarmony: { enabled: true, exploration: 1 },
@@ -202,7 +202,7 @@ describe("research-grounded whole-progression planning", () => {
 
   it("rejects an applied dominant that is not followed by its declared target", () => {
     const composition = generateComposition({
-      ...DEFAULT_GENERATOR_SETTINGS,
+      ...MINIMAL_GENERATOR_SETTINGS,
       bars: 8,
       seed: "unresolved-applied-dominant",
     });
