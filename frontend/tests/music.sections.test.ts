@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_GENERATOR_SETTINGS,
+  MINIMAL_GENERATOR_SETTINGS,
   generateComposition,
   getMelodyScaleMidiNotes,
   pitchClassToSemitone,
@@ -23,9 +23,9 @@ const BAR_COUNTS = [4, 8, 16] satisfies BarCount[];
 
 function settings(patch: Partial<GeneratorSettings> = {}): GeneratorSettings {
   return {
-    ...DEFAULT_GENERATOR_SETTINGS,
+    ...MINIMAL_GENERATOR_SETTINGS,
     ...patch,
-    melody: { ...DEFAULT_GENERATOR_SETTINGS.melody, ...patch.melody },
+    melody: { ...MINIMAL_GENERATOR_SETTINGS.melody, ...patch.melody },
   };
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_GENERATOR_SETTINGS,
+  MINIMAL_GENERATOR_SETTINGS,
   analyzeArrangementQuality,
   generateComposition,
 } from "../src/music";
@@ -9,7 +9,7 @@ describe("all-track arrangement quality", () => {
   it("checks left hand, right hand, melody and every optional voice together", () => {
     for (const seed of ["mix-1", "mix-2", "mix-3", "mix-4"]) {
       const composition = generateComposition({
-        ...DEFAULT_GENERATOR_SETTINGS,
+        ...MINIMAL_GENERATOR_SETTINGS,
         seed,
         voiceLeading: { enabled: true, profile: "pop" },
         arrangement: {
@@ -27,7 +27,7 @@ describe("all-track arrangement quality", () => {
 
   it("reports muddy low spacing and notes outside an 88-key piano", () => {
     const composition = structuredClone(
-      generateComposition({ ...DEFAULT_GENERATOR_SETTINGS, seed: "bad-mix" }),
+      generateComposition({ ...MINIMAL_GENERATOR_SETTINGS, seed: "bad-mix" }),
     );
     composition.chords[0]!.notes = [40, 44, 47];
     composition.notes[0]!.midi = 109;

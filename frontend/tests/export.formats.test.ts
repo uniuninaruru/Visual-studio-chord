@@ -7,11 +7,11 @@ import {
   importCompositionFile,
   importCompositionJson,
 } from "../src/features/export";
-import { DEFAULT_GENERATOR_SETTINGS, generateComposition } from "../src/music";
+import { MINIMAL_GENERATOR_SETTINGS, generateComposition } from "../src/music";
 
 describe("composition export", () => {
   const composition = generateComposition({
-    ...DEFAULT_GENERATOR_SETTINGS,
+    ...MINIMAL_GENERATOR_SETTINGS,
     seed: "export-tests",
   });
 
@@ -152,7 +152,7 @@ describe("composition export", () => {
 
   it("round-trips additional voices and exports each as a MIDI track", () => {
     const arranged = generateComposition({
-      ...DEFAULT_GENERATOR_SETTINGS,
+      ...MINIMAL_GENERATOR_SETTINGS,
       bars: 8,
       seed: "multi-voice-export",
       arrangement: {

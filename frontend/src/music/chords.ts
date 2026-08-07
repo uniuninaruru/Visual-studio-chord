@@ -610,7 +610,13 @@ export interface CreateStepChordOptions {
   durationTick: number;
   id: string;
   previousNotes?: readonly number[];
-  voiceLeadingStrength?: number;
+  voiceLeadingStrength?: number;  /**
+   * Chooses colour tones from the quality this step resolves to.
+   *
+   * A step may pin its own quality or take the degree's diatonic one, and the
+   * caller does not know which until that is settled here.
+   */
+  tensionsFor?: (quality: ChordQuality) => readonly Tension[];
 }
 
 /**
@@ -630,7 +636,10 @@ export function createStepChordEvent(options: CreateStepChordOptions): ChordEven
     ?? (step.alteration !== undefined
       ? "major"
       : diatonicQualityForDegree(step.degree, mode));
-  const tensions = resolveAvoidNotes(quality, step.tensions ?? []);
+  const tensions = resolveAvoidNotes(
+    quality,
+    step.tensions ?? options.tensionsFor?.(quality) ?? [],
+  );
   const bass = step.bassDegree === undefined
     ? undefined
     : rootForStep(key, mode, step.bassDegree, step.bassAlteration);

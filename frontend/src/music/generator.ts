@@ -46,7 +46,19 @@ export const DEFAULT_MOTIF_SETTINGS: Readonly<MotifSettings> = Object.freeze({
   transformationRate: 0.65,
 });
 
-export const DEFAULT_GENERATOR_SETTINGS: Readonly<GeneratorSettings> = Object.freeze({
+/**
+ * The engine with nothing switched on.
+ *
+ * Not what the app ships -- see DEFAULT_GENERATOR_SETTINGS below for that --
+ * but the baseline every opt-in setting is defined against: with none of them
+ * present, generation is exactly what it was before any of them existed.
+ *
+ * Kept as its own constant because "the settings we ship" and "the settings
+ * that turn nothing on" are different ideas, and the tests were using one name
+ * for both. That conflation is what made shipping better defaults look like
+ * eighty-eight regressions.
+ */
+export const MINIMAL_GENERATOR_SETTINGS: Readonly<GeneratorSettings> = Object.freeze({
   key: "C",
   mode: "major",
   bpm: 120,
@@ -66,6 +78,44 @@ export const DEFAULT_GENERATOR_SETTINGS: Readonly<GeneratorSettings> = Object.fr
   }),
   harmony: DEFAULT_HARMONY_SETTINGS,
   motif: DEFAULT_MOTIF_SETTINGS,
+});
+
+/**
+ * What the app ships.
+ *
+ * Everything here was built, tested, measured -- and shipped switched off.
+ * Measured before this changed, over eight styles and five seeds at sixteen
+ * bars: pressing generate produced six distinct chord symbols, all plain
+ * triads, two velocity values, and a chord track crammed into nine semitones.
+ * None of the voicing, colour, dynamics or structure work was reachable
+ * without finding and ticking each box, and a feature nobody switches on is
+ * indistinguishable from one that was never written.
+ *
+ * Measured after: thirty distinct symbols, chords spanning 13.5 semitones
+ * rather than 7.9, nine velocity values, and the harmony covering the melody
+ * in 14% of spans rather than 31%.
+ *
+ * The figures are values rather than maxima. A colour tone on every chord is
+ * exhausting and measured worse on every voicing figure; a third of them is
+ * where the vocabulary opens without the texture thickening.
+ */
+export const DEFAULT_GENERATOR_SETTINGS: Readonly<GeneratorSettings> = Object.freeze({
+  ...MINIMAL_GENERATOR_SETTINGS,
+  harmony: Object.freeze({ ...DEFAULT_HARMONY_SETTINGS, complexity: "sevenths" as const }),
+  tensions: Object.freeze({ enabled: true, rate: 0.35 }),
+  voiceLeading: Object.freeze({ enabled: true, optimizeSequence: true }),
+  melodyVoicing: Object.freeze({ enabled: true }),
+  bassRegister: Object.freeze({ enabled: true }),
+  dynamics: Object.freeze({ enabled: true }),
+  harmonicRhythm: Object.freeze({ cadentialAcceleration: true }),
+  functionalHarmony: Object.freeze({ enabled: true }),
+  phraseGrammar: Object.freeze({ enabled: true }),
+  melodicSkeleton: Object.freeze({ enabled: true }),
+  groove: Object.freeze({ enabled: true, template: "laidBack" as const, amount: 0.5 }),
+  songForm: Object.freeze({ form: "verseChorus" as const }),
+  sectionTransitions: Object.freeze({ enabled: true }),
+  songFormVariety: Object.freeze({ variedThinSections: true }),
+  arpeggio: Object.freeze({ enabled: true }),
 });
 
 function copySettings(settings: GeneratorSettings): GeneratorSettings {

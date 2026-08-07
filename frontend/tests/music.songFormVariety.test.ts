@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_GENERATOR_SETTINGS, generateComposition, validateComposition } from "../src/music";
+import { MINIMAL_GENERATOR_SETTINGS, generateComposition, validateComposition } from "../src/music";
 import { PROGRESSION_TEMPLATES } from "../src/music/progressions";
 import type { GeneratedComposition, GeneratorSettings, Mode, SongFormId } from "../src/types/music";
 
@@ -21,7 +21,7 @@ const SEEDS = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
 const STYLES = ["pop", "j-pop", "jazz", "ballad"] as const;
 
 function settings(patch: Partial<GeneratorSettings>): GeneratorSettings {
-  return { ...DEFAULT_GENERATOR_SETTINGS, bars: 32, ...patch } as GeneratorSettings;
+  return { ...MINIMAL_GENERATOR_SETTINGS, bars: 32, ...patch } as GeneratorSettings;
 }
 
 function degreesOf(piece: GeneratedComposition, kind: string): string[] {

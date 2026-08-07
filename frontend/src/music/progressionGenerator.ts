@@ -11,6 +11,7 @@ import type {
   ProgressionTemplate,
   StylePresetId,
   TimeSignature,
+  ChordQuality,
   TensionSettings,
 } from "../types/music";
 import {
@@ -23,6 +24,7 @@ import {
   cadentialDominantRaisesLeadingTone,
   createCadentialDominantChordEvent,
   createStepChordEvent,
+  getDiatonicSeventhChordDefinition,
 } from "./chords";
 import {
   assignChordsToPath,
@@ -300,6 +302,13 @@ function generateFunctionalProgression(
     deriveSeed(settings.seed, "functional-degrees", preset.id),
   );
 
+  const complexity = settings.harmony?.complexity ?? "triads";
+  // Only "sevenths". "advanced" means the engine reaches for its chromatic
+  // devices, not that every chord grows a seventh -- and the Neo-Riemannian
+  // transformation needs the previous chord to be a plain triad, so upgrading
+  // everything there silently switched it off.
+  const seventhsWanted = complexity === "sevenths";
+
   const chords: ChordEvent[] = [];
   for (const [slotIndex, slot] of slots.entries()) {
     const candidate = candidates[slotIndex] as FunctionalChordCandidate;
@@ -332,12 +341,32 @@ function generateFunctionalProgression(
         : createStepChordEvent({
         key: settings.key,
         mode: settings.mode,
-        step: candidate.step,
+        // harmony.complexity was read by the plain degree pipeline and by
+        // nothing else, so asking for sevenths and switching functional
+        // harmony on produced triads and no explanation. A step that pins its
+        // own quality keeps it -- the functional dominant is a dominant
+        // seventh whatever the setting says.
+        step: seventhsWanted && candidate.step.quality === undefined
+          ? {
+              ...candidate.step,
+              quality: getDiatonicSeventhChordDefinition(
+                settings.key,
+                settings.mode,
+                candidate.step.degree,
+              ).quality,
+            }
+          : candidate.step,
         startTick: slot.startTick,
         durationTick: slot.durationTick,
         id: `chord-${slotIndex}-${idHash}`,
         previousNotes: previous?.notes,
         voiceLeadingStrength: settings.harmony?.voiceLeadingStrength ?? 1,
+        // Colour tones reach this path too. They were wired into the plain
+        // degree pipeline alone, so switching functional harmony on silently
+        // switched tensions off -- two settings that read as independent and
+        // were not.
+        tensionsFor: (quality: ChordQuality) =>
+          chooseTensions(quality, settings.tensions, settings.seed, slotIndex),
           }),
     );
   }

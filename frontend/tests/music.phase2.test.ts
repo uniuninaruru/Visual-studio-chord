@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_GENERATOR_SETTINGS,
+  MINIMAL_GENERATOR_SETTINGS,
   cadenceDominantPosition,
   createAdvancedChordEvent,
   diatonicSeventhQualityForDegree,
@@ -26,7 +26,7 @@ import type {
 
 function phase2Settings(patch: Partial<GeneratorSettings> = {}): GeneratorSettings {
   return {
-    ...DEFAULT_GENERATOR_SETTINGS,
+    ...MINIMAL_GENERATOR_SETTINGS,
     bars: 8,
     style: "jazz",
     seed: "phase-2-theory",
@@ -34,7 +34,7 @@ function phase2Settings(patch: Partial<GeneratorSettings> = {}): GeneratorSettin
     motif: { enabled: true, lengthBars: 1, transformationRate: 1 },
     ...patch,
     melody: {
-      ...DEFAULT_GENERATOR_SETTINGS.melody,
+      ...MINIMAL_GENERATOR_SETTINGS.melody,
       restRate: 0.03,
       ...patch.melody,
     },

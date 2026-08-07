@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_GENERATOR_SETTINGS, generateComposition } from "../src/music";
+import { MINIMAL_GENERATOR_SETTINGS, generateComposition } from "../src/music";
 import { bassRegisterPitch, buildCompositionTracks } from "../src/music/compositionTracks";
 import type { GeneratedComposition, GeneratorSettings } from "../src/types/music";
 
@@ -11,7 +11,7 @@ import type { GeneratedComposition, GeneratorSettings } from "../src/types/music
  */
 
 function settings(patch: Partial<GeneratorSettings>): GeneratorSettings {
-  return { ...DEFAULT_GENERATOR_SETTINGS, ...patch } as GeneratorSettings;
+  return { ...MINIMAL_GENERATOR_SETTINGS, ...patch } as GeneratorSettings;
 }
 
 function bassNotes(piece: GeneratedComposition): number[] {

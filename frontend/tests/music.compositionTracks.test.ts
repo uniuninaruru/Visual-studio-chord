@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_GENERATOR_SETTINGS,
+  MINIMAL_GENERATOR_SETTINGS,
   buildCompositionTracks,
   generateComposition,
 } from "../src/music";
@@ -8,10 +8,10 @@ import {
 describe("DAW composition tracks", () => {
   it("accepts the complete 88-key piano range from A0 to C8", () => {
     const composition = generateComposition({
-      ...DEFAULT_GENERATOR_SETTINGS,
+      ...MINIMAL_GENERATOR_SETTINGS,
       seed: "full-piano",
       melody: {
-        ...DEFAULT_GENERATOR_SETTINGS.melody,
+        ...MINIMAL_GENERATOR_SETTINGS.melody,
         minMidi: 21,
         maxMidi: 108,
       },
@@ -25,7 +25,7 @@ describe("DAW composition tracks", () => {
 
   it("exposes bass, right-hand chords and melody as separate tracks", () => {
     const composition = generateComposition({
-      ...DEFAULT_GENERATOR_SETTINGS,
+      ...MINIMAL_GENERATOR_SETTINGS,
       seed: "tracks",
     });
     const tracks = buildCompositionTracks(composition);
@@ -43,7 +43,7 @@ describe("DAW composition tracks", () => {
 
   it("puts only the lowest chord pitch in the bass track", () => {
     const composition = generateComposition({
-      ...DEFAULT_GENERATOR_SETTINGS,
+      ...MINIMAL_GENERATOR_SETTINGS,
       seed: "hands",
     });
     const [bass, chords] = buildCompositionTracks(composition);
@@ -59,7 +59,7 @@ describe("DAW composition tracks", () => {
 
   it("keeps generated arrangement voices as independent tracks", () => {
     const composition = generateComposition({
-      ...DEFAULT_GENERATOR_SETTINGS,
+      ...MINIMAL_GENERATOR_SETTINGS,
       seed: "arranged-tracks",
       arrangement: {
         counterpoint: { enabled: true, position: "below", independence: 0.7 },
