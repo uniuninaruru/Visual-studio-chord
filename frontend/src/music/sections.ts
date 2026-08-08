@@ -115,14 +115,85 @@ function richestLayoutWithin(
  * Splits `bars` across `count` sections, distributing any remainder to the
  * earliest sections so the parts always sum to exactly `bars`.
  */
-function allocateBars(bars: number, count: number): number[] {
-  const base = Math.floor(bars / count);
-  let remainder = bars - base * count;
-  return Array.from({ length: count }, () => {
-    const extra = remainder > 0 ? 1 : 0;
-    remainder -= extra;
-    return base + extra;
-  });
+/**
+ * How much of the piece each kind of section is worth.
+ *
+ * An even split is not a song shape. Measured before this existed: a sixteen
+ * bar verse-chorus form is eight sections, so every one of them got two bars --
+ * a two-bar verse followed by a two-bar pre-chorus followed by a two-bar
+ * chorus. That is not a structure, it is a slideshow, and nothing at that rate
+ * reads as an arrival.
+ */
+const SECTION_WEIGHT: Readonly<Record<SectionKind, number>> = {
+  intro: 1,
+  verse: 2,
+  preChorus: 1,
+  chorus: 2,
+  bridge: 1.5,
+  outro: 1,
+};
+
+/**
+ * Splits the piece between its sections by weight, in whole bars.
+ *
+ * Allocated per KIND rather than per section, so the two choruses of a
+ * verse-chorus form are the same length as each other. Distributing bar by bar
+ * gave one verse three bars and the next two, which stops a repeated section
+ * being a repeat at all -- the progression is restated over a different number
+ * of bars and comes out as different music.
+ *
+ * Every section keeps at least one bar however thin its share, because a
+ * section of no length is a section that is not there, and the remainder goes
+ * to the heaviest kinds first so a chorus gains the odd bar rather than an
+ * intro.
+ */
+function allocateBars(bars: number, kinds: readonly SectionKind[]): number[] {
+  const count = kinds.length;
+  if (count === 0) return [];
+  if (bars <= count) return Array.from({ length: count }, () => 1);
+
+  const occurrences = new Map<SectionKind, number>();
+  for (const kind of kinds) occurrences.set(kind, (occurrences.get(kind) ?? 0) + 1);
+
+  // Weight per kind is its own weight times how often it appears, since two
+  // choruses take twice the room of one.
+  const order = [...occurrences.keys()]
+    .sort((left, right) => SECTION_WEIGHT[right] - SECTION_WEIGHT[left] || left.localeCompare(right));
+  const total = order.reduce(
+    (sum, kind) => sum + SECTION_WEIGHT[kind] * (occurrences.get(kind) as number), 0,
+  );
+
+  const perKind = new Map<SectionKind, number>();
+  for (const kind of order) {
+    const times = occurrences.get(kind) as number;
+    const share = Math.floor((bars * SECTION_WEIGHT[kind] * times) / total / times);
+    perKind.set(kind, Math.max(1, share));
+  }
+
+  let spare = bars - order.reduce(
+    (sum, kind) => sum + (perKind.get(kind) as number) * (occurrences.get(kind) as number), 0,
+  );
+  let cursor = 0;
+  // A whole kind at a time, so its instances stay equal to one another.
+  while (spare > 0 && order.length > 0) {
+    const kind = order[cursor % order.length] as SectionKind;
+    const times = occurrences.get(kind) as number;
+    if (times <= spare) {
+      perKind.set(kind, (perKind.get(kind) as number) + 1);
+      spare -= times;
+    }
+    cursor += 1;
+    // Nothing left that fits: the remaining bars go to the last section rather
+    // than leaving the piece short of the length that was asked for.
+    if (cursor > order.length * 2) break;
+  }
+
+  const lengths = kinds.map((kind) => perKind.get(kind) as number);
+  const allocated = lengths.reduce((sum, length) => sum + length, 0);
+  if (allocated !== bars && lengths.length > 0) {
+    lengths[lengths.length - 1] = Math.max(1, (lengths[lengths.length - 1] as number) + (bars - allocated));
+  }
+  return lengths;
 }
 
 /**
@@ -202,7 +273,7 @@ export function planSections(
   const kinds = layouts[options.bars] ?? richestLayoutWithin(layouts, options.bars);
   if (kinds.length === 0) return undefined;
 
-  const lengths = allocateBars(options.bars, kinds.length);
+  const lengths = allocateBars(options.bars, kinds);
   const rootSemitone = pitchClassToSemitone(options.key);
   const lift = Number.isFinite(options.finalLift) ? Math.trunc(options.finalLift ?? 0) : 0;
   const throughComposed = options.form === "throughComposed";
