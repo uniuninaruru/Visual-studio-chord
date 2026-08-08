@@ -154,6 +154,8 @@ export interface ComposerStoreActions {
   toggleVoiceMute(voiceId: string): boolean;
   setSelectedRange(range: BarRange | null): void;
   setLoopRange(range: TickRange | BarRange | null): void;
+  /** Widens playback back to the whole piece without dropping the selection. */
+  playWholePiece(): void;
   undo(): boolean;
   redo(): boolean;
   renameHistoryEntry(historyId: string, name: string): boolean;
@@ -975,6 +977,20 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
       playbackLoopRange: audibleRange
         ? rangeToTicks(audibleRange, state.committedComposition)
         : { startTick: 0, endTick: state.committedComposition.totalTicks },
+    });
+  },
+
+  playWholePiece: () => {
+    const state = get();
+    // Selecting a chord narrows what plays to its bar, and there was no way
+    // back: the loop readout displayed the range and nothing cleared it, so
+    // pressing stop and play returned to the same single bar. Stopping means
+    // going back to the top of the song, so it widens the range -- and leaves
+    // the selection alone, because a chord being edited should stay selected
+    // when the piece is stopped.
+    set({
+      loopRange: { startTick: 0, endTick: state.draftComposition.totalTicks },
+      playbackLoopRange: { startTick: 0, endTick: state.committedComposition.totalTicks },
     });
   },
 
