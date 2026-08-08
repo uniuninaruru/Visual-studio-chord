@@ -157,7 +157,11 @@ describe("the shape of a piece", () => {
         }
       }
     }
-  });
+    // Forty pieces at thirty-two bars with the whole engine on, which is real
+    // work: it runs in a couple of seconds alone and overruns the five-second
+    // default when the suite saturates every core, so the budget is stated
+    // rather than inherited.
+  }, 30_000);
 });
 
 describe("how long each section is", () => {
