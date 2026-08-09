@@ -247,6 +247,61 @@ export function spanRangeFrom(statistics: VoicingStatistics): { minSpan: number;
   };
 }
 
+/**
+ * What each metric is measured in, so a distance can add them up.
+ *
+ * A semitone of span and a percentage point of cluster share are not
+ * comparable until each is divided by something. These divisors say how much
+ * of a difference counts as one unit of wrong: an octave of span, one voice,
+ * an octave of register, and twenty points of a share. They are a judgement,
+ * and stating them here is the point -- a distance built on unstated scales
+ * can be made to say anything.
+ */
+const METRIC_SCALES: Readonly<Record<string, number>> = {
+  "span.p10": 12,
+  "span.median": 12,
+  "span.p90": 12,
+  "voiceCount.mean": 1,
+  "lowestNote.median": 12,
+  "highestNote.median": 12,
+  "bottomInterval.median": 12,
+  clusterShare: 0.2,
+  inversionShare: 0.2,
+  twoHandShare: 0.2,
+};
+
+export interface VoicingDistance {
+  /** Mean scaled difference across the metrics. Zero means indistinguishable. */
+  total: number;
+  /** Each metric's scaled contribution, largest first, so the worst is named. */
+  parts: Array<{ metric: string; scaled: number; reference: number; measured: number }>;
+}
+
+/**
+ * How far this app's voicings sit from a reference body of playing.
+ *
+ * One number, because a calibration needs something to minimise, and the parts
+ * beside it, because a single number cannot say what to change. Deliberately
+ * unweighted between metrics: weighting them would be another set of hand-
+ * chosen constants of exactly the kind this is meant to replace.
+ */
+export function voicingDistance(
+  reference: VoicingStatistics,
+  measured: VoicingStatistics,
+): VoicingDistance {
+  const parts = compareVoicing(reference, measured)
+    .filter((entry) => METRIC_SCALES[entry.metric] !== undefined)
+    .map((entry) => ({
+      metric: entry.metric,
+      scaled: Math.abs(entry.difference) / (METRIC_SCALES[entry.metric] as number),
+      reference: entry.reference,
+      measured: entry.measured,
+    }))
+    .sort((left, right) => right.scaled - left.scaled);
+  const total = parts.reduce((sum, part) => sum + part.scaled, 0) / Math.max(1, parts.length);
+  return { total, parts };
+}
+
 export interface MetricComparison {
   metric: string;
   reference: number;

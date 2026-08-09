@@ -85,6 +85,45 @@ export interface VoicingProfile {
  * four-note close triad in a jazz ballad are each wrong in a way the other is
  * not, and a single profile applied to all eight styles would trade one kind of
  * wrong output for another.
+ *
+ * Still chosen by ear, and that is a result rather than an omission.
+ *
+ * These numbers were fitted against 974 classical piano MIDI files -- Mutopia's
+ * engraved scores and MAESTRO's recorded performances, 487 to fit against and
+ * 487 held back -- by a search minimising `voicingDistance` between what this
+ * app produces and what those recordings do. The fitted values were measured
+ * and then discarded. What the exercise established is worth more than they
+ * were:
+ *
+ * Weight tuning cannot reach the reference. Against a held-back reference at a
+ * median span of 24 semitones, 3.95 voices, seconds sounding in 12% of the
+ * time and inverted spacing in 58%, the fit moved this app from 29/4.47/2%/86%
+ * to 28/4.42/2%/87%. The composite distance fell 4-9%, and not one of the
+ * properties a listener could name moved anywhere. The weights are not what
+ * holds the output there; the candidate generator and the shape of the cost
+ * are. That is the same finding as `maxSpan` never binding, arrived at from
+ * the other direction.
+ *
+ * Optimising the distance is dangerous in proportion to how hard it is pushed.
+ * The distance reads ten geometric properties and cannot see whether the melody
+ * is still audible. Run unconstrained, the search cut it by 25% and buried the
+ * melody under the accompaniment on half of all chords, against a tenth before.
+ * Holding `melody` fixed did not help: the cost is a weighted sum, so letting a
+ * neighbouring term grow fiftyfold demotes a frozen weight just as surely, and
+ * burial still reached a third. Only bounding every weight and refusing any
+ * candidate that buried more melody kept it honest -- at which point the
+ * improvement was the 4-9% that changed nothing audible.
+ *
+ * And the reference is classical piano, which is not this app's subject. Two
+ * independent bodies of it agree closely on span, voice count and spacing
+ * despite sharing no provenance, so the geometry it describes is real. But solo
+ * piano carries its own melody: a chord tone above the tune is ordinary inner
+ * voice writing there and a buried vocal here. The texture does not transfer
+ * even where the geometry does.
+ *
+ * So these remain as they were. A relationship below that looks arbitrary --
+ * rock charging a second five times what jazz does, spacing weighted like a
+ * rule -- is one that measurement was given the chance to overturn and did not.
  */
 export const VOICING_PROFILES: Readonly<Record<VoicingStyleId, VoicingProfile>> = {
   jazz: {

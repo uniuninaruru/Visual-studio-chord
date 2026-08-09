@@ -8,6 +8,7 @@ import {
   compareVoicing,
   measureVoicing,
   spanRangeFrom,
+  voicingDistance,
 } from "../src/music/voicingStatistics";
 import type { GeneratorSettings } from "../src/types/music";
 
@@ -191,6 +192,54 @@ describe("measuring a piece through a MIDI file", () => {
       expect(viaFile.clusterShare, seed).toBeCloseTo(direct.clusterShare, 6);
       expect(viaFile.twoHandShare, seed).toBeCloseTo(direct.twoHandShare, 6);
     }
+  });
+});
+
+describe("distance from a reference", () => {
+  const held = (notes: number[]) => measureVoicing([
+    { notes, startTick: 0, durationTick: 1920 },
+  ]);
+
+  it("is zero against itself", () => {
+    const statistics = held([40, 47, 64, 67, 71]);
+    expect(voicingDistance(statistics, statistics).total).toBe(0);
+  });
+
+  it("grows with the difference", () => {
+    const reference = held([48, 52, 55, 60]);
+    const near = held([48, 52, 55, 59]);
+    const far = held([24, 31, 60, 84]);
+    expect(voicingDistance(reference, near).total)
+      .toBeLessThan(voicingDistance(reference, far).total);
+  });
+
+  it("names the worst metric first, so it says what to change", () => {
+    // A single number cannot be acted on. The ordering is the useful part.
+    const reference = held([60, 64, 67]);
+    const measured = held([24, 48, 84]);
+    const { parts } = voicingDistance(reference, measured);
+    expect(parts.length).toBeGreaterThan(5);
+    for (let index = 1; index < parts.length; index += 1) {
+      expect(parts[index - 1]!.scaled).toBeGreaterThanOrEqual(parts[index]!.scaled);
+    }
+    // A close triad against a chord spanning five octaves with gaps widening
+    // going up: the spacing is the more complete reversal of the two, and it
+    // ranks above the width rather than being buried under it.
+    expect(parts[0]!.metric).toBe("inversionShare");
+    expect(parts[0]!.scaled).toBeGreaterThan(
+      parts.find((part) => part.metric === "span.median")!.scaled,
+    );
+  });
+
+  it("puts a semitone and a percentage point on comparable footings", () => {
+    // Without scales the shares would be invisible next to the pitch metrics:
+    // a whole reversal of cluster share is 1.0 and would sit under a single
+    // semitone of span if both were added raw.
+    const reference = held([60, 62, 64]);
+    const noCluster = held([60, 64, 67]);
+    const distance = voicingDistance(reference, noCluster);
+    const cluster = distance.parts.find((part) => part.metric === "clusterShare");
+    expect(cluster?.scaled).toBeGreaterThan(1);
   });
 });
 
