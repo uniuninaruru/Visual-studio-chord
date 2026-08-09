@@ -100,9 +100,24 @@ export function usePlaybackController(
     useComposerStore.getState().setPlaybackStatus("paused");
   }, []);
 
+  /**
+   * Stops, and gives the piece back.
+   *
+   * Clicking a chord in the progression lane also selects its bar, and a bar
+   * selection sets the playback loop -- so inspecting a chord quietly locked
+   * playback to one bar and there was no way out of it. Stop returned the
+   * playhead to the top of that one bar, so pressing it and playing again
+   * replayed the same bar forever.
+   *
+   * Stop means back to the beginning of the piece, which is what the button
+   * means everywhere else. The chord stays selected: the inspector is not what
+   * was wrong.
+   */
   const stop = useCallback(() => {
     transportRef.current?.stop();
-    useComposerStore.getState().setPlaybackStatus("stopped");
+    const store = useComposerStore.getState();
+    store.setPlaybackStatus("stopped");
+    store.playWholePiece();
   }, []);
 
   /**

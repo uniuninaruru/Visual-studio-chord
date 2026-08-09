@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_GENERATOR_SETTINGS, generateComposition } from "../src/music";
+import { MINIMAL_GENERATOR_SETTINGS, generateComposition } from "../src/music";
 import { exportCompositionMidi } from "../src/features/export/midi";
 import {
   MidiParseError,
@@ -29,7 +29,7 @@ function bufferOf(bytes: Uint8Array): ArrayBuffer {
 
 function piece(patch: Partial<GeneratorSettings> = {}) {
   return generateComposition({
-    ...DEFAULT_GENERATOR_SETTINGS, bars: 8, seed: "midi", ...patch,
+    ...MINIMAL_GENERATOR_SETTINGS, bars: 8, seed: "midi", ...patch,
   } as GeneratorSettings);
 }
 

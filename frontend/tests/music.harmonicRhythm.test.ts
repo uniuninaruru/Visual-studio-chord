@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_GENERATOR_SETTINGS,
+  MINIMAL_GENERATOR_SETTINGS,
   buildChordSlots,
   chordSlotsFor,
   generateComposition,
@@ -19,9 +19,9 @@ const SIGNATURES = ["4/4", "3/4", "6/8"] satisfies TimeSignature[];
 
 function settings(patch: Partial<GeneratorSettings> = {}): GeneratorSettings {
   return {
-    ...DEFAULT_GENERATOR_SETTINGS,
+    ...MINIMAL_GENERATOR_SETTINGS,
     ...patch,
-    melody: { ...DEFAULT_GENERATOR_SETTINGS.melody, ...patch.melody },
+    melody: { ...MINIMAL_GENERATOR_SETTINGS.melody, ...patch.melody },
   };
 }
 

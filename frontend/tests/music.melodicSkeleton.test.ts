@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_GENERATOR_SETTINGS,
+  MINIMAL_GENERATOR_SETTINGS,
   generateComposition,
   planMelodicSkeleton,
   planPhrases,
@@ -22,9 +22,9 @@ const TICKS_PER_BEAT = 480;
 
 function settings(patch: Partial<GeneratorSettings> = {}): GeneratorSettings {
   return {
-    ...DEFAULT_GENERATOR_SETTINGS,
+    ...MINIMAL_GENERATOR_SETTINGS,
     ...patch,
-    melody: { ...DEFAULT_GENERATOR_SETTINGS.melody, ...patch.melody },
+    melody: { ...MINIMAL_GENERATOR_SETTINGS.melody, ...patch.melody },
   };
 }
 

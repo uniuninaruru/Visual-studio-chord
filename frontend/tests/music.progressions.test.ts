@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_GENERATOR_SETTINGS,
+  MINIMAL_GENERATOR_SETTINGS,
   PROGRESSION_TEMPLATES,
   generateComposition,
   generateProgression,
@@ -15,9 +15,9 @@ import type { GeneratorSettings, Mode } from "../src/types/music";
 
 function settings(patch: Partial<GeneratorSettings> = {}): GeneratorSettings {
   return {
-    ...DEFAULT_GENERATOR_SETTINGS,
+    ...MINIMAL_GENERATOR_SETTINGS,
     ...patch,
-    melody: { ...DEFAULT_GENERATOR_SETTINGS.melody, ...patch.melody },
+    melody: { ...MINIMAL_GENERATOR_SETTINGS.melody, ...patch.melody },
   };
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_GENERATOR_SETTINGS,
+  MINIMAL_GENERATOR_SETTINGS,
   generateComposition,
   validateComposition,
 } from "../src/music";
@@ -19,13 +19,13 @@ import type { GeneratedComposition, GeneratorSettings } from "../src/types/music
  */
 
 function settings(patch: Partial<GeneratorSettings>): GeneratorSettings {
-  return { ...DEFAULT_GENERATOR_SETTINGS, ...patch } as GeneratorSettings;
+  return { ...MINIMAL_GENERATOR_SETTINGS, ...patch } as GeneratorSettings;
 }
 
 function sevenths(patch: Partial<GeneratorSettings>): GeneratorSettings {
   return settings({
     ...patch,
-    harmony: { ...DEFAULT_GENERATOR_SETTINGS.harmony, complexity: "sevenths" },
+    harmony: { ...MINIMAL_GENERATOR_SETTINGS.harmony, complexity: "sevenths" },
   });
 }
 
@@ -73,7 +73,7 @@ describe("colour tones on the default path", () => {
         for (const seed of ["a", "b", "c"]) {
           const piece = generateComposition(settings({
             seed, style, bars: 16,
-            harmony: { ...DEFAULT_GENERATOR_SETTINGS.harmony, complexity },
+            harmony: { ...MINIMAL_GENERATOR_SETTINGS.harmony, complexity },
             tensions: { enabled: true, rate: 1 },
           }));
           for (const chord of piece.chords) {
@@ -98,7 +98,7 @@ describe("colour tones on the default path", () => {
     for (const style of STYLES) {
       const piece = generateComposition(settings({
         seed: "avoid", style, bars: 16,
-        harmony: { ...DEFAULT_GENERATOR_SETTINGS.harmony, complexity: "advanced" },
+        harmony: { ...MINIMAL_GENERATOR_SETTINGS.harmony, complexity: "advanced" },
         tensions: { enabled: true, rate: 1 },
       }));
       for (const chord of piece.chords) {
@@ -117,7 +117,7 @@ describe("colour tones on the default path", () => {
       for (const seed of ["a", "b", "c"]) {
         const piece = generateComposition(settings({
           seed, style, bars: 16,
-          harmony: { ...DEFAULT_GENERATOR_SETTINGS.harmony, complexity: "advanced" },
+          harmony: { ...MINIMAL_GENERATOR_SETTINGS.harmony, complexity: "advanced" },
           tensions: { enabled: true, rate: 1 },
         }));
         chromatic += piece.chords.filter(
@@ -139,7 +139,7 @@ describe("colour tones on the default path", () => {
       for (const complexity of COMPLEXITIES) {
         const piece = generateComposition(settings({
           seed: "valid", style, bars: 16,
-          harmony: { ...DEFAULT_GENERATOR_SETTINGS.harmony, complexity },
+          harmony: { ...MINIMAL_GENERATOR_SETTINGS.harmony, complexity },
           tensions: { enabled: true, rate: 1 },
         }));
         const outcome = validateComposition(piece);

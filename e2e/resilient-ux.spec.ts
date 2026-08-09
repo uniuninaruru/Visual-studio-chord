@@ -71,7 +71,11 @@ test("pending structural edits keep the audible meter, tempo, and loop visible",
   await openApp(page);
   const status = page.getByLabel("現在のアプリ状態");
 
-  await page.locator(".chord-content").nth(6).click();
+  // By the bar, not by counting chords. A bar holds however many chords the
+  // harmonic rhythm gives it -- the shipped defaults put two in some bars --
+  // so the seventh chord button and the seventh bar stopped being the same
+  // thing, and this test was quietly asserting one chord per bar.
+  await page.locator('.chord-cell[data-bar="6"] .chord-content').first().click();
   await expect(status).toContainText("7–7 小節ループ");
   await page.getByLabel("編集反映タイミング").selectOption("nextLoop");
   await page.getByRole("button", { name: "再生", exact: true }).click();

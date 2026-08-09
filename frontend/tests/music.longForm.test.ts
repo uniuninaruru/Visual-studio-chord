@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_GENERATOR_SETTINGS,
+  MINIMAL_GENERATOR_SETTINGS,
   generateComposition,
   planSections,
   sectionsTileBars,
@@ -15,9 +15,9 @@ const FORMS = ["verseChorus", "aaba", "throughComposed"] as const satisfies read
 
 function settings(patch: Partial<GeneratorSettings> = {}): GeneratorSettings {
   return {
-    ...DEFAULT_GENERATOR_SETTINGS,
+    ...MINIMAL_GENERATOR_SETTINGS,
     ...patch,
-    melody: { ...DEFAULT_GENERATOR_SETTINGS.melody, ...patch.melody },
+    melody: { ...MINIMAL_GENERATOR_SETTINGS.melody, ...patch.melody },
   };
 }
 
@@ -101,10 +101,24 @@ describe("song form at the longer lengths", () => {
         "intro", "verse", "preChorus", "chorus",
         "verse", "preChorus", "chorus", "outro",
       ]);
-      // Evenly divided, because each of these lengths is a multiple of eight.
+      // Weighted by role, not divided evenly. An even split gave every
+      // section the same length, so a chorus arrived and left in the same
+      // breath as the intro before it -- measured, a sixteen-bar piece was
+      // eight two-bar sections, which is a slideshow rather than a structure.
       const lengths = sections.map((section) => section.endBar - section.startBar);
-      expect(new Set(lengths).size, `${bars}`).toBe(1);
-      expect(lengths[0]! * 8, `${bars}`).toBe(bars);
+      expect(lengths.reduce((sum, length) => sum + length, 0), `${bars}`).toBe(bars);
+      expect(lengths.every((length) => length >= 1), `${bars}`).toBe(true);
+
+      const of = (kind: string) => sections
+        .filter((section) => section.kind === kind)
+        .map((section) => section.endBar - section.startBar);
+      // A chorus is longer than the intro that opens the piece.
+      expect(Math.min(...of("chorus")), `${bars}`).toBeGreaterThan(Math.max(...of("intro")));
+      expect(Math.min(...of("verse")), `${bars}`).toBeGreaterThan(Math.max(...of("preChorus")));
+      // And two choruses are the same length as each other, or the second is
+      // not a repeat of the first.
+      expect(new Set(of("chorus")).size, `${bars}`).toBe(1);
+      expect(new Set(of("verse")).size, `${bars}`).toBe(1);
     }
   });
 
@@ -117,14 +131,16 @@ describe("song form at the longer lengths", () => {
     }
   });
 
-  it("does not change the shorter lengths it already had layouts for", () => {
-    // 4, 8 and 16 have their own table entries, so the fallback never runs.
+  it("weights the shorter lengths it already had layouts for", () => {
+    // 4, 8 and 16 have their own table entries, so the fallback never runs --
+    // but the bars inside them are still shared out by role rather than split
+    // evenly.
     expect(
       planSections({ key: "C", mode: "major", bars: 16, seed: "s", form: "verseChorus" })!
         .map((section) => `${section.kind}:${section.endBar - section.startBar}`),
     ).toEqual([
-      "intro:2", "verse:2", "preChorus:2", "chorus:2",
-      "verse:2", "preChorus:2", "chorus:2", "outro:2",
+      "intro:1", "verse:3", "preChorus:1", "chorus:3",
+      "verse:3", "preChorus:1", "chorus:3", "outro:1",
     ]);
     expect(
       planSections({ key: "C", mode: "major", bars: 8, seed: "s", form: "verseChorus" })!

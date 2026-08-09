@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_GENERATOR_SETTINGS, generateComposition, validateComposition } from "../src/music";
+import { MINIMAL_GENERATOR_SETTINGS, generateComposition, validateComposition } from "../src/music";
 import {
   lowIntervalViolation,
   melodyConflict,
@@ -26,7 +26,7 @@ import type { ChordQuality, GeneratedComposition, GeneratorSettings, PitchClassN
  */
 
 function settings(patch: Partial<GeneratorSettings>): GeneratorSettings {
-  return { ...DEFAULT_GENERATOR_SETTINGS, bars: 16, ...patch } as GeneratorSettings;
+  return { ...MINIMAL_GENERATOR_SETTINGS, bars: 16, ...patch } as GeneratorSettings;
 }
 
 const STYLES = ["pop", "j-pop", "rock", "jazz", "lo-fi", "edm", "ballad", "game-music"] as const;

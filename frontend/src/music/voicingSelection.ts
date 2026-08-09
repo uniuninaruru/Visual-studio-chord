@@ -191,7 +191,16 @@ export function scoreVoicingCandidate(
   // limit is an acoustic floor -- below it two tones fuse into roughness
   // instead of harmony -- so a voicing that violates it should lose to any
   // voicing that does not, however much better it fits the style otherwise.
-  const clarity = lowIntervalViolation(notes) * profile.clarity * 4;
+  // A flat charge for violating at all, on top of the proportional one, so the
+  // comparison is lexicographic in practice: any voicing that stays above the
+  // limits beats every voicing that does not.
+  //
+  // Weighting it merely heavily was not enough. Measured with the whole engine
+  // switched on, five chords were voiced below their limit while a clean
+  // candidate for the same chord existed -- the melody terms, which can reach
+  // eighteen, were outbidding a two-semitone violation worth nine.
+  const violation = lowIntervalViolation(notes);
+  const clarity = violation === 0 ? 0 : (25 + violation * 4) * profile.clarity;
   // Weighted like a rule rather than a preference, now that the metric no
   // longer condemns a two-handed voicing for the hole it is supposed to have.
   const spacing = spacingInversion(notes) * profile.spacing * 2.5;
