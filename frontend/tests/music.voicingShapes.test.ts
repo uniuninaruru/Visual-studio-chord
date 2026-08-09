@@ -326,6 +326,42 @@ describe("voicing shapes", () => {
       expect(lowIntervalViolation(at("twoHandFifth"))).toBe(0);
     });
 
+    it("offers the ordinary width, not only the wide one", () => {
+      // twoHandFifth lifts the right hand a rigid two octaves, so everything it
+      // makes is thirty semitones or more; an octave lower lands at nineteen to
+      // twenty-two. Measured across three styles before this shape existed, of
+      // three thousand candidates offered per style the twenty-four to
+      // twenty-nine semitone band held not one -- and two octaves is the median
+      // width of 974 classical piano files, engraved and performed.
+      //
+      // C3-G3 under E4-G4-C5: the first shape a hand finds.
+      expect(shape("major", "twoHandClose")).toEqual([0, 7, 16, 19, 24]);
+      expect(shapeSpan(shape("major", "twoHandClose")!)).toBe(24);
+    });
+
+    it("inverts the right hand rather than transposing it", () => {
+      // Where the width comes from. Moving the stack bodily up an octave gives
+      // [0, 7, 12, 16, 19] -- nineteen wide, which the catalogue already had.
+      // Starting the hand on the third and wrapping what is below it round the
+      // octave is what puts the root on top and reaches two octaves.
+      const voicing = shape("major", "twoHandClose")!;
+      expect(voicing[voicing.length - 1]! % 12).toBe(0);
+      expect(voicing.slice(2)).toEqual([16, 19, 24]);
+    });
+
+    it("keeps the hole that makes it two hands, for every quality that has it", () => {
+      // Structural rather than checked: the right hand starts on the third an
+      // octave up, so the gap above the left hand's fifth is seven semitones at
+      // its narrowest whatever the chord. Asserted across the qualities rather
+      // than on one, since that is the claim the code relies on instead of a
+      // guard.
+      for (const quality of QUALITIES) {
+        const voicing = shape(quality, "twoHandClose");
+        if (!voicing) continue;
+        expect(voicing[2]! - voicing[1]!, quality).toBeGreaterThanOrEqual(7);
+      }
+    });
+
     it("is judged on each hand rather than across the hole", () => {
       // The rule that gaps shrink going up is a rule about what ONE hand does.
       // Applied across the hole it condemns the most ordinary shape there is --
