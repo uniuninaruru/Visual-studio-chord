@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_GENERATOR_SETTINGS, generateComposition } from "../src/music";
+import { MINIMAL_GENERATOR_SETTINGS, generateComposition } from "../src/music";
 import {
   extractHarmonyFeatures,
   extractMelodyFeatures,
@@ -11,15 +11,15 @@ import type { GeneratedComposition, GeneratorSettings, NoteEvent } from "../src/
 
 function settings(seed: string, bars: 4 | 8 | 16 = 4): GeneratorSettings {
   return {
-    ...DEFAULT_GENERATOR_SETTINGS,
+    ...MINIMAL_GENERATOR_SETTINGS,
     seed,
     bars,
-    melody: { ...DEFAULT_GENERATOR_SETTINGS.melody },
-    harmony: DEFAULT_GENERATOR_SETTINGS.harmony
-      ? { ...DEFAULT_GENERATOR_SETTINGS.harmony }
+    melody: { ...MINIMAL_GENERATOR_SETTINGS.melody },
+    harmony: MINIMAL_GENERATOR_SETTINGS.harmony
+      ? { ...MINIMAL_GENERATOR_SETTINGS.harmony }
       : undefined,
-    motif: DEFAULT_GENERATOR_SETTINGS.motif
-      ? { ...DEFAULT_GENERATOR_SETTINGS.motif }
+    motif: MINIMAL_GENERATOR_SETTINGS.motif
+      ? { ...MINIMAL_GENERATOR_SETTINGS.motif }
       : undefined,
   };
 }

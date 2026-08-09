@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_GENERATOR_SETTINGS, generateComposition } from "../src/music";
+import { MINIMAL_GENERATOR_SETTINGS, generateComposition } from "../src/music";
 import {
   profileForStyle,
   scoreVoiceLeading,
@@ -19,7 +19,7 @@ import type { GeneratedComposition, GeneratorSettings } from "../src/types/music
  */
 
 function settings(patch: Partial<GeneratorSettings>): GeneratorSettings {
-  return { ...DEFAULT_GENERATOR_SETTINGS, ...patch } as GeneratorSettings;
+  return { ...MINIMAL_GENERATOR_SETTINGS, ...patch } as GeneratorSettings;
 }
 
 function assignment(notes: readonly number[]): VoiceAssignment {

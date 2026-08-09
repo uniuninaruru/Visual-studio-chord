@@ -1,5 +1,6 @@
 import type {
   ArpeggioSettings,
+  SectionKind,
   BassRegisterSettings,
   DynamicsSettings,
   CompositionVoiceRole,
@@ -235,6 +236,25 @@ export function arpeggiateChord(
     });
     tick += span;
   }
+
+  // Under a pedal each note keeps sounding, so the figure accumulates into the
+  // chord instead of replacing it. Held to the chord's end, or to the next
+  // strike of the same pitch -- a pattern that returns to a note re-articulates
+  // it, and two copies of one pitch overlapping is a stuck note rather than a
+  // thicker chord.
+  if (settings.sustain) {
+    const end = startTick + durationTick;
+    for (const [index, note] of notes.entries()) {
+      let until = end;
+      for (let later = index + 1; later < notes.length; later += 1) {
+        if (notes[later]?.midi === note.midi) {
+          until = notes[later]?.startTick as number;
+          break;
+        }
+      }
+      note.durationTick = Math.max(note.durationTick, until - note.startTick);
+    }
+  }
   return notes;
 }
 
@@ -289,7 +309,7 @@ export function buildCompositionTracks(
     }
   }
 
-  return [
+  const tracks: CompositionTrack[] = [
     {
       id: "track-bass",
       name: "Bass / Left Hand",
@@ -335,4 +355,62 @@ export function buildCompositionTracks(
       sourceVoiceId: voice.id,
     })),
   ];
+
+  return applySectionArc(tracks, composition);
+}
+
+/**
+ * How loudly each kind of section is played.
+ *
+ * Dynamics until now worked at two scales: where a note sits in its bar, and
+ * where a voice sits in its chord. Both are inside one chord. Neither makes a
+ * piece go anywhere, and measured, nothing did: across eight styles the
+ * loudest quarter of a sixteen-bar piece averaged 0.8 velocity above the
+ * quietest, and a chorus was struck no harder than the intro before it.
+ *
+ * A chorus is louder than the verse that set it up. That is most of what
+ * "arrival" is, and no amount of voicing supplies it.
+ */
+const SECTION_INTENSITY: Readonly<Record<SectionKind, number>> = {
+  intro: 0.72,
+  verse: 0.85,
+  // The point of a pre-chorus is that it is on the way somewhere.
+  preChorus: 0.94,
+  chorus: 1.06,
+  // A bridge contrasts rather than climbs; it is the one section that gets
+  // quieter than the verse before it.
+  bridge: 0.8,
+  outro: 0.74,
+};
+
+/**
+ * Scales every track by the section its notes fall in.
+ *
+ * A rendering decision, like the register and the figure: the composition's own
+ * velocities are untouched, so the same seed still describes the same piece and
+ * only the performance of it changes.
+ */
+function applySectionArc(
+  tracks: readonly CompositionTrack[],
+  composition: GeneratedComposition,
+): CompositionTrack[] {
+  const sections = composition.sections;
+  if (!sections || sections.length === 0 || !composition.settings.dynamics?.enabled) {
+    return [...tracks];
+  }
+  const barTicks = composition.ticksPerBar;
+  const intensityAt = (startTick: number): number => {
+    const bar = Math.floor(startTick / barTicks);
+    const section = sections.find((entry) => bar >= entry.startBar && bar < entry.endBar);
+    return section ? SECTION_INTENSITY[section.kind] : 1;
+  };
+
+  return tracks.map((track) => ({
+    ...track,
+    notes: track.notes.map((note) => ({
+      ...note,
+      // MIDI velocity 0 is note-off, so the floor is 1 rather than 0.
+      velocity: Math.min(127, Math.max(1, Math.round(note.velocity * intensityAt(note.startTick)))),
+    })),
+  }));
 }

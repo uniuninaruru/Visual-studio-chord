@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_GENERATOR_SETTINGS, generateComposition, validateGeneratorSettings } from "../src/music";
+import { MINIMAL_GENERATOR_SETTINGS, generateComposition, validateGeneratorSettings } from "../src/music";
 import type { GeneratorSettings, HarmonicRhythmSettings } from "../src/types/music";
 
 /**
@@ -16,7 +16,7 @@ import type { GeneratorSettings, HarmonicRhythmSettings } from "../src/types/mus
 
 function check(rhythm: HarmonicRhythmSettings, patch: Partial<GeneratorSettings> = {}) {
   return validateGeneratorSettings({
-    ...DEFAULT_GENERATOR_SETTINGS,
+    ...MINIMAL_GENERATOR_SETTINGS,
     ...patch,
     harmonicRhythm: rhythm,
   } as GeneratorSettings);
@@ -118,11 +118,11 @@ describe("harmonic rhythm validation", () => {
     for (const rhythm of used) {
       expect(codes(rhythm)).toEqual([]);
     }
-    expect(validateGeneratorSettings(DEFAULT_GENERATOR_SETTINGS).valid).toBe(true);
+    expect(validateGeneratorSettings(MINIMAL_GENERATOR_SETTINGS).valid).toBe(true);
   });
 
   it("says nothing at all when harmonic rhythm is absent", () => {
-    const outcome = validateGeneratorSettings(DEFAULT_GENERATOR_SETTINGS);
+    const outcome = validateGeneratorSettings(MINIMAL_GENERATOR_SETTINGS);
     expect(outcome.errors.filter((issue) => issue.code.startsWith("settings.harmonicRhythm")))
       .toHaveLength(0);
     expect(outcome.warnings.filter((issue) => issue.code.startsWith("settings.harmonicRhythm")))
@@ -135,7 +135,7 @@ describe("harmonic rhythm validation", () => {
     for (const changesPerBar of [1, 2, 4, 480, 1920]) {
       expect(check({ changesPerBar }).valid).toBe(true);
       const piece = generateComposition({
-        ...DEFAULT_GENERATOR_SETTINGS,
+        ...MINIMAL_GENERATOR_SETTINGS,
         bars: 4,
         seed: "boundary",
         harmonicRhythm: { changesPerBar },

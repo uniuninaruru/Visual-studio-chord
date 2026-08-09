@@ -10,7 +10,7 @@ import type {
 } from "../src/api/inferenceTypes";
 import {
   analyzeArrangementQuality,
-  DEFAULT_GENERATOR_SETTINGS,
+  MINIMAL_GENERATOR_SETTINGS,
   generateComposition,
   midiToNoteName,
   validateComposition,
@@ -19,7 +19,7 @@ import type { GeneratedComposition } from "../src/types/music";
 
 function sourceComposition(): GeneratedComposition {
   const composition = structuredClone(generateComposition({
-    ...DEFAULT_GENERATOR_SETTINGS,
+    ...MINIMAL_GENERATOR_SETTINGS,
     seed: "neural-adapter",
     bars: 4,
   }));
@@ -215,7 +215,7 @@ describe("neural harmony request and candidate adapter", () => {
 
   it("accepts three preview-only Mock candidates for a 16-bar F# natural-minor three-track draft", () => {
     const composition = structuredClone(generateComposition({
-      ...DEFAULT_GENERATOR_SETTINGS,
+      ...MINIMAL_GENERATOR_SETTINGS,
       seed: "mock-fsharp-natural-minor-16",
       bars: 16,
       key: "F#",

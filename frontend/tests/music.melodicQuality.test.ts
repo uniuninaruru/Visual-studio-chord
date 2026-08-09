@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_GENERATOR_SETTINGS,
+  MINIMAL_GENERATOR_SETTINGS,
   analyzeMelodyQuality,
   generateComposition,
 } from "../src/music";
@@ -23,7 +23,7 @@ describe("melodic harmonic quality", () => {
       for (const mode of MODES) {
         for (const seed of ["quality-1", "quality-2", "quality-3"]) {
           const composition = generateComposition({
-            ...DEFAULT_GENERATOR_SETTINGS,
+            ...MINIMAL_GENERATOR_SETTINGS,
             key,
             mode,
             seed: `${key}-${mode}-${seed}`,
@@ -78,7 +78,7 @@ describe("melodic harmonic quality", () => {
   it("actually uses the expanded register instead of clustering in one octave", () => {
     const ranges = Array.from({ length: 20 }, (_, index) => {
       const composition = generateComposition({
-        ...DEFAULT_GENERATOR_SETTINGS,
+        ...MINIMAL_GENERATOR_SETTINGS,
         seed: `register-${index}`,
       });
       return analyzeMelodyQuality(

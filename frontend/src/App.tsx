@@ -237,12 +237,16 @@ export default function App() {
     exportJson: handleExportJson,
     exportMidi: handleExportMidi,
     importProject: handleImport,
+    melodyImportInputRef,
+    importMelody: handleMelodyImport,
     exportPreferences: handlePreferenceExport,
     importPreferences: handlePreferenceImport,
   } = useProjectImportExport({
     composition,
     exportProjectJson: store.exportJson,
     importProjectJson: store.importJson,
+    generatorSettings: store.settings,
+    importMelodyComposition: store.importMelody,
     exportPreferenceJson: preferenceProfile.exportJson,
     importPreferenceJson: preferenceProfile.importJson,
     onImported: clearSelection,
@@ -695,6 +699,7 @@ export default function App() {
           onExportJson={handleExportJson}
           onExportMidi={handleExportMidi}
           onImportJson={() => importInputRef.current?.click()}
+          onImportMelody={() => melodyImportInputRef.current?.click()}
           onMobileClose={() => setMobilePanel(null)}
         />
       </main>
@@ -715,6 +720,14 @@ export default function App() {
         accept="application/json,.json"
         onChange={(event) => void handleImport(event.target.files?.[0])}
         aria-label="楽曲JSONを読み込む"
+      />
+      <input
+        ref={melodyImportInputRef}
+        className="visually-hidden"
+        type="file"
+        accept="audio/midi,audio/x-midi,.mid,.midi"
+        onChange={(event) => void handleMelodyImport(event.target.files?.[0])}
+        aria-label="メロディMIDIを読み込んでコードを付ける"
       />
       <input
         ref={preferenceImportInputRef}

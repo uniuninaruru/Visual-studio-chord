@@ -2,7 +2,11 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PhaseControls } from "../src/features/generator/PhaseControls";
-import { DEFAULT_GENERATOR_SETTINGS, generateComposition } from "../src/music";
+import {
+  DEFAULT_GENERATOR_SETTINGS,
+  MINIMAL_GENERATOR_SETTINGS,
+  generateComposition,
+} from "../src/music";
 import { buildCompositionTracks } from "../src/music/compositionTracks";
 import type { GeneratorSettings } from "../src/types/music";
 
@@ -65,18 +69,29 @@ describe("expression controls", () => {
     }
   });
 
-  it("starts every one of them off", () => {
-    // They have to default to off, or an existing project would change the
-    // moment it was opened.
+  it("starts every one of them on, because that is what the app now ships", () => {
+    // They were all off, which measured as six chord symbols and two velocity
+    // values -- none of this work reachable without ticking each box. A feature
+    // nobody switches on is indistinguishable from one that was never written.
     render(DEFAULT_GENERATOR_SETTINGS);
     for (const { text } of SWITCHES) {
-      expect(toggleLabelled(text).checked).toBe(false);
+      expect(toggleLabelled(text).checked, text).toBe(true);
+    }
+  });
+
+  it("shows them off against the minimal settings", () => {
+    // The checkbox reflects the settings it is given rather than assuming the
+    // shipped ones, which is what lets a project saved before this still open
+    // showing what it actually holds.
+    render(MINIMAL_GENERATOR_SETTINGS);
+    for (const { text } of SWITCHES) {
+      expect(toggleLabelled(text).checked, text).toBe(false);
     }
   });
 
   it("switches each one on through its own key", () => {
     for (const { text, key } of SWITCHES) {
-      const onPatch = render(DEFAULT_GENERATOR_SETTINGS, vi.fn());
+      const onPatch = render(MINIMAL_GENERATOR_SETTINGS, vi.fn());
       act(() => toggleLabelled(text).click());
       expect(onPatch).toHaveBeenCalledTimes(1);
       const patch = onPatch.mock.calls[0]![0] as Record<string, { enabled: boolean }>;
@@ -99,7 +114,7 @@ describe("expression controls", () => {
   });
 
   it("hides the detail controls until the setting is on", () => {
-    render(DEFAULT_GENERATOR_SETTINGS);
+    render(MINIMAL_GENERATOR_SETTINGS);
     const labels = [...host.querySelectorAll("label.field")].map((entry) => entry.textContent);
     for (const detail of ["強弱の幅", "弾く向き", "細かさ", "どこまで高い音を使うか"]) {
       expect(labels.some((label) => label?.includes(detail))).toBe(false);
@@ -175,13 +190,13 @@ describe("expression controls", () => {
     // The end of the chain. A control that patches a key the generator ignores
     // would pass every assertion above and still do nothing.
     const base = generateComposition({
-      ...DEFAULT_GENERATOR_SETTINGS, seed: "ui", bars: 8,
+      ...MINIMAL_GENERATOR_SETTINGS, seed: "ui", bars: 8,
     } as GeneratorSettings);
     const baseTracks = JSON.stringify(buildCompositionTracks(base));
 
     for (const { key } of SWITCHES) {
       const changed = generateComposition({
-        ...DEFAULT_GENERATOR_SETTINGS, seed: "ui", bars: 8, [key]: { enabled: true },
+        ...MINIMAL_GENERATOR_SETTINGS, seed: "ui", bars: 8, [key]: { enabled: true },
       } as GeneratorSettings);
       expect(
         JSON.stringify(buildCompositionTracks(changed)),

@@ -154,6 +154,8 @@ export interface ComposerStoreActions {
   toggleVoiceMute(voiceId: string): boolean;
   setSelectedRange(range: BarRange | null): void;
   setLoopRange(range: TickRange | BarRange | null): void;
+  /** Widens playback back to the whole piece without dropping the selection. */
+  playWholePiece(): void;
   undo(): boolean;
   redo(): boolean;
   renameHistoryEntry(historyId: string, name: string): boolean;
@@ -166,6 +168,7 @@ export interface ComposerStoreActions {
   setSeed(seed: string | number): void;
   exportJson(): string;
   importJson(json: string): void;
+  importMelody(composition: GeneratedComposition): void;
   exportMidi(): Uint8Array;
   reset(settings?: GeneratorSettingsPatch): void;
 }
@@ -977,6 +980,20 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     });
   },
 
+  playWholePiece: () => {
+    const state = get();
+    // Selecting a chord narrows what plays to its bar, and there was no way
+    // back: the loop readout displayed the range and nothing cleared it, so
+    // pressing stop and play returned to the same single bar. Stopping means
+    // going back to the top of the song, so it widens the range -- and leaves
+    // the selection alone, because a chord being edited should stay selected
+    // when the piece is stopped.
+    set({
+      loopRange: { startTick: 0, endTick: state.draftComposition.totalTicks },
+      playbackLoopRange: { startTick: 0, endTick: state.committedComposition.totalTicks },
+    });
+  },
+
   setLoopRange: (range) => {
     const state = get();
     if (range === null) {
@@ -1207,6 +1224,22 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     const composition = importCompositionJson(json);
     const loopRange = { startTick: 0, endTick: composition.totalTicks };
     const update = stateAfterComposition(state, composition, "import-json", null, true);
+    set({
+      ...update,
+      selectedBarRange: null,
+      loopRange,
+      playbackLoopRange: update.pendingCommit ? state.playbackLoopRange : loopRange,
+      regenerationIteration: 0,
+      projectPersistenceBlocked: false,
+      projectRecoveryReason: null,
+    });
+  },
+  importMelody: (composition) => {
+    const state = get();
+    const loopRange = { startTick: 0, endTick: composition.totalTicks };
+    // Same path as a project import: an imported melody replaces the piece and
+    // must not leave a selection pointing at notes that no longer exist.
+    const update = stateAfterComposition(state, composition, "import-melody", null, true);
     set({
       ...update,
       selectedBarRange: null,

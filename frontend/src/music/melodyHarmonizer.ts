@@ -1,6 +1,7 @@
 import type { Mode, PitchClassName, TimeSignature } from "../types/music";
 import { getScalePitchClasses, pitchClassToSemitone, semitoneToPitchClass } from "./scales";
 import { metricStrength, ticksPerBar } from "./time";
+import { PROGRESSION_TEMPLATES } from "./progressions";
 
 /**
  * Chords from a melody.
@@ -314,21 +315,184 @@ export function segmentCost(
 /**
  * How likely one degree is to follow another.
  *
- * Rows are the degree being left, columns the degree arrived at, both 1-based.
- * The shape is ordinary functional harmony: the dominant strongly prefers the
- * tonic, the subdominant prefers the dominant, and a chord repeating itself is
- * cheap but not free. These are costs, so lower means more likely.
+ * Rows are the degree being left, columns the degree arrived at, both 1-based,
+ * and these are costs so lower means more likely.
+ *
+ * The major table is DERIVED, not written: it counts the degree-to-degree
+ * moves in the app's own catalogue of documented progressions -- 129 moves
+ * across 28 major templates, each of which was included only because several
+ * independent practitioner sources describe it with the same name and the same
+ * degrees. A prior invented by hand is a guess about how music moves; this one
+ * is a count of how the progressions people actually named do move.
+ *
+ * The minor table is written by hand, because the same catalogue holds only
+ * five minor templates and eighteen moves. Eighteen is not a distribution. So
+ * it states ordinary minor-key practice explicitly instead of pretending to
+ * have measured it -- and what it has to state is exactly what the old shared
+ * table got wrong. Measured before this existed: the harmoniser chose degree
+ * seven zero times against the 125 the source used, and degree six eight times
+ * against 161, because a table written around the major key's rare diminished
+ * vii was punishing the flat seventh and the sixth that a minor key leans on
+ * hardest.
  */
-const TRANSITION_COST: ReadonlyArray<readonly number[]> = [
-  //        I     ii    iii   IV    V     vi    vii
-  /* I   */ [0.6, 0.5, 0.8, 0.3, 0.4, 0.5, 1.0],
-  /* ii  */ [0.9, 0.6, 1.1, 0.8, 0.2, 0.9, 0.7],
-  /* iii */ [0.8, 0.7, 0.7, 0.5, 0.7, 0.4, 1.1],
-  /* IV  */ [0.4, 0.5, 0.9, 0.6, 0.3, 0.7, 0.8],
-  /* V   */ [0.2, 0.9, 1.0, 0.8, 0.6, 0.5, 1.1],
-  /* vi  */ [0.6, 0.4, 0.8, 0.4, 0.5, 0.6, 1.0],
-  /* vii */ [0.3, 1.0, 0.8, 1.0, 0.9, 0.7, 0.8],
+/** The average move cost both tables are scaled to, so one weight means one thing. */
+const TARGET_TRANSITION_MEAN = 0.7;
+
+/**
+ * How the catalogue is counted.
+ *
+ * Every field here was a suspected flaw in the counting, and each was tried
+ * against held-out templates -- progressions the prior had never seen. The
+ * separation between a real progression and a random one, which is the only
+ * thing this prior is for:
+ *
+ *   wrap 1.0, unnormalised (the defaults)  0.270
+ *   wrap 0.5                               0.268
+ *   normalised per template                0.268
+ *   both                                   0.268
+ *   wrap not counted at all                0.258
+ *
+ * So the defaults stand. The reasoning behind each alternative was sound and
+ * none of it was worth anything, which is why they are options at their
+ * measured-best settings rather than changes. What the exercise did establish
+ * is that the earlier in-sample figure of 0.351 was circular: 30% of the app's
+ * own four-bar windows are literally template sequences, and they were being
+ * scored against a prior derived from those templates.
+ */
+export interface TransitionCountOptions {
+  /**
+   * How much a progression's closing move counts.
+   *
+   * A named progression is a loop, so the move from its last chord back to its
+   * first is one of the moves it teaches. It is taught once per progression
+   * however long that progression is, which gives it 22% of the sample and
+   * inflates arrivals on the tonic specifically, since most loops both begin
+   * and end there. Discounting it measured no better and dropping it measured
+   * worse, so it counts in full.
+   */
+  wrapWeight?: number;
+  /**
+   * How much each template contributes in total.
+   *
+   * Counting every transition equally lets a twelve-chord blues speak three
+   * times as loudly as a four-chord loop -- a fact about the catalogue's shape
+   * rather than about music. Normalising would divide each template's votes by
+   * its own length so every progression is one voice; measured, it changed
+   * nothing.
+   */
+  normalizePerTemplate?: boolean;
+  /** Templates to leave out, for measuring the prior against data it never saw. */
+  exclude?: ReadonlySet<string>;
+}
+
+export function deriveTransitionCounts(
+  templates: readonly { id: string; steps: readonly { degree: number }[]; modes: readonly Mode[] }[],
+  wanted: (modes: readonly Mode[]) => boolean,
+  options: TransitionCountOptions = {},
+): number[][] {
+  const wrapWeight = options.wrapWeight ?? 1;
+  const normalize = options.normalizePerTemplate ?? false;
+  const counts = Array.from({ length: 7 }, () => new Array(7).fill(0) as number[]);
+
+  for (const template of templates) {
+    if (!wanted(template.modes)) continue;
+    if (options.exclude?.has(template.id)) continue;
+    const degrees = template.steps.map((entry) => entry.degree);
+    if (degrees.length === 0) continue;
+    const share = normalize ? 1 / degrees.length : 1;
+
+    for (let index = 0; index < degrees.length; index += 1) {
+      const wraps = index === degrees.length - 1;
+      const from = (degrees[index] as number) - 1;
+      const to = (degrees[(index + 1) % degrees.length] as number) - 1;
+      if (from < 0 || from > 6 || to < 0 || to > 6) continue;
+      const row = counts[from] as number[];
+      row[to] = (row[to] as number) + share * (wraps ? wrapWeight : 1);
+    }
+  }
+  return counts;
+}
+
+function deriveTransitionCosts(
+  templates: readonly { id: string; steps: readonly { degree: number }[]; modes: readonly Mode[] }[],
+  wanted: (modes: readonly Mode[]) => boolean,
+  options: TransitionCountOptions = {},
+): number[][] {
+  const counts = deriveTransitionCounts(templates, wanted, options);
+  // Add-one smoothing, so a move the catalogue never happens to contain is
+  // expensive rather than impossible. A zero here would be the harmoniser
+  // refusing a chord change on the grounds that no named progression uses it,
+  // and 20 of the 49 cells are never observed.
+  //
+  // One, rather than something scaled to the 2.6 observations a cell holds on
+  // average. Sizing it to the sample is the textbook correction and it was
+  // tried: it left the held-out separation unchanged and widened the gap
+  // between the commonest move and an unseen one from 6.7 to 20, which is a
+  // prior stating far more confidence than 129 observations support.
+  const raw = counts.map((row) => {
+    const total = row.reduce((sum, value) => sum + value, 0) + 7;
+    return row.map((value) => -Math.log((value + 1) / total));
+  });
+
+  // Rescaled to the same average as the hand-written table, because the balance
+  // between "does this chord fit the notes" and "does this chord follow the
+  // last one" is set by their relative size, and a negative log runs over a far
+  // wider range than a hand-chosen figure does. Measured before this: the
+  // unscaled prior overwhelmed the fit and melody notes landing on a chord tone
+  // fell from 89% to 80%, with the harmoniser choosing the tonic 64 times where
+  // the source used it 191. The shape of the counts is what was wanted from the
+  // corpus; the loudness of it was not.
+  const flat = raw.flat();
+  const mean = flat.reduce((sum, value) => sum + value, 0) / flat.length;
+  const scale = mean === 0 ? 1 : TARGET_TRANSITION_MEAN / mean;
+  return raw.map((row) => row.map((value) => value * scale));
+}
+
+/**
+ * The major-key prior, built from a chosen part of the catalogue.
+ *
+ * Exposed with its options so the prior can be rebuilt without a template and
+ * then measured against that template -- the only way to find out whether it
+ * has learned anything beyond the sequences it was counted from. Nothing in the
+ * app calls it with options; the evaluation does.
+ */
+export function majorTransitionCosts(options: TransitionCountOptions = {}): number[][] {
+  return deriveTransitionCosts(
+    PROGRESSION_TEMPLATES, (modes) => modes.includes("major"), options,
+  );
+}
+
+export const TRANSITION_COST_MAJOR = majorTransitionCosts();
+
+/**
+ * Minor-key practice, stated rather than measured.
+ *
+ * The moves a minor key is built on: VII to i is the Aeolian cadence, VI-VII-i
+ * is its turnaround, iv-V-i and iv-i are its plagal and its dominant approach,
+ * and ii diminished leads to V. Costs, so lower is likelier.
+ */
+const TRANSITION_COST_MINOR: ReadonlyArray<readonly number[]> = [
+  //         i    ii°  III  iv    v/V  VI   VII
+  /* i    */ [1.6, 1.5, 1.4, 0.9, 1.0, 0.9, 0.8],
+  /* ii°  */ [1.3, 1.8, 1.7, 1.4, 0.6, 1.5, 1.2],
+  /* III  */ [1.2, 1.6, 1.7, 1.2, 1.3, 0.9, 0.9],
+  /* iv   */ [0.9, 1.4, 1.5, 1.6, 0.7, 1.2, 0.9],
+  /* v/V  */ [0.5, 1.7, 1.4, 1.3, 1.7, 0.9, 1.3],
+  /* VI   */ [1.1, 1.2, 1.2, 1.1, 0.9, 1.6, 0.6],
+  /* VII  */ [0.6, 1.6, 0.9, 1.2, 1.2, 1.0, 1.6],
 ];
+
+/** Scaled to the same average as the derived table, for the same reason. */
+const SCALED_MINOR = (() => {
+  const flat = TRANSITION_COST_MINOR.flat();
+  const mean = flat.reduce((sum, value) => sum + value, 0) / flat.length;
+  const scale = mean === 0 ? 1 : TARGET_TRANSITION_MEAN / mean;
+  return TRANSITION_COST_MINOR.map((row) => row.map((value) => value * scale));
+})();
+
+export function transitionCostsFor(mode: Mode): ReadonlyArray<readonly number[]> {
+  return mode === "major" ? TRANSITION_COST_MAJOR : SCALED_MINOR;
+}
 
 export interface HarmonizedChord {
   degree: number;
@@ -384,6 +548,7 @@ export function harmonizeMelody(
   const scale = getScalePitchClasses(estimate.key, estimate.mode);
   const candidates = candidatesFor(estimate.mode, options.allowSevenths ?? true);
   const transitionWeight = options.transitionWeight ?? 1;
+  const transitions = transitionCostsFor(estimate.mode);
 
   // Viterbi. Costs, so the best path is the cheapest one.
   const costs: number[][] = [];
@@ -405,7 +570,7 @@ export function harmonizeMelody(
       let bestFrom = 0;
       for (const [priorIndex, prior] of candidates.entries()) {
         const previous = (costs[index - 1] as number[])[priorIndex] as number;
-        const move = (TRANSITION_COST[prior.degree - 1] as readonly number[])[
+        const move = (transitions[prior.degree - 1] as readonly number[])[
           candidate.degree - 1
         ] as number;
         // A seventh where the triad would do is a small extra claim.

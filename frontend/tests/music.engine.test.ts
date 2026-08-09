@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_GENERATOR_SETTINGS,
+  MINIMAL_GENERATOR_SETTINGS,
   PITCH_CLASSES,
   cadenceDegrees,
   cadenceDominantPosition,
@@ -28,10 +28,10 @@ import type {
 
 function settings(patch: Partial<GeneratorSettings> = {}): GeneratorSettings {
   return {
-    ...DEFAULT_GENERATOR_SETTINGS,
+    ...MINIMAL_GENERATOR_SETTINGS,
     ...patch,
     melody: {
-      ...DEFAULT_GENERATOR_SETTINGS.melody,
+      ...MINIMAL_GENERATOR_SETTINGS.melody,
       ...patch.melody,
     },
   };
@@ -299,7 +299,7 @@ describe("deterministic composition generation", () => {
           timeSignature,
           seed: `meter-${timeSignature}`,
           melody: {
-            ...DEFAULT_GENERATOR_SETTINGS.melody,
+            ...MINIMAL_GENERATOR_SETTINGS.melody,
             minMidi: 65,
             maxMidi: 77,
             density: 0.85,

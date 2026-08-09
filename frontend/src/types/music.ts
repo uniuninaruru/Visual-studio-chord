@@ -241,6 +241,19 @@ export interface HarmonicRhythmSettings {
  * I from vi with nothing in between. Absent leaves the seams exactly as plain
  * as they were.
  */
+export interface SongFormVarietySettings {
+  /**
+   * Lets a section whose own tier holds a single template draw from the next
+   * tier too.
+   *
+   * Measured: exactly one progression in the catalogue is marked for a bridge,
+   * so every major-key bridge in every piece was the same four chords -- forty
+   * out of forty. Absent keeps that single answer, since widening the pool
+   * changes which template every existing piece picks.
+   */
+  variedThinSections: boolean;
+}
+
 export interface SectionTransitionSettings {
   enabled: boolean;
 }
@@ -281,6 +294,22 @@ export interface ArpeggioSettings {
    * a little separation; 1 is fully legato.
    */
   gate?: number;
+  /**
+   * Whether each note holds on until the chord ends, as under a pedal.
+   *
+   * Without this an arpeggio is a single line: measured across eight seeds of
+   * the shipped defaults, the chord track had 1024 onsets and not one of them
+   * sounded with another. Every voicing the engine chose -- the drop, the
+   * spread, the two-handed shapes, the spacing, the low interval limits --
+   * describes how a chord sounds when its notes sound together, and none of
+   * them ever did. The arpeggio was deciding the texture and then discarding
+   * the harmony it was an arpeggio of.
+   *
+   * Held notes accumulate instead, so the figure is heard as motion across a
+   * chord rather than as a bare line. Defaults to off, so a composition that
+   * already sounds a certain way keeps sounding that way.
+   */
+  sustain?: boolean;
 }
 
 /**
@@ -573,6 +602,7 @@ export interface GeneratorSettings {
   arpeggio?: ArpeggioSettings;
   melodyVoicing?: MelodyAwareVoicingSettings;
   sectionTransitions?: SectionTransitionSettings;
+  songFormVariety?: SongFormVarietySettings;
   /**
    * Phrase grammar. Omitted means the fixed four-bar phrasing every
    * composition used before it existed.

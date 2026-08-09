@@ -122,11 +122,11 @@ vi.mock("tone", () => ({
 }));
 
 import { CompositionTransport } from "../src/audio/transport";
-import { DEFAULT_GENERATOR_SETTINGS, generateComposition } from "../src/music";
+import { MINIMAL_GENERATOR_SETTINGS, generateComposition } from "../src/music";
 
 function composition(timeSignature: "4/4" | "3/4" = "4/4") {
   return generateComposition({
-    ...DEFAULT_GENERATOR_SETTINGS,
+    ...MINIMAL_GENERATOR_SETTINGS,
     bars: 4,
     seed: `transport-${timeSignature}`,
     timeSignature,
@@ -369,6 +369,38 @@ describe("CompositionTransport", () => {
  * the chain exists, that it is the only route out, and that a React remount
  * does not leave a copy of it behind.
  */
+describe("stopping and re-looping", () => {
+  it("returns the playhead to the top of the piece when the loop widens while stopped", () => {
+    // The other half of releasing a selection loop. Stop leaves the transport
+    // at the start of whatever loop was set, so clearing the selection has to
+    // move the playhead as well or the piece resumes from the middle.
+    const transport = new CompositionTransport();
+    const piece = composition();
+    const bar = piece.ticksPerBar;
+
+    transport.configure(piece, { startTick: bar * 2, endTick: bar * 3 }, () => {});
+    audioMocks.transport.ticks = bar * 2;
+    transport.stop();
+    expect(audioMocks.transport.ticks).toBe(bar * 2);
+
+    transport.configure(piece, { startTick: 0, endTick: piece.totalTicks }, () => {});
+    expect(audioMocks.transport.ticks).toBe(0);
+  });
+
+  it("puts the playhead at the top of whatever loop it is given", () => {
+    // Reconfiguring always repositions, which is why widening the range is
+    // only ever done from stop: the app never widens a loop mid-playback, and
+    // if it ever does, this is the behaviour it will get.
+    const transport = new CompositionTransport();
+    const piece = composition();
+    const bar = piece.ticksPerBar;
+    transport.configure(piece, { startTick: bar * 2, endTick: bar * 3 }, () => {});
+    expect(audioMocks.transport.ticks).toBe(bar * 2);
+    transport.configure(piece, { startTick: 0, endTick: piece.totalTicks }, () => {});
+    expect(audioMocks.transport.ticks).toBe(0);
+  });
+});
+
 describe("effects bus", () => {
   beforeEach(() => {
     audioMocks.synths.length = 0;

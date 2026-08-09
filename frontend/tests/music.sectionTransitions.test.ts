@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_GENERATOR_SETTINGS, generateComposition, validateComposition } from "../src/music";
+import { MINIMAL_GENERATOR_SETTINGS, generateComposition, validateComposition } from "../src/music";
 import {
   planTransition,
   transitionProfileFor,
@@ -19,7 +19,7 @@ import type { ChordQuality, GeneratedComposition, GeneratorSettings, PitchClassN
 
 function settings(patch: Partial<GeneratorSettings>): GeneratorSettings {
   return {
-    ...DEFAULT_GENERATOR_SETTINGS, bars: 32, songForm: { form: "verseChorus" }, ...patch,
+    ...MINIMAL_GENERATOR_SETTINGS, bars: 32, songForm: { form: "verseChorus" }, ...patch,
   } as GeneratorSettings;
 }
 
@@ -202,10 +202,10 @@ describe("section transitions", () => {
     // would be inventing structure the piece does not have.
     for (const seed of SEEDS) {
       const plain = generateComposition({
-        ...DEFAULT_GENERATOR_SETTINGS, bars: 32, seed,
+        ...MINIMAL_GENERATOR_SETTINGS, bars: 32, seed,
       } as GeneratorSettings);
       const prepared = generateComposition({
-        ...DEFAULT_GENERATOR_SETTINGS, bars: 32, seed, sectionTransitions: { enabled: true },
+        ...MINIMAL_GENERATOR_SETTINGS, bars: 32, seed, sectionTransitions: { enabled: true },
       } as GeneratorSettings);
       expect(JSON.stringify(prepared.chords), seed).toBe(JSON.stringify(plain.chords));
     }
