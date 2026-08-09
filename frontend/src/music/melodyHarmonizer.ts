@@ -338,27 +338,97 @@ export function segmentCost(
 /** The average move cost both tables are scaled to, so one weight means one thing. */
 const TARGET_TRANSITION_MEAN = 0.7;
 
-function deriveTransitionCosts(
-  templates: readonly { steps: readonly { degree: number }[]; modes: readonly Mode[] }[],
+/**
+ * How the catalogue is counted.
+ *
+ * Every field here was a suspected flaw in the counting, and each was tried
+ * against held-out templates -- progressions the prior had never seen. The
+ * separation between a real progression and a random one, which is the only
+ * thing this prior is for:
+ *
+ *   wrap 1.0, unnormalised (the defaults)  0.270
+ *   wrap 0.5                               0.268
+ *   normalised per template                0.268
+ *   both                                   0.268
+ *   wrap not counted at all                0.258
+ *
+ * So the defaults stand. The reasoning behind each alternative was sound and
+ * none of it was worth anything, which is why they are options at their
+ * measured-best settings rather than changes. What the exercise did establish
+ * is that the earlier in-sample figure of 0.351 was circular: 30% of the app's
+ * own four-bar windows are literally template sequences, and they were being
+ * scored against a prior derived from those templates.
+ */
+export interface TransitionCountOptions {
+  /**
+   * How much a progression's closing move counts.
+   *
+   * A named progression is a loop, so the move from its last chord back to its
+   * first is one of the moves it teaches. It is taught once per progression
+   * however long that progression is, which gives it 22% of the sample and
+   * inflates arrivals on the tonic specifically, since most loops both begin
+   * and end there. Discounting it measured no better and dropping it measured
+   * worse, so it counts in full.
+   */
+  wrapWeight?: number;
+  /**
+   * How much each template contributes in total.
+   *
+   * Counting every transition equally lets a twelve-chord blues speak three
+   * times as loudly as a four-chord loop -- a fact about the catalogue's shape
+   * rather than about music. Normalising would divide each template's votes by
+   * its own length so every progression is one voice; measured, it changed
+   * nothing.
+   */
+  normalizePerTemplate?: boolean;
+  /** Templates to leave out, for measuring the prior against data it never saw. */
+  exclude?: ReadonlySet<string>;
+}
+
+export function deriveTransitionCounts(
+  templates: readonly { id: string; steps: readonly { degree: number }[]; modes: readonly Mode[] }[],
   wanted: (modes: readonly Mode[]) => boolean,
+  options: TransitionCountOptions = {},
 ): number[][] {
+  const wrapWeight = options.wrapWeight ?? 1;
+  const normalize = options.normalizePerTemplate ?? false;
   const counts = Array.from({ length: 7 }, () => new Array(7).fill(0) as number[]);
+
   for (const template of templates) {
     if (!wanted(template.modes)) continue;
+    if (options.exclude?.has(template.id)) continue;
     const degrees = template.steps.map((entry) => entry.degree);
+    if (degrees.length === 0) continue;
+    const share = normalize ? 1 / degrees.length : 1;
+
     for (let index = 0; index < degrees.length; index += 1) {
-      // Wrapping, because a named progression is a loop: the move from its last
-      // chord back to its first is one of the moves it teaches.
+      const wraps = index === degrees.length - 1;
       const from = (degrees[index] as number) - 1;
       const to = (degrees[(index + 1) % degrees.length] as number) - 1;
       if (from < 0 || from > 6 || to < 0 || to > 6) continue;
       const row = counts[from] as number[];
-      row[to] = (row[to] as number) + 1;
+      row[to] = (row[to] as number) + share * (wraps ? wrapWeight : 1);
     }
   }
+  return counts;
+}
+
+function deriveTransitionCosts(
+  templates: readonly { id: string; steps: readonly { degree: number }[]; modes: readonly Mode[] }[],
+  wanted: (modes: readonly Mode[]) => boolean,
+  options: TransitionCountOptions = {},
+): number[][] {
+  const counts = deriveTransitionCounts(templates, wanted, options);
   // Add-one smoothing, so a move the catalogue never happens to contain is
   // expensive rather than impossible. A zero here would be the harmoniser
-  // refusing a chord change on the grounds that no named progression uses it.
+  // refusing a chord change on the grounds that no named progression uses it,
+  // and 20 of the 49 cells are never observed.
+  //
+  // One, rather than something scaled to the 2.6 observations a cell holds on
+  // average. Sizing it to the sample is the textbook correction and it was
+  // tried: it left the held-out separation unchanged and widened the gap
+  // between the commonest move and an unseen one from 6.7 to 20, which is a
+  // prior stating far more confidence than 129 observations support.
   const raw = counts.map((row) => {
     const total = row.reduce((sum, value) => sum + value, 0) + 7;
     return row.map((value) => -Math.log((value + 1) / total));
@@ -378,10 +448,21 @@ function deriveTransitionCosts(
   return raw.map((row) => row.map((value) => value * scale));
 }
 
-export const TRANSITION_COST_MAJOR = deriveTransitionCosts(
-  PROGRESSION_TEMPLATES,
-  (modes) => modes.includes("major"),
-);
+/**
+ * The major-key prior, built from a chosen part of the catalogue.
+ *
+ * Exposed with its options so the prior can be rebuilt without a template and
+ * then measured against that template -- the only way to find out whether it
+ * has learned anything beyond the sequences it was counted from. Nothing in the
+ * app calls it with options; the evaluation does.
+ */
+export function majorTransitionCosts(options: TransitionCountOptions = {}): number[][] {
+  return deriveTransitionCosts(
+    PROGRESSION_TEMPLATES, (modes) => modes.includes("major"), options,
+  );
+}
+
+export const TRANSITION_COST_MAJOR = majorTransitionCosts();
 
 /**
  * Minor-key practice, stated rather than measured.
