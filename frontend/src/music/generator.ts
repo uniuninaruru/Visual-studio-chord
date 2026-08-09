@@ -115,7 +115,11 @@ export const DEFAULT_GENERATOR_SETTINGS: Readonly<GeneratorSettings> = Object.fr
   songForm: Object.freeze({ form: "verseChorus" as const }),
   sectionTransitions: Object.freeze({ enabled: true }),
   songFormVariety: Object.freeze({ variedThinSections: true }),
-  arpeggio: Object.freeze({ enabled: true }),
+  // Sustained, because an arpeggio that does not sustain is a single line and
+  // discards every voicing decision made upstream of it. Measured across eight
+  // seeds of these defaults before it did: 1024 chord-track onsets, none of
+  // them sounding with another.
+  arpeggio: Object.freeze({ enabled: true, sustain: true }),
 });
 
 function copySettings(settings: GeneratorSettings): GeneratorSettings {
@@ -137,6 +141,7 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
     dynamics: settings.dynamics ? { ...settings.dynamics } : undefined,
     tensions: settings.tensions ? { ...settings.tensions } : undefined,
     arpeggio: settings.arpeggio ? { ...settings.arpeggio } : undefined,
+
     melodyVoicing: settings.melodyVoicing ? { ...settings.melodyVoicing } : undefined,
     sectionTransitions: settings.sectionTransitions ? { ...settings.sectionTransitions } : undefined,
     songFormVariety: settings.songFormVariety ? { ...settings.songFormVariety } : undefined,
@@ -243,6 +248,9 @@ function compositionFingerprint(settings: GeneratorSettings): string {
         settings.arpeggio.rate ?? "default",
         settings.arpeggio.pattern ?? "default",
         settings.arpeggio.gate ?? "default",
+        // Appended only when asked for, so every composition made before it
+        // existed keeps the id it already had.
+        ...(settings.arpeggio.sustain ? ["sustain"] : []),
       ]
       : []),
     ...(settings.tensions?.enabled

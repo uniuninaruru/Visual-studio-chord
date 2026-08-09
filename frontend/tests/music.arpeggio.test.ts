@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { MINIMAL_GENERATOR_SETTINGS, generateComposition, validateComposition } from "../src/music";
+import {
+  DEFAULT_GENERATOR_SETTINGS,
+  MINIMAL_GENERATOR_SETTINGS,
+  generateComposition,
+  validateComposition,
+} from "../src/music";
 import { arpeggiateChord, buildCompositionTracks } from "../src/music/compositionTracks";
+import { chordSlices } from "../src/music/voicingStatistics";
 import type { GeneratedComposition, GeneratorSettings, TimeSignature } from "../src/types/music";
 
 /**
@@ -264,5 +270,89 @@ describe("arpeggiated chord track", () => {
       seed: "det", bars: 8, arpeggio: { enabled: true, rate: 4, pattern: "upDown" },
     })), "chords").notes;
     expect(JSON.stringify(make())).toBe(JSON.stringify(make()));
+  });
+});
+
+/**
+ * Holding the notes on, as under a pedal.
+ *
+ * Without this an arpeggio is a single line and the chord it arpeggiates is
+ * never sounded. Measured across eight seeds of the shipped defaults before
+ * the option existed: the chord track had 1024 onsets and its greatest
+ * simultaneity was one note. Every voicing decision upstream -- the drop and
+ * spread shapes, the spacing, the low interval limits, the two-handed forms --
+ * describes how notes sound together, and none of them ever did.
+ */
+describe("sustaining an arpeggio", () => {
+  const chord = [48, 52, 55, 60];
+
+  it("holds each note until the chord ends", () => {
+    const figure = arpeggiateChord(chord, 0, 1920, 480, { enabled: true, sustain: true });
+    expect(figure).toHaveLength(4);
+    for (const note of figure) {
+      expect(note.startTick + note.durationTick).toBe(1920);
+    }
+  });
+
+  it("accumulates into the chord it arpeggiates", () => {
+    // The point of the option. By the last step every voiced pitch is sounding.
+    const figure = arpeggiateChord(chord, 0, 1920, 480, { enabled: true, sustain: true });
+    const atEnd = figure
+      .filter((note) => note.startTick <= 1900 && note.startTick + note.durationTick > 1900)
+      .map((note) => note.midi)
+      .sort((left, right) => left - right);
+    expect(atEnd).toEqual(chord);
+  });
+
+  it("releases a pitch when the figure strikes it again", () => {
+    // A pattern that returns to a note re-articulates it. Two copies of one
+    // pitch overlapping is a stuck note, not a thicker chord.
+    const figure = arpeggiateChord([60, 64], 0, 1920, 480, { enabled: true, sustain: true });
+    expect(figure.map((note) => note.midi)).toEqual([60, 64, 60, 64]);
+    const first = figure[0]!;
+    const restrike = figure[2]!;
+    expect(first.startTick + first.durationTick).toBe(restrike.startTick);
+    expect(restrike.startTick + restrike.durationTick).toBe(1920);
+  });
+
+  it("leaves an unsustained arpeggio exactly as it was", () => {
+    // The whole compatibility claim, stated as a test rather than as a comment.
+    const plain = arpeggiateChord(chord, 0, 1920, 480, { enabled: true });
+    const explicit = arpeggiateChord(chord, 0, 1920, 480, { enabled: true, sustain: false });
+    expect(JSON.stringify(explicit)).toBe(JSON.stringify(plain));
+    expect(plain.every((note) => note.durationTick < 480)).toBe(true);
+  });
+
+  it("changes the composition id only when it is asked for", () => {
+    const bare = generateComposition(settings({ seed: "sus", arpeggio: { enabled: true } }));
+    const off = generateComposition(
+      settings({ seed: "sus", arpeggio: { enabled: true, sustain: false } }),
+    );
+    const on = generateComposition(
+      settings({ seed: "sus", arpeggio: { enabled: true, sustain: true } }),
+    );
+    expect(off.id).toBe(bare.id);
+    expect(on.id).not.toBe(bare.id);
+  });
+
+  it("keeps the chord track valid", () => {
+    const piece = generateComposition(settings({
+      seed: "valid", bars: 8, arpeggio: { enabled: true, sustain: true },
+    }));
+    expect(validateComposition(piece).errors).toEqual([]);
+  });
+
+  it("sounds three or more notes together for most of the shipped defaults", () => {
+    // Measured: 63% of chord-track sounding time, against 0% before.
+    const piece = generateComposition({
+      ...DEFAULT_GENERATOR_SETTINGS, bars: 16, seed: "shipped",
+    } as GeneratorSettings);
+    const notes = track(piece, "chords").notes;
+    const slices = chordSlices(notes, { minVoices: 1, minDurationTick: 1 });
+    const total = slices.reduce((sum, slice) => sum + slice.durationTick, 0);
+    const thick = slices
+      .filter((slice) => slice.notes.length >= 3)
+      .reduce((sum, slice) => sum + slice.durationTick, 0);
+    expect(thick / total).toBeGreaterThan(0.5);
   });
 });
