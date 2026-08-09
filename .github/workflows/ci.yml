@@ -1,9 +1,21 @@
 name: CI
 
 on:
+  # Every branch, not just main. A branch that is worked on for days before it
+  # opens a pull request was running no checks at all: five commits sat on
+  # feat/melody-aware-voicing with a broken end-to-end test, and the first run
+  # that could have caught it was the pull request three days later.
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
+
+# A pull request fires both events for the same branch, so the group is keyed on
+# the branch name under either -- head_ref is set on a pull request and empty on
+# a push -- and the duplicate is cancelled rather than run twice.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  # Except on main, where each commit's result is worth having on its own.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
