@@ -236,6 +236,25 @@ export function arpeggiateChord(
     });
     tick += span;
   }
+
+  // Under a pedal each note keeps sounding, so the figure accumulates into the
+  // chord instead of replacing it. Held to the chord's end, or to the next
+  // strike of the same pitch -- a pattern that returns to a note re-articulates
+  // it, and two copies of one pitch overlapping is a stuck note rather than a
+  // thicker chord.
+  if (settings.sustain) {
+    const end = startTick + durationTick;
+    for (const [index, note] of notes.entries()) {
+      let until = end;
+      for (let later = index + 1; later < notes.length; later += 1) {
+        if (notes[later]?.midi === note.midi) {
+          until = notes[later]?.startTick as number;
+          break;
+        }
+      }
+      note.durationTick = Math.max(note.durationTick, until - note.startTick);
+    }
+  }
   return notes;
 }
 
