@@ -26,6 +26,10 @@ const audioMocks = vi.hoisted(() => {
   class FakePolySynth extends FakeNode {
     triggerAttackRelease = vi.fn();
     releaseAll = vi.fn();
+    // Tone exposes volume as a signal rather than a number, and the mixer
+    // writes through it. Reproduced because the code touches it, which is the
+    // rule this whole double is built on.
+    volume = { value: 0 };
     voice: unknown;
     preset: Record<string, unknown>;
 
@@ -100,8 +104,10 @@ vi.mock("tone", () => ({
     protected _triggerEnvelopeAttack() {}
   },
   Gain: class extends audioMocks.FakeNode {
+    gain: { value: number };
     constructor(gain?: number) {
       super("gain", gain);
+      this.gain = { value: gain ?? 1 };
     }
   },
   Limiter: class extends audioMocks.FakeNode {
@@ -115,8 +121,10 @@ vi.mock("tone", () => ({
     }
   },
   Reverb: class extends audioMocks.FakeNode {
-    constructor(options?: unknown) {
+    wet: { value: number };
+    constructor(options?: { wet?: number }) {
       super("reverb", options);
+      this.wet = { value: options?.wet ?? 1 };
     }
   },
 }));
@@ -575,5 +583,66 @@ describe("effects bus", () => {
       expect((synth.target as { target: unknown } | null)?.target).toBe(second[0]);
       expect(first).not.toContain(synth.target);
     }
+  });
+
+  it("carries the mixer into the nodes that actually make the sound", async () => {
+    // The menu proves the slider reports what it is set to. This is the other
+    // half: a settings panel whose numbers are right and whose sound is
+    // unchanged is the failure worth catching, because it is the one a user
+    // believes.
+    const piece = composition();
+    const transport = new CompositionTransport();
+    // Set before anything exists to apply it to, since the synths and the bus
+    // are built lazily on the first play.
+    transport.setMixer({ master: 0.5, chords: 0.5, melody: 0, reverb: 0 });
+    transport.configure(piece, { startTick: 0, endTick: piece.totalTicks }, () => {});
+    await transport.play();
+
+    const gains = audioMocks.nodes.filter((node) => node.kind === "gain");
+    const master = gains.find((node) => (node as unknown as { gain: { value: number } }).gain.value !== 1);
+    // A fader is squared on its way to a gain, because loudness is roughly
+    // logarithmic and a linear slider spends most of its travel doing nothing.
+    expect((master as unknown as { gain: { value: number } }).gain.value).toBeCloseTo(0.25, 6);
+
+    const reverb = audioMocks.nodes.find((node) => node.kind === "reverb");
+    expect((reverb as unknown as { wet: { value: number } }).wet.value).toBe(0);
+
+    const [chordSynth, melodySynth] = audioMocks.synths;
+    // Halving the fader is a quarter of the power, which is about six decibels
+    // under the preset rather than a replacement for it.
+    expect(chordSynth?.volume.value).toBeCloseTo(-14 + 20 * Math.log10(0.25), 6);
+    // Zero is silence rather than a very small gain: -60 dB is still audible on
+    // headphones at night, and a fader at the bottom should be off.
+    expect(melodySynth?.volume.value).toBe(-Infinity);
+  });
+
+  it("moves the volume while the piece is already playing", async () => {
+    // The case the settings panel is actually for. Setting a fader before play
+    // is served by the bus being built from the stored values, so a test that
+    // only does that passes even if setMixer never reaches a node again.
+    const piece = composition();
+    const transport = new CompositionTransport();
+    transport.configure(piece, { startTick: 0, endTick: piece.totalTicks }, () => {});
+    await transport.play();
+
+    const masterOf = () => {
+      const gains = audioMocks.nodes.filter((node) => node.kind === "gain");
+      // The bus input is a plain unity gain; the master is the one built from
+      // the mixer, and it is the node connected to the destination.
+      return gains
+        .map((node) => (node as unknown as { gain: { value: number } }).gain)
+        .find((gain) => gain.value !== 1)!;
+    };
+    const reverbOf = () =>
+      (audioMocks.nodes.find((node) => node.kind === "reverb") as unknown as { wet: { value: number } }).wet;
+
+    expect(masterOf().value).toBeCloseTo(0.81, 6);
+    expect(audioMocks.synths[0]?.volume.value).toBe(-14);
+
+    transport.setMixer({ master: 0.5, chords: 0, reverb: 1 });
+
+    expect(masterOf().value).toBeCloseTo(0.25, 6);
+    expect(reverbOf().value).toBe(1);
+    expect(audioMocks.synths[0]?.volume.value).toBe(-Infinity);
   });
 });

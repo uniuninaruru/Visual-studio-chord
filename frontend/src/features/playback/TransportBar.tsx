@@ -17,6 +17,7 @@ interface TransportBarProps {
   onRedo: () => void;
   onUpdateTiming: (value: UpdateTiming) => void;
   onExport: () => void;
+  onOpenMenu: () => void;
 }
 
 const UPDATE_TIMING_LABELS: Record<UpdateTiming, string> = {
@@ -42,9 +43,23 @@ export function TransportBar({
   onRedo,
   onUpdateTiming,
   onExport,
+  onOpenMenu,
 }: TransportBarProps) {
   return (
     <header className="transport-bar">
+      <button
+        type="button"
+        className="menu-button"
+        onClick={onOpenMenu}
+        aria-label="メニュー"
+        aria-haspopup="dialog"
+        title="使い方・音量・ライセンス"
+      >
+        <span aria-hidden="true" />
+        <span aria-hidden="true" />
+        <span aria-hidden="true" />
+      </button>
+
       <div className="brand-lockup">
         <div className="brand-mark" aria-hidden="true">
           <span />
