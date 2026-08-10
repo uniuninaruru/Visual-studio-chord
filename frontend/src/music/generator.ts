@@ -24,7 +24,7 @@ import { appliedDominantResolves } from "./progressionAnalysis";
 import { planPhrases, type PhrasePlanEntry } from "./phrases";
 import { planSections } from "./sections";
 import { revoiceInFourParts } from "./voiceLeading";
-import { revoiceForMelody } from "./voicingSelection";
+import { registerTargetFor, revoiceForMelody } from "./voicingSelection";
 import { applySectionTransitions } from "./sectionTransitions";
 import type { ConcreteStylePresetId } from "./styles";
 import { deriveSeed, hashSeed, seedToString } from "./random";
@@ -104,7 +104,7 @@ export const DEFAULT_GENERATOR_SETTINGS: Readonly<GeneratorSettings> = Object.fr
   harmony: Object.freeze({ ...DEFAULT_HARMONY_SETTINGS, complexity: "sevenths" as const }),
   tensions: Object.freeze({ enabled: true, rate: 0.35 }),
   voiceLeading: Object.freeze({ enabled: true, optimizeSequence: true }),
-  melodyVoicing: Object.freeze({ enabled: true }),
+  melodyVoicing: Object.freeze({ enabled: true, sectionRegister: true }),
   bassRegister: Object.freeze({ enabled: true }),
   dynamics: Object.freeze({ enabled: true }),
   harmonicRhythm: Object.freeze({ cadentialAcceleration: true }),
@@ -239,7 +239,14 @@ function compositionFingerprint(settings: GeneratorSettings): string {
     ...(settings.dynamics?.enabled
       ? ["dynamics", settings.dynamics.depth ?? "default"]
       : []),
-    ...(settings.melodyVoicing?.enabled ? ["melody-voicing"] : []),
+    ...(settings.melodyVoicing?.enabled
+      ? [
+        "melody-voicing",
+        // Appended only when asked for, so pieces made before it existed keep
+        // the ids they already had.
+        ...(settings.melodyVoicing.sectionRegister ? ["section-register"] : []),
+      ]
+      : []),
     ...(settings.sectionTransitions?.enabled ? ["section-transitions"] : []),
     ...(settings.songFormVariety?.variedThinSections ? ["varied-thin-sections"] : []),
     ...(settings.arpeggio?.enabled
@@ -562,8 +569,23 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
   // because re-voicing moves octaves and never pitch classes, so every
   // relationship the melody was written against still holds.
   if (copiedSettings.melodyVoicing?.enabled) {
+    // The section a chord falls in, so the accompaniment can move register
+    // across the piece the way its loudness already does. Resolved once here
+    // rather than searched per chord inside the voicer, which has no idea what
+    // a section is and should not acquire one.
+    const barTicks = ticksPerBar(copiedSettings.timeSignature, PPQ);
+    const registerFor = copiedSettings.melodyVoicing.sectionRegister && sections
+      ? (chordId: string) => {
+        const chord = progression.chords.find((entry) => entry.id === chordId);
+        if (!chord) return undefined;
+        const bar = Math.floor(chord.startTick / barTicks);
+        const section = sections.find((entry) => bar >= entry.startBar && bar < entry.endBar);
+        return registerTargetFor(section?.kind);
+      }
+      : undefined;
     progression.chords = revoiceForMelody(progression.chords, notes, {
       style: copiedSettings.style,
+      registerFor,
     });
   }
 
