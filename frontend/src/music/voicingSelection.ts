@@ -182,6 +182,12 @@ export interface VoicingContext {
   bass?: number;
   /** Melody pitches sounding while this chord is held. */
   melody?: readonly number[];
+  /**
+   * The MIDI pitch this voicing's middle should sit near, when the caller has
+   * an opinion. Absent leaves the register to the other terms, which is what
+   * every caller did before sections had one.
+   */
+  registerTarget?: number;
 }
 
 export interface VoicingChoice {
@@ -199,6 +205,8 @@ export interface VoicingCostBreakdown {
   melodyClash: number;
   bass: number;
   spanFit: number;
+  /** Pull toward the register the section asked for, zero when it asked for none. */
+  register: number;
   motion: number;
   topVoice: number;
   retention: number;
@@ -259,6 +267,22 @@ export function scoreVoicingCandidate(
       ? (width - profile.maxSpan) * 0.45
       : 0;
 
+  // Only when the caller has an opinion about where the hands should sit, and
+  // then as a pull rather than a bound: a section wanting a higher register
+  // should not be able to override the low interval limits or the melody, both
+  // of which are weighted an order of magnitude above this.
+  //
+  // Measured on the midpoint rather than the lowest note, because the lowest
+  // note of a two-handed voicing is the left hand's and moving the whole
+  // texture is what a section change does.
+  const register = context.registerTarget === undefined
+    ? 0
+    // Weighted to compete with the voice-leading terms rather than to beat
+    // them: at five semitones from target this contributes about 1.8, against
+    // a melody covering charge that reaches 18. A section may ask the hands to
+    // move; it may not ask them to bury the tune.
+    : Math.abs((Math.min(...notes) + Math.max(...notes)) / 2 - context.registerTarget) * 0.36;
+
   let motion = 0;
   let topVoice = 0;
   let retention = 0;
@@ -310,10 +334,10 @@ export function scoreVoicingCandidate(
     : 0;
 
   const total = clarity + spacing + cluster + melodyCovering + melodyClash
-    + bass + spanFit + motion + topVoice + retention + density + coherence;
+    + bass + spanFit + register + motion + topVoice + retention + density + coherence;
   return {
     clarity, spacing, cluster, melodyCovering, melodyClash, bass, spanFit,
-    motion, topVoice, retention, density, coherence, total,
+    register, motion, topVoice, retention, density, coherence, total,
   };
 }
 
@@ -412,10 +436,65 @@ export function selectVoicing(
   return best;
 }
 
+/**
+ * Where each kind of section puts the hands, in semitones from the middle.
+ *
+ * The same claim `dynamics` already makes about loudness, applied to register:
+ * a chorus is played higher than the verse that set it up, and at a keyboard
+ * that lift is most of what arrival is. It is ordinary arranging practice
+ * rather than a rule of harmony, which is why it is a pull and not a bound --
+ * the low interval limits and the melody outweigh it by an order of magnitude.
+ *
+ * Measured before it existed: across every style, every section and every
+ * piece, the lowest note of the accompaniment had a median of MIDI 43. One
+ * register, for all of it.
+ *
+ * The shape follows SECTION_INTENSITY deliberately, including the bridge
+ * sitting below the verse: a bridge contrasts rather than climbs, and a bridge
+ * that arrived higher than the chorus would spend the arrival it exists to set
+ * up.
+ */
+export const SECTION_REGISTER: Readonly<Record<string, number>> = {
+  intro: -3,
+  verse: 0,
+  preChorus: 2,
+  chorus: 5,
+  bridge: -4,
+  outro: -3,
+};
+
+/**
+ * The pitch a section's accompaniment aims its middle at.
+ *
+ * Measured rather than assumed. Middle C looks like the obvious anchor and is
+ * the wrong one: this app's accompaniment sits with its middle at 52 once the
+ * melody, the bass and the low interval limits have had their say, and a target
+ * of 60 asks for a move no candidate can make -- the term then contributes a
+ * constant to every candidate and decides nothing. 52 is where the voicer
+ * already is, so the offsets below are asking for a move it can actually make.
+ *
+ * There is room for them: measured across eight seeds at thirty-two bars, the
+ * gap between the top of the accompaniment and the lowest melody note over it
+ * runs from 6.3 semitones in a pre-chorus to 9.0 in a chorus. The chorus has
+ * the most room to rise and, before this, used it the least.
+ */
+export const REGISTER_ANCHOR = 52;
+
+export function registerTargetFor(kind: string | undefined): number | undefined {
+  if (kind === undefined) return undefined;
+  const offset = SECTION_REGISTER[kind];
+  return offset === undefined ? undefined : REGISTER_ANCHOR + offset;
+}
+
 export interface RevoiceOptions {
   style: string;
   /** Where the bass track sounds, per chord id, when it is already decided. */
   bassFor?: (chordId: string) => number | undefined;
+  /**
+   * The register each chord's section asks for, by chord id. Absent for every
+   * chord leaves the register exactly where the other terms put it.
+   */
+  registerFor?: (chordId: string) => number | undefined;
 }
 
 interface RevoiceableChord {
@@ -482,6 +561,7 @@ export function revoiceForMelody<TChord extends RevoiceableChord>(
       previousShape,
       bass: options.bassFor?.(chord.id),
       melody: sounding,
+      registerTarget: options.registerFor?.(chord.id),
     }, stack);
 
     // No candidate fitting the register is not a licence to invent one: the

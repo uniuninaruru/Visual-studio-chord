@@ -271,6 +271,18 @@ export interface SectionTransitionSettings {
  */
 export interface MelodyAwareVoicingSettings {
   enabled: boolean;
+  /**
+   * Whether the accompaniment moves register with the section it is in.
+   *
+   * A chorus is played higher than the verse that set it up, and that is most
+   * of what "arrival" is at the keyboard -- the same claim `dynamics` already
+   * makes about loudness, applied to where the hands sit. Measured without it:
+   * across every style and every section of every piece, the lowest note of the
+   * accompaniment had a median of MIDI 43. One number, for all of it.
+   *
+   * Absent leaves the register wherever the voicing cost puts it.
+   */
+  sectionRegister?: boolean;
 }
 
 /**
