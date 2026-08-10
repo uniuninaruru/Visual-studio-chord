@@ -90,14 +90,28 @@ existing shape.
 exists for every chord, against 94% before, and the shape is chosen three or four
 times per style. The distance to the reference moves by 0.002 to 0.025 depending
 on style, and one style gets slightly worse. The chosen median span is still
-**12** against a reference of 24.
+**12** — and setting that 12 beside the reference's 24 was a mistake, as below.
 
 So the hole was necessary and nowhere near sufficient. A 20-28 candidate sits at
 the 21st percentile of the cost ranking, meaning a fifth of all candidates still
-beat the best wide one. Four cost terms — `motion`, `retention`, `density`,
-`coherence` — reward matching the previous chord, so once the first voicing is
-narrow every following one is pulled narrow. **That hysteresis, not the
-catalogue, is what holds the texture still.** Unfixed.
+beat the best wide one.
+
+**This entry originally said that hysteresis in four connection terms was what
+held the texture still. Measured, it is not.** Making `motion`, `retention`,
+`density`, `coherence` and `topVoice` free moves the chosen width from 13.55 to
+14.09 in pop. The best candidate ignoring them entirely already sits at the 5th
+to 6th percentile of the real ranking. The connection terms account for 1.57 of
+the winner's mean cost against 3.52 for everything else.
+
+**And the comparison itself was wrong.** The reference median of 24 semitones is
+the width of a solo piano's *whole texture*; 13.4 is this app's *accompaniment
+alone*. Measured the same way — every track together — this app is **29**
+semitones against the reference's **24**. It is wider, not narrower.
+
+Nor is the accompaniment's width forced. There are **24-25 semitones of room**
+between the top of the bass and the bottom of the melody; the accompaniment uses
+**56%** of it and comes within two semitones of the melody on only **15-22%** of
+chords. Eleven semitones sit unused. What holds it there is not yet known.
 
 Also removes a guard in the new shape that nothing can reach: the gap above the
 left hand is seven semitones at its narrowest by construction. A mutation test
@@ -215,11 +229,20 @@ commits sat on `feat/melody-aware-voicing` with a browser end-to-end test broken
 by the defaults being switched on, and the first run able to catch it was the
 pull request, three days later.
 
-Pushing to any branch now runs the same suite. A pull request fires both events
-for one branch, so a concurrency group keyed on the branch name under either
-event — `head_ref` on a pull request, `ref_name` on a push — cancels the duplicate
-instead of paying for it twice. Not on `main`, where each commit's result is worth
-having on its own.
+Pushing to any branch now runs the same suite.
+
+A pull request fires both events for one branch. **Cancelling the duplicate was
+the first attempt and it was wrong**: a cancelled run still reports its checks
+against the commit, so every pull request carried **twelve cancelled checks**
+beside its twelve real ones — measured on this branch, 12 SUCCESS and 12
+CANCELLED on the same SHA. `gh pr checks` counts cancelled as failure, so a green
+pull request read as half red.
+
+A gate job now asks whether the branch already has an open pull request and, if
+it does, the rest of the workflow **does not start**. The pull request runs the
+suite; the push says it has nothing to add in one step rather than twelve
+cancellations. Concurrency is keyed per event, so repeated pushes still supersede
+each other.
 
 ### Fixed — the published build talked about a server the visitor never had
 
