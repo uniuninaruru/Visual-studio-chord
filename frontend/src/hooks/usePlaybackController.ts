@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import { CompositionTransport } from "../audio/transport";
+import { CompositionTransport, type MixerSettings } from "../audio/transport";
 import type { UserFacingDiagnosticError } from "../features/diagnostics";
 import { useComposerStore } from "../state";
 import type { GeneratedComposition } from "../types/music";
@@ -19,6 +19,8 @@ export interface PlaybackControllerOptions {
   playbackLoopRange: TickRange;
   mutedTrackIds?: readonly string[];
   soloTrackId?: string | null;
+  /** Where the listener put the faders. Absent leaves the transport's own. */
+  mixer?: MixerSettings;
   /** Audio failures are reported as diagnostics, never as AI failures. */
   onAudioError: (error: UserFacingDiagnosticError | null) => void;
   onToast: (message: string) => void;
@@ -40,6 +42,7 @@ export function usePlaybackController(
     playbackLoopRange,
     mutedTrackIds = [],
     soloTrackId = null,
+    mixer,
     onAudioError,
     onToast,
   } = options;
@@ -77,6 +80,13 @@ export function usePlaybackController(
   useEffect(() => {
     transportRef.current?.setTrackMix(mutedTrackIds, soloTrackId);
   }, [mutedTrackIds, soloTrackId]);
+
+  // Pushed on every change, including before the first play: the transport
+  // holds the values until it has synths to apply them to, so a volume set on a
+  // silent app is not lost.
+  useEffect(() => {
+    if (mixer) transportRef.current?.setMixer(mixer);
+  }, [mixer]);
 
   const play = useCallback(async () => {
     try {

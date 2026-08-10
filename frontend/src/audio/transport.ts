@@ -84,16 +84,58 @@ const BASS_PRESET = {
   },
 };
 
+/**
+ * What the listener may set, and what it means.
+ *
+ * Stored as a fraction from 0 to 1 rather than in decibels, because that is
+ * what a slider is, and converted at the edge. Silence is a real zero rather
+ * than a very small gain, since -60 dB is still audible on headphones at night
+ * and a muted track should be muted.
+ */
+export interface MixerSettings {
+  master: number;
+  chords: number;
+  melody: number;
+  bass: number;
+  /** How much of the room is heard. 0 leaves the notes dry. */
+  reverb: number;
+}
+
+export const DEFAULT_MIXER: Readonly<MixerSettings> = Object.freeze({
+  master: 0.9, chords: 1, melody: 1, bass: 1, reverb: 0.22,
+});
+
+/**
+ * A fraction to a Tone gain, with a curve rather than a straight line.
+ *
+ * Loudness is roughly logarithmic, so a linear slider spends most of its travel
+ * in a range that barely changes and then drops away at the very bottom.
+ * Squaring is the cheap approximation of the curve a fader actually has.
+ */
+function faderGain(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.min(1, value) ** 2;
+}
+
+/** The preset volume in decibels, offset by where the listener put the fader. */
+function faderDecibels(base: number, value: number): number {
+  const gain = faderGain(value);
+  return gain <= 0 ? -Infinity : base + 20 * Math.log10(gain);
+}
+
 export class CompositionTransport {
   private readonly transport = Tone.getTransport();
   private composition: GeneratedComposition | null = null;
   private loop: PlaybackLoop = { startTick: 0, endTick: 1 };
+  private mixer: MixerSettings = { ...DEFAULT_MIXER };
   private chordSynth: Tone.PolySynth | null = null;
   private melodySynth: Tone.PolySynth | null = null;
   private bassSynth: Tone.PolySynth | null = null;
   private readonly voiceSynths = new Map<string, Tone.PolySynth>();
   private busInput: Tone.Gain | null = null;
   private busNodes: Tone.ToneAudioNode[] = [];
+  private masterGain: Tone.Gain | null = null;
+  private reverbNode: Tone.Reverb | null = null;
   /**
    * The rendered bass and chord tracks for the configured composition.
    *
@@ -117,6 +159,28 @@ export class CompositionTransport {
     this.mutedTrackIds = new Set(mutedTrackIds);
     this.soloTrackId = soloTrackId;
     this.releaseAll();
+  }
+
+  /**
+   * Where the listener put the faders.
+   *
+   * Applied to whatever exists now and remembered for whatever is built later,
+   * because the synths and the bus are created lazily on the first play and a
+   * volume set before then would otherwise be forgotten. Takes effect while
+   * playing -- nothing here reschedules, so a note already sounding keeps its
+   * envelope and the next one is struck at the new level.
+   */
+  setMixer(mixer: Partial<MixerSettings>): void {
+    this.mixer = { ...this.mixer, ...mixer };
+    if (this.masterGain) this.masterGain.gain.value = faderGain(this.mixer.master);
+    if (this.reverbNode) this.reverbNode.wet.value = Math.min(1, Math.max(0, this.mixer.reverb));
+    if (this.chordSynth) this.chordSynth.volume.value = faderDecibels(CHORD_PRESET.volume, this.mixer.chords);
+    if (this.melodySynth) this.melodySynth.volume.value = faderDecibels(MELODY_PRESET.volume, this.mixer.melody);
+    if (this.bassSynth) this.bassSynth.volume.value = faderDecibels(BASS_PRESET.volume, this.mixer.bass);
+  }
+
+  getMixer(): Readonly<MixerSettings> {
+    return { ...this.mixer };
   }
 
   private trackIsAudible(trackId: string): boolean {
@@ -143,13 +207,15 @@ export class CompositionTransport {
    */
   private ensureBus(): Tone.Gain {
     if (this.busInput) return this.busInput;
-    const master = new Tone.Gain(0.9).toDestination();
+    const master = new Tone.Gain(faderGain(this.mixer.master)).toDestination();
     const limiter = new Tone.Limiter(-1).connect(master);
     const compressor = new Tone.Compressor({ threshold: -18, ratio: 3 }).connect(limiter);
-    const reverb = new Tone.Reverb({ decay: 2.4, wet: 0.22 }).connect(compressor);
+    const reverb = new Tone.Reverb({ decay: 2.4, wet: this.mixer.reverb }).connect(compressor);
     const input = new Tone.Gain(1).connect(reverb);
     this.busNodes = [master, limiter, compressor, reverb, input];
     this.busInput = input;
+    this.masterGain = master;
+    this.reverbNode = reverb;
     return input;
   }
 
@@ -160,6 +226,8 @@ export class CompositionTransport {
     this.melodySynth ??= new Tone.PolySynth(VelocityFilterSynth, MELODY_PRESET).connect(bus);
     this.ensureVoiceSynths(this.composition?.voices ?? []);
     this.bassSynth ??= new Tone.PolySynth(VelocityFilterSynth, BASS_PRESET).connect(bus);
+    // The faders may have been moved before anything existed to apply them to.
+    this.setMixer({});
   }
 
   /**

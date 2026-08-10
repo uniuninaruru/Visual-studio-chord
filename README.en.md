@@ -50,6 +50,10 @@ The shortest useful workflow is:
 4. select only the bars you want to change and regenerate chords or melody;
 5. export MIDI for a DAW.
 
+You can also import a melody MIDI and have chords written to fit it, and the
+three lines in the top left open a usage guide, the release notes, the licences,
+and the volume controls.
+
 Candidate A/B/C previews do not change the current song until you explicitly
 adopt one. Apply remains undoable.
 
@@ -209,7 +213,8 @@ network.
 
 ## 4. First composition
 
-1. start or skip the optional first-use tutorial;
+1. start or skip the optional first-use tutorial (the three lines in the top
+   left reopen it, and the written guide, at any time);
 2. open **Basic**;
 3. leave C / Major / 120 BPM / 8 bars selected for the first run;
 4. select **Generate**, then **Play**;
@@ -302,8 +307,16 @@ without starting the backend. Only two things become unavailable:
   tracks with visibility, mute, solo, playback, and MIDI export;
 - range regeneration, candidate audition, Like/Dislike preference ranking,
   Auto Fix preview, Apply, and Undo;
+- voicing chosen by cost rather than named in a setting: a catalogue of shapes,
+  low interval limits held as a rule, the melody kept audible above the
+  accompaniment, and a register that moves with the section;
+- melody MIDI import, with the key estimated from the melody and chords written
+  to fit it;
 - local JSON persistence, offline operation after setup, diagnostics, and
-  safe browser/theory fallbacks.
+  safe browser/theory fallbacks;
+- a menu behind the three lines: usage guide, release notes, dependency
+  licences, and master/per-track/reverb volume stored on the device rather than
+  in the project.
 
 The rest of this document is implementation and operations documentation.
 

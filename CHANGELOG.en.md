@@ -7,6 +7,243 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Fixed — the voicings were never sounded as chords
+
+Measured across eight seeds at sixteen bars of the shipped defaults, the chord
+track had **1024 onsets and not one of them sounded with another**; its greatest
+simultaneity was a single note.
+
+The arpeggio was on by default and released each note before the next — a
+216-tick note at a 240-tick step. Every voicing was played as a bare line, so
+every cost term that reads a simultaneity (the clusters, the spacing inversion,
+the low interval limits between chord voices) was deciding something that never
+sounded.
+
+`ArpeggioSettings.sustain` holds each note on to the chord's end, as under a
+pedal, so the figure accumulates into the chord instead of replacing it.
+
+| | Time with three or more notes sounding | Greatest simultaneity |
+| --- | --- | --- |
+| Before | 0% | 1 |
+| After | **63%** | 4 |
+
+A pitch is released when the figure strikes it again: two copies of one pitch
+overlapping is a stuck note rather than a thicker chord. Off by default, and the
+composition id only changes when it is asked for, so **anything that already
+sounds a certain way keeps sounding that way**.
+
+### Added — the accompaniment moves register with its section
+
+`dynamics` already claims that a chorus is louder than the verse that set it up.
+Nothing made the same claim about where the hands sit, and measured, nothing
+did: across every style, every section and every piece, the lowest note of the
+accompaniment had a median of **MIDI 43** — one register for all of it — and the
+chorus sat **2.4 semitones below** the verse.
+
+`SECTION_REGISTER` gives each kind an offset, shaped like `SECTION_INTENSITY`
+including the bridge sitting under the verse (a bridge contrasts rather than
+climbs, and one arriving above the chorus would spend the arrival it exists to
+set up). Written as a pull rather than a bound: the melody and the low interval
+limits outweigh it by an order of magnitude.
+
+Two things had to be measured rather than assumed.
+
+**The anchor is 52, not middle C.** This app's accompaniment sits with its middle
+at 52 once the melody, the bass and the limits have had their say, so a target of
+60 asks for a move no candidate can make — the term then adds a constant to every
+candidate and decides nothing. With 60 the chorus-verse gap went from -2.4 to
+-1.4 and every whole-piece figure was identical. With 52 it reaches **+1.16**, a
+swing of three and a half semitones, and the chorus rises rather than the verse
+merely dropping.
+
+**The trade is real and there is no free point on it.** Sweeping the offsets,
+melody cover rises monotonically with the arc — 10.2% at rest, 11.3% at four
+tenths, 13.3% at full — with no knee to sit on. Raising the accompaniment moves
+it toward the melody because the melody is above it; that is arithmetic, not a
+tuning failure. Full strength is kept and **the 13.3% figure is written into the
+test**, so the cost is stated rather than discovered later. Low interval
+violations stay at zero across all eight styles.
+
+### Fixed — the most ordinary piano voicing could not be generated
+
+Chasing why weight tuning could not move the voicings toward a classical piano
+reference: **the target width was ungenerable**. Measured across three styles, of
+roughly three thousand candidates offered per style:
+
+```
+offered  <12: 21%  12-17: 41%  18-23: 24%  [24-29: 0%]  30-35: 12%
+```
+
+Two octaves is the median width of the reference — 974 files, engraved and
+performed, agreeing — and it is the first shape a hand finds. The catalogue could
+not make one: `twoHandVoicing` lifts the right hand a rigid two octaves above the
+root, which puts everything it makes at 30 or more, and an octave lower lands at
+19-22. Nothing bridged them.
+
+`twoHandClose` does: left hand root and fifth, right hand holding the chord from
+its third an octave and a fourth up. **C3-G3 under E4-G4-C5.** The width comes
+from inverting rather than transposing — the root ends up on top instead of
+underneath the hand — which is also why it is not reachable by sliding an
+existing shape.
+
+**What it fixes, and what it does not.** A candidate 20-28 semitones wide now
+exists for every chord, against 94% before, and the shape is chosen three or four
+times per style. The distance to the reference moves by 0.002 to 0.025 depending
+on style, and one style gets slightly worse. The chosen median span is still
+**12** — and setting that 12 beside the reference's 24 was a mistake, as below.
+
+So the hole was necessary and nowhere near sufficient. A 20-28 candidate sits at
+the 21st percentile of the cost ranking, meaning a fifth of all candidates still
+beat the best wide one.
+
+**This entry originally said that hysteresis in four connection terms was what
+held the texture still. Measured, it is not.** Making `motion`, `retention`,
+`density`, `coherence` and `topVoice` free moves the chosen width from 13.55 to
+14.09 in pop. The best candidate ignoring them entirely already sits at the 5th
+to 6th percentile of the real ranking. The connection terms account for 1.57 of
+the winner's mean cost against 3.52 for everything else.
+
+**And the comparison itself was wrong.** The reference median of 24 semitones is
+the width of a solo piano's *whole texture*; 13.4 is this app's *accompaniment
+alone*. Measured the same way — every track together — this app is **29**
+semitones against the reference's **24**. It is wider, not narrower.
+
+Nor is the accompaniment's width forced. There are **24-25 semitones of room**
+between the top of the bass and the bottom of the melody; the accompaniment uses
+**56%** of it and comes within two semitones of the melody on only **15-22%** of
+chords. Eleven semitones sit unused. What holds it there is not yet known.
+
+Also removes a guard in the new shape that nothing can reach: the gap above the
+left hand is seven semitones at its narrowest by construction. A mutation test
+left it standing, which is how it was found.
+
+### Added — a menu with a guide, release notes, credits and volume
+
+Four things that had nowhere to live. The guide only existed as a first-run
+tutorial nobody could get back to once dismissed; there was no statement of what
+changed between versions; the licences of the dependencies were in
+`package.json` and nowhere a user could see; and **there was no volume control at
+all, at any level**.
+
+The panel slides from the left rather than centring, because everything in it is
+read beside the work rather than instead of it — playback keeps running while the
+faders move.
+
+The mixer is master, per-track and reverb, stored as fractions and converted at
+the edge.
+
+- **Faders are squared on the way to a gain.** Loudness is roughly logarithmic,
+  so a linear slider spends most of its travel barely changing anything
+- **Zero is real silence** rather than a very small gain: -60 dB is still audible
+  on headphones at night, and a fader at the bottom should be off
+- **Kept outside the project** and out of exported JSON, since the volume someone
+  listens at is a property of their room rather than of the piece
+
+The transport holds the values until it has synths to apply them to, so a volume
+set before the first play is not discarded — and a fader moved during playback
+reaches the nodes rather than only the label beside it. **Both are tested, the
+second because a mutation removing the live path left the first one passing.**
+
+### Fixed — fitted the voicing profiles to classical piano, and kept none of it
+
+974 classical piano MIDI files — Mutopia's engraved scores and MAESTRO's recorded
+performances, 487 to fit against and 487 held back — against a coordinate descent
+minimising `voicingDistance` over the 72 numbers in the profile table. **The
+fitted values were measured and discarded.** What the exercise established is
+worth more than they were.
+
+**Weight tuning cannot reach the reference.** Held-back reference: median span 24
+semitones, 3.95 voices, seconds sounding 12% of the time, inverted spacing 58%.
+This app before: 29 / 4.47 / 2% / 86%. After a full fit: 28 / 4.42 / 2% / 87%.
+The composite distance fell 4-9% and **not one property a listener could name
+moved**. The weights are not what holds the output there — the candidate
+generator and the shape of the cost are. Same finding as `maxSpan` never binding,
+from the other direction.
+
+**Optimising a proxy is dangerous in proportion to how hard it is pushed.** The
+distance reads ten geometric properties and cannot see whether the melody is
+still audible. Unconstrained, the search cut it by 25% and **buried the melody
+under the accompaniment on half of all chords, against a tenth before**. Freezing
+the melody weight did not help: the cost is a weighted sum, so a neighbour
+allowed to grow fiftyfold demotes a frozen weight just as surely, and burial
+still reached a third. Only bounding every weight and refusing any candidate that
+buried more melody kept it honest — and that is the version that gained 4-9% and
+changed nothing.
+
+**Classical piano's geometry transfers; its texture does not.** Two independent
+bodies of it agree closely on span, voice count and spacing despite sharing no
+provenance, so what they describe is real. But solo piano carries its own melody:
+a chord tone above the tune is ordinary inner-voice writing there and a buried
+vocal here.
+
+Kept: `voicingDistance`, so the next attempt is measured rather than argued, and
+a comment on `VOICING_PROFILES` recording that a relationship which looks
+arbitrary was given the chance to be overturned and was not.
+
+### Added — measuring the transition prior against progressions it never saw
+
+Every earlier figure for this prior was circular. It is counted from the
+progression catalogue, and 30% of the four-bar windows this app produces are
+literally template sequences, so scoring the app's output against it asked the
+catalogue whether it agreed with itself. Leave-one-out removes that.
+
+| | Score |
+| --- | --- |
+| Its own training data | 0.351 |
+| **Held out (unseen)** | **0.435** |
+| Random sequences | 0.698 |
+
+The gap between the first two is the circularity; the gap between the last two is
+the prior's real claim. It is now a test rather than a diagnostic, so more data
+or added context can be measured instead of argued about.
+
+The counting changes that prompted it are reverted, because held-out measurement
+says they were not worth anything:
+
+```
+wrap 1.0, unnormalised (kept)  0.270
+wrap 0.5                       0.268
+normalised per template        0.268
+both                           0.268
+wrap not counted at all        0.258
+```
+
+Sample-scaled smoothing likewise: the held-out separation was unchanged and the
+gap between the commonest move and an unseen one widened from 6.7 to 20, which
+states far more confidence than 129 observations support. It also broke two
+existing tests, which were right. They survive as options at their measured-best
+settings, with the figures recorded, so the same reasoning is not retried from
+scratch.
+
+### Fixed — selecting a chord stopped the stop button giving the piece back
+
+Selecting a bar in the chord lane narrowed the loop to it, and pressing ■ then
+returned to the head of the selection rather than the head of the piece. `stop()`
+now widens the loop to the whole piece without clearing the selection.
+
+### Changed — CI runs on every branch, not only on main
+
+CI fired on pushes to `main` and on pull requests, and nothing else, so **a branch
+worked on for days before it opens a pull request ran no checks at all**. Five
+commits sat on `feat/melody-aware-voicing` with a browser end-to-end test broken
+by the defaults being switched on, and the first run able to catch it was the
+pull request, three days later.
+
+Pushing to any branch now runs the same suite.
+
+A pull request fires both events for one branch. **Cancelling the duplicate was
+the first attempt and it was wrong**: a cancelled run still reports its checks
+against the commit, so every pull request carried **twelve cancelled checks**
+beside its twelve real ones — measured on this branch, 12 SUCCESS and 12
+CANCELLED on the same SHA. `gh pr checks` counts cancelled as failure, so a green
+pull request read as half red.
+
+A gate job now asks whether the branch already has an open pull request and, if
+it does, the rest of the workflow **does not start**. The pull request runs the
+suite; the push says it has nothing to add in one step rather than twelve
+cancellations. Concurrency is keyed per event, so repeated pushes still supersede
+each other.
+
 ### Fixed — the published build talked about a server the visitor never had
 
 Everyone who opened the published site was told **the local AI server is
