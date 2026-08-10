@@ -33,8 +33,20 @@ function piece(patch: Partial<GeneratorSettings>) {
   } as GeneratorSettings);
 }
 
+/**
+ * Memoised, because generation is deterministic and several tests below ask the
+ * same question. Without this the file generates the same eight thirty-two bar
+ * pieces five times over and pushes itself, and its neighbours, past the
+ * default timeout.
+ */
+const centreCache = new Map<string, Map<SectionKind, number>>();
+const auditCache = new Map<string, { coveredShare: number; violations: number }>();
+
 /** Mean midpoint of the accompaniment, per section kind. */
 function centresByKind(sectionRegister: boolean, style = "pop"): Map<SectionKind, number> {
+  const key = `${style}:${sectionRegister}`;
+  const cached = centreCache.get(key);
+  if (cached) return cached;
   const collected = new Map<SectionKind, number[]>();
   for (const seed of SEEDS) {
     const composed = piece({
@@ -51,13 +63,18 @@ function centresByKind(sectionRegister: boolean, style = "pop"): Map<SectionKind
       collected.set(section.kind, list);
     }
   }
-  return new Map([...collected].map(([kind, values]) => [
+  const result = new Map([...collected].map(([kind, values]) => [
     kind, values.reduce((sum, value) => sum + value, 0) / values.length,
-  ]));
+  ] as const));
+  centreCache.set(key, result);
+  return result;
 }
 
 /** Chords whose voicing reaches the melody, and chords below a low interval limit. */
 function audit(sectionRegister: boolean, style: string, seeds: readonly string[] = SEEDS) {
+  const key = `${style}:${sectionRegister}:${seeds.join(",")}`;
+  const cached = auditCache.get(key);
+  if (cached) return cached;
   let covered = 0;
   let chords = 0;
   let violations = 0;
@@ -77,7 +94,9 @@ function audit(sectionRegister: boolean, style: string, seeds: readonly string[]
       if (lowIntervalViolation(chord.notes) > 0) violations += 1;
     }
   }
-  return { coveredShare: covered / chords, violations };
+  const result = { coveredShare: covered / chords, violations };
+  auditCache.set(key, result);
+  return result;
 }
 
 describe("the register a section asks for", () => {

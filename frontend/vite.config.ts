@@ -31,6 +31,13 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     css: true,
+    // Generation is the work these tests do, and a lot of them run it across
+    // eight styles and eight seeds at thirty-two bars. The heaviest single test
+    // takes thirteen seconds on its own, and several sit past five once the
+    // workers are contending -- so the default was timing out tests that were
+    // computing, not hanging. Well short of a hang, and far enough above the
+    // real figures that a genuinely stuck test still fails rather than waits.
+    testTimeout: 30_000,
     coverage: {
       reporter: ["text", "html"],
     },

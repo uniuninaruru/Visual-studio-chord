@@ -6,6 +6,8 @@ import { InspectorPanel } from "./features/editor/InspectorPanel";
 import { ReharmonizationPanel } from "./features/editor/ReharmonizationPanel";
 import { SettingsPanel } from "./features/generator/SettingsPanel";
 import { HistoryPanel } from "./features/history/HistoryPanel";
+import { AppMenu } from "./features/menu/AppMenu";
+import { useMixerSettings } from "./hooks/useMixerSettings";
 import { OnboardingTutorial } from "./features/onboarding/OnboardingTutorial";
 import { PianoRoll } from "./features/pianoRoll/PianoRoll";
 import { TransportBar } from "./features/playback/TransportBar";
@@ -41,6 +43,15 @@ import type {
 } from "./types/music";
 import { formatBarBeat, modeLabel } from "./utils/musicFormat";
 import type { NeuralHarmonyPreviewMetadata } from "./api/inferenceTypes";
+
+/**
+ * Shown in the menu header.
+ *
+ * A literal rather than a read of package.json: the bundle does not carry the
+ * manifest, and importing it to get one string pulls the whole file into the
+ * build.
+ */
+const APP_VERSION = "0.4.0";
 
 
 
@@ -113,6 +124,8 @@ export default function App() {
   });
 
   const [mutedTrackIds, setMutedTrackIds] = useState<string[]>([]);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const { mixer, setMixer } = useMixerSettings();
   const [soloTrackId, setSoloTrackId] = useState<string | null>(null);
   const saveWarningRef = useRef<string | null>(null);
   const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>([]);
@@ -302,6 +315,7 @@ export default function App() {
     playbackLoopRange: store.playbackLoopRange,
     mutedTrackIds,
     soloTrackId,
+    mixer,
     onAudioError: setAudioError,
     onToast: setToast,
   });
@@ -417,7 +431,7 @@ export default function App() {
     : preferenceProfile.persistenceMode === "localStorage"
       ? "localStorage" as const
       : "memory" as const;
-  const modalOpen = diagnosticsOpen || tutorialOpen;
+  const modalOpen = diagnosticsOpen || tutorialOpen || menuOpen;
 
   return (
     <div className="app-shell">
@@ -446,6 +460,7 @@ export default function App() {
         }}
         onUpdateTiming={store.setUpdateTiming}
         onExport={() => document.getElementById("export-panel")?.scrollIntoView({ behavior: "smooth" })}
+        onOpenMenu={() => setMenuOpen(true)}
       />
 
       <ProjectStatusBar
@@ -753,6 +768,16 @@ export default function App() {
       )}
 
       {tutorialOpen && <OnboardingTutorial onClose={closeTutorial} />}
+
+      <AppMenu
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        mixer={mixer}
+        onMixerChange={setMixer}
+        onOpenTutorial={() => setTutorialOpen(true)}
+        onOpenDiagnostics={() => setDiagnosticsOpen(true)}
+        appVersion={APP_VERSION}
+      />
 
       {toast && (
         <div className="toast" role="status">
