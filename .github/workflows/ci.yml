@@ -9,11 +9,11 @@ on:
     branches: ["**"]
   pull_request:
 
-# A pull request fires both events for the same branch, so the group is keyed on
-# the branch name under either -- head_ref is set on a pull request and empty on
-# a push -- and the duplicate is cancelled rather than run twice.
+# Repeated pushes to the same branch supersede each other. Keyed per event, so
+# a push and a pull request for one branch do not fight -- the push is skipped
+# by the gate below instead, which leaves no cancelled run behind.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   # Except on main, where each commit's result is worth having on its own.
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
@@ -21,7 +21,43 @@ permissions:
   contents: read
 
 jobs:
+  # Whether this run has anything to add.
+  #
+  # Pushing to a branch that has an open pull request fires both events, and the
+  # pull request already runs everything. Cancelling the duplicate looked like
+  # the fix and was not: a cancelled run still reports twelve cancelled checks
+  # against the commit, which `gh pr checks` counts as failures and which reads
+  # as a red pull request that is actually green. So the redundant run is not
+  # started rather than stopped.
+  gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" != "push" ] || [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          open=$(gh pr list --repo "${{ github.repository }}" \
+            --head "${{ github.ref_name }}" --state open --json number --jq 'length')
+          if [ "$open" = "0" ]; then
+            echo "no open pull request for this branch; running the full suite"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pull request open for this branch; it runs the suite instead"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   launchers:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -87,6 +123,8 @@ jobs:
           .\.venv\Scripts\python.exe -m unittest discover -s scripts/tests
 
   frontend:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -105,6 +143,8 @@ jobs:
       - run: node scripts/generate-api-types.mjs --check --skip-export
 
   npm-lock:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -115,6 +155,8 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
 
   browser-e2e:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -143,8 +185,9 @@ jobs:
       - run: pnpm exec playwright test --project=${{ matrix.browser }}
 
   lan-mobile-e2e:
+    if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
-    needs: [frontend, backend]
+    needs: [gate, frontend, backend]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -166,6 +209,8 @@ jobs:
       - run: pnpm exec playwright test --config=playwright.lan.config.ts
 
   backend:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -186,6 +231,8 @@ jobs:
         working-directory: backend
 
   backend-neural-cpu:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     name: Backend neural CPU
     runs-on: ubuntu-latest
     steps:
@@ -264,8 +311,9 @@ jobs:
           harmonyforge-evaluate --help
 
   containers:
+    if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
-    needs: [frontend, backend, backend-neural-cpu]
+    needs: [gate, frontend, backend, backend-neural-cpu]
     env:
       MTC_SHARED_TOKEN: ci-only-token-00000000000000000000000000000000
     steps:
