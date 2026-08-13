@@ -292,6 +292,31 @@ export interface MelodyAwareVoicingSettings {
  * which is the one texture a keyboard player almost never uses for a whole
  * piece. Absent leaves the block chords exactly as they were.
  */
+/**
+ * How the right hand plays the chord, rhythmically.
+ *
+ * Before this, the chord track had two possible rhythms in the whole app: one
+ * block chord held for the chord's length, or an arpeggio at a fixed rate.
+ * Measured across eight styles at sixteen bars, every chord in every style was
+ * struck once on its own downbeat and held -- 240 chords, 240 onsets, one
+ * rhythm. A keyboard player uses neither for a whole piece.
+ *
+ * Absent leaves the block chords exactly as they were.
+ */
+export interface ChordRhythmSettings {
+  enabled: boolean;
+  /**
+   * A named figure from the catalogue. Absent lets the style choose, which is
+   * the point -- naming the pattern is the same mistake as naming the voicing.
+   */
+  pattern?: string;
+  /**
+   * Whether the strikes accumulate under a pedal rather than observing their
+   * own rests. Off by default, because a comping figure's rests are the figure.
+   */
+  sustain?: boolean;
+}
+
 export interface ArpeggioSettings {
   enabled: boolean;
   /**
@@ -612,6 +637,7 @@ export interface GeneratorSettings {
   dynamics?: DynamicsSettings;
   tensions?: TensionSettings;
   arpeggio?: ArpeggioSettings;
+  chordRhythm?: ChordRhythmSettings;
   melodyVoicing?: MelodyAwareVoicingSettings;
   sectionTransitions?: SectionTransitionSettings;
   songFormVariety?: SongFormVarietySettings;
