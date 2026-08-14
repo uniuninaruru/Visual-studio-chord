@@ -875,7 +875,10 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
       composition.sections = composition.sections.map((section) => {
         if (section.endBar <= bars.startBar || section.startBar >= bars.endBar) return section;
         const covered = section.startBar >= bars.startBar && section.endBar <= bars.endBar;
-        const { progressionId: previous, ...rest } = section;
+        // Rebuilt without the field rather than set to undefined, so a
+        // section that plays no named progression does not serialise one.
+        const rest = { ...section };
+        delete rest.progressionId;
         return covered && progressionId !== undefined
           ? { ...rest, progressionId }
           : rest;
