@@ -3354,3 +3354,36 @@ ul.theory-explanation em {
   margin-top: 12px;
   width: 100%;
 }
+
+/* Handing the choice of what to generate to what the A/B panel learned. */
+.preference-guidance {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.preference-guidance h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+.preference-guidance-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+.preference-guidance-field input {
+  width: 72px;
+  text-align: right;
+}
+.preference-guidance-note {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--color-text-tertiary);
+}
+.preference-guidance-last {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
