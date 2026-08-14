@@ -7,6 +7,158 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Investigated — neither the cluster rate nor the missing pre-chorus templates is a defect
+
+Two items recorded as unresolved, chased down. **Neither produced a code
+change.** That is the third time this session a suspect I named turned out
+innocent, after the hysteresis and the counting changes.
+
+**Cluster rate, 2% against a reference of 12%.** The suspect was the `cluster`
+weight -- 0.35 to 1.8 across styles, a fivefold spread I set by hand. Measured:
+
+```
+chords where a clustered candidate exists   56%
+chords where the winner has one             2-3%
+
+what that candidate pays more, of a 15.85 gap
+  melodyCovering +5.50 (35%)   density +4.48 (28%)
+  topVoice +1.85   melodyClash +1.48   cluster +1.23 (8%)
+```
+
+**The cluster weight accounts for 8%.** It is the third parameter measured and
+found near-inert, after `maxSpan` and `bassCrowding`. What actually suppresses
+them is melodyCovering -- which is the voicer doing its job -- and `density`
+(`|voice count change| × 2.8`, the only cost term with no profile weight).
+
+Loosening density would move the number. The reference corpus is no longer to
+hand and there is nothing to justify a value for how much a real player's voice
+count varies, so it is left alone. **Tuning it on nothing would be the same
+proxy-optimisation this session already got wrong once.**
+
+**Zero pre-chorus templates.** Recorded as a gap, and that was wrong. A
+pre-chorus draws from `preChorus`, then `verse`, then `any`, so the
+fall-through covers it. Measured over 40 seeds and 2 styles:
+
+| mode | intro | verse | **preChorus** | chorus | outro |
+| --- | --- | --- | --- | --- | --- |
+| major | 5 | 5 | **5** | 7 | 7 |
+| naturalMinor | 7 | 6 | **7** | 8 | 8 |
+| mixolydian | 9 | 9 | **9** | 5 | 5 |
+
+**The same as the verse.** A hole in how the catalogue looks, not in what the
+generator produces.
+
+Further sourcing for pre-chorus progressions found nothing clearing the bar.
+Of five a source lists for the section, two are progressions already in the
+catalogue under other names, the rest and one other are single-sourced, and
+individual song transcriptions are what this catalogue explicitly excludes.
+
+### Fixed — a two-handed shape can now say that it is one
+
+Found while chasing the eleven semitones of vertical room the accompaniment
+leaves unused, and it is **a bug this branch introduced**.
+
+The measurement that ended the search: a voicing twenty or more semitones wide
+that clears the melody entirely exists for 69% of chords in pop and 74% in
+ballad. **The melody is not what stops it.** What that candidate pays instead is
+clarity 5.47, spacing 4.20, topVoice 3.69, motion 1.12.
+
+`spacingInversion` infers where a voicing's hands divide by looking for a hole
+of an octave or more, which is all the pitches can tell it. `twoHandClose` --
+added on this branch precisely to supply the missing two-octave width -- has a
+**nine-semitone** hole between a left hand on the root and fifth and a right
+hand a fourth above the octave. Nine is under twelve, so it was judged as one
+stack and charged four semitones of inversion **for the hole that makes it what
+it is**. Ten, in pop, against a total gap of about fourteen.
+
+Declared rather than inferred. The catalogue knows which shapes are built as two
+hands; one that is not is unaffected, and the inference still runs for it.
+Loosening the threshold would have changed every shape's score to fix one.
+
+**What it does and does not do.** Span medians move 29 to 28, low interval
+violations stay at zero across every style, melody cover is unchanged. Ballad
+moves a long way -- 4.45 voices to 3.20, two-hand share 75% to 93% -- which is
+**past** the classical reference rather than toward it, so on voice count that
+style is now wrong in the other direction. Recorded rather than tuned away.
+
+A mutation removing the selector's one argument -- leaving the metric fixed and
+unused -- passed every test in the file. The wiring is now tested too.
+
+### Added — the app says why it wrote what it wrote
+
+It always knew. Every chord carries its roman numeral, its function, the mode it
+was borrowed from and the degree it resolves to. Almost none was shown: of 171
+chords of the shipped defaults, **44%** carried an `explanation` and the rest
+carried none, because `validateComposition` only requires one where a chord is
+not diatonic. The ones that existed read `"Slash chord: Em7 over B."` -- true,
+mechanical, and silent about why that chord is there.
+
+Computed rather than stored: it needs the whole piece to say anything useful,
+and writing it into the composition would change the composition.
+
+**Every statement names the body of theory it comes from.** That is the bar the
+rest of this app is held to -- the progression catalogue admits nothing without
+independent sources, the low interval limits cite the standard orchestration
+table, the key finder names Krumhansl-Schmuckler -- and the first draft here was
+my own paraphrase, which was not.
+
+Checking against the literature changed two definitions. A tritone substitution
+is not "contains a tritone" -- every dominant seventh does. The two chords share
+the **same** tritone with the third and seventh exchanged, and the root a
+semitone above the tonic is where the chromatic bass step comes from. The three
+functions are stated as function theory states them: stability, departure,
+tension seeking resolution.
+
+Two things it got wrong before the tests: it printed "the 4th chord of a
+three-chord progression", and it said nothing at all about a chromatic root the
+engine had not labelled.
+
+Noted and not fixed: the engine classifies a ♭II7 as tonic function. The
+explanation reports that faithfully, which is how it was noticed.
+
+### Added — a thousand progressions, and a way to find one
+
+**There are not a thousand named progressions.** Hand-curating that many means
+abandoning the bar or inventing the sources. Applying documented devices to
+documented progressions does not: 1464 across five modes, each carrying the id
+it came from and the devices applied, and the interface says so.
+
+The devices are guarded by what they are named after, which is where this could
+have gone wrong quietly. A tritone substitution is offered only for a V that
+resolves to the tonic, and not for a V something else already points at. A
+secondary dominant is not inserted between a chord and the one it is already
+approaching. **Six such defects were found by the tests rather than by reading.**
+
+Search takes one line and tries every reading at once: `4536`, `IV V iii vi`,
+`王道`, `サブドミナントマイナー`, `b2`. Two bugs recorded: the roman parser read
+`IVmaj7 V7 iii7 vi` as 4741 because numerals are not self-delimiting once their
+separators are gone, and a two-character query matched the `-2` disambiguating
+derived ids.
+
+### Added — the minor catalogue, and more than one rhythm
+
+Four minor progressions, each clearing the same bar as the rest of the file.
+Minor bridges go from two distinct progressions to six. The tier threshold moves
+with them: "widen a tier holding one" fixed a constant and left a coin toss, and
+a minor chorus then had exactly two. Major output is byte-identical under either
+threshold; mixolydian is not, which is worth saying because I first assumed it
+would be.
+
+`chordRhythms` gives the chord track more than one rhythm. With the arpeggio
+off, every chord in every style was struck once on its own downbeat and held --
+240 chords, 240 onsets. Ten comping figures written in beats from the bar line,
+each declaring the meters it was written for. Onsets per chord: pop 1.60, jazz
+2.00, edm 3.24, ballad 6.10.
+
+### Removed — a cost term that could never have charged anything
+
+`bassCrowding` never charged anything: no caller ever passed a bass. Wiring one
+would not have helped, since the bass is taken from the chord's own lowest note,
+so the gap is zero before `bassRegisterPitch` or a whole octave after -- a
+constant added to the whole field either way. My own diagnostic reported a cost
+of +2.09 for it, which was the diagnostic passing a bass the real pipeline does
+not.
+
 ### Fixed — the voicings were never sounded as chords
 
 Measured across eight seeds at sixteen bars of the shipped defaults, the chord
