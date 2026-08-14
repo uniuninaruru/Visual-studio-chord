@@ -1,7 +1,7 @@
 import type { ChordQuality, PitchClassName, Tension } from "../types/music";
 import { intervalsForQuality, reduceStack, resolveAvoidNotes } from "./chords";
 import { pitchClassToSemitone } from "./scales";
-import { shapesFor, type VoicingShape } from "./voicingShapes";
+import { handSplitFor, shapesFor, type VoicingShape } from "./voicingShapes";
 import {
   lowIntervalViolation,
   melodyConflict,
@@ -246,7 +246,7 @@ export function scoreVoicingCandidate(
   const clarity = violation === 0 ? 0 : (25 + violation * 4) * profile.clarity;
   // Weighted like a rule rather than a preference, now that the metric no
   // longer condemns a two-handed voicing for the hole it is supposed to have.
-  const spacing = spacingInversion(notes) * profile.spacing * 2.5;
+  const spacing = spacingInversion(notes, handSplitFor(shape)) * profile.spacing * 2.5;
   // Covering the melody is the fault that makes a written line disappear, so it
   // is weighted above every other consideration in every style.
   const cluster = clusterCount(notes) * profile.cluster;
