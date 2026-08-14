@@ -3,7 +3,6 @@ import { intervalsForQuality, reduceStack, resolveAvoidNotes } from "./chords";
 import { pitchClassToSemitone } from "./scales";
 import { shapesFor, type VoicingShape } from "./voicingShapes";
 import {
-  bassCrowding,
   lowIntervalViolation,
   melodyConflict,
   clusterCount,
@@ -178,8 +177,6 @@ export interface VoicingContext {
   previousNotes?: readonly number[];
   /** The shape the previous chord used, for coherence. */
   previousShape?: VoicingShape;
-  /** Where the bass track will sound under this chord. */
-  bass?: number;
   /** Melody pitches sounding while this chord is held. */
   melody?: readonly number[];
   /**
@@ -203,7 +200,6 @@ export interface VoicingCostBreakdown {
   cluster: number;
   melodyCovering: number;
   melodyClash: number;
-  bass: number;
   spanFit: number;
   /** Pull toward the register the section asked for, zero when it asked for none. */
   register: number;
@@ -256,7 +252,6 @@ export function scoreVoicingCandidate(
   const cluster = clusterCount(notes) * profile.cluster;
   const melodyCovering = conflict.covering * profile.melody * 2;
   const melodyClash = conflict.minorNinth * profile.melody * 4;
-  const bass = bassCrowding(notes, context.bass) * 0.35;
   // Only for being outside the range, and nothing for where inside it the
   // voicing sits. A chord that is neither cramped nor unplayable has nothing
   // left to answer for on width.
@@ -334,9 +329,9 @@ export function scoreVoicingCandidate(
     : 0;
 
   const total = clarity + spacing + cluster + melodyCovering + melodyClash
-    + bass + spanFit + register + motion + topVoice + retention + density + coherence;
+    + spanFit + register + motion + topVoice + retention + density + coherence;
   return {
-    clarity, spacing, cluster, melodyCovering, melodyClash, bass, spanFit,
+    clarity, spacing, cluster, melodyCovering, melodyClash, spanFit,
     register, motion, topVoice, retention, density, coherence, total,
   };
 }
@@ -488,8 +483,6 @@ export function registerTargetFor(kind: string | undefined): number | undefined 
 
 export interface RevoiceOptions {
   style: string;
-  /** Where the bass track sounds, per chord id, when it is already decided. */
-  bassFor?: (chordId: string) => number | undefined;
   /**
    * The register each chord's section asks for, by chord id. Absent for every
    * chord leaves the register exactly where the other terms put it.
@@ -559,7 +552,6 @@ export function revoiceForMelody<TChord extends RevoiceableChord>(
       style: options.style,
       previousNotes,
       previousShape,
-      bass: options.bassFor?.(chord.id),
       melody: sounding,
       registerTarget: options.registerFor?.(chord.id),
     }, stack);

@@ -8,6 +8,7 @@ import type {
   NoteEvent,
   TimeSignature,
 } from "../types/music";
+import { applyChordRhythm, rhythmFor } from "./chordRhythms";
 import { midiToNoteName } from "./scales";
 import { metricStrength, ticksPerBeat } from "./time";
 
@@ -102,6 +103,8 @@ function chordNote(
   midi: number,
   suffix: string,
   position: ChordVoicePosition,
+  /** A comping figure's own accent, on top of the metric and voice dynamics. */
+  accent = 1,
 ): NoteEvent {
   const barIndex = Math.floor(startTick / composition.ticksPerBar);
   return {
@@ -110,12 +113,12 @@ function chordNote(
     noteName: midiToNoteName(midi),
     startTick,
     durationTick,
-    velocity: dynamicVelocity(
+    velocity: Math.min(127, Math.max(1, Math.round(dynamicVelocity(
       startTick - barIndex * composition.ticksPerBar,
       composition.settings.timeSignature,
       position,
       composition.settings.dynamics,
-    ),
+    ) * accent))),
     barIndex,
     role: "chordTone",
   };
@@ -264,8 +267,16 @@ export function buildCompositionTracks(
   const bassNotes: NoteEvent[] = [];
   const chordNotes: NoteEvent[] = [];
   const arpeggioRate = composition.settings.arpeggio?.rate ?? DEFAULT_ARPEGGIO_RATE;
-  const ticksPerStep = ticksPerBeat(composition.settings.timeSignature, composition.ppq)
+  const beatTicks = ticksPerBeat(composition.settings.timeSignature, composition.ppq);
+  const ticksPerStep = beatTicks
     / (Number.isFinite(arpeggioRate) && arpeggioRate > 0 ? arpeggioRate : DEFAULT_ARPEGGIO_RATE);
+  const rhythm = composition.settings.chordRhythm?.enabled
+    ? rhythmFor(
+      composition.resolvedStyle,
+      composition.settings.timeSignature,
+      composition.settings.chordRhythm.pattern,
+    )
+    : null;
   for (const chord of composition.chords) {
     const pitches = [...chord.notes].sort((left, right) => left - right);
     const bass = pitches[0];
@@ -287,13 +298,24 @@ export function buildCompositionTracks(
     // The bass is deliberately left sustained under the figure: a bass line
     // that arpeggiates along with the right hand leaves the harmony with no
     // foundation at all.
-    const figure = arpeggiateChord(
-      upper,
-      chord.startTick,
-      chord.durationTick,
-      ticksPerStep,
-      composition.settings.arpeggio,
-    );
+    //
+    // A comping figure and an arpeggio are two answers to the same question --
+    // when is this chord struck -- so only one of them plays. The rhythm wins
+    // where both are asked for, because it is the more specific request: an
+    // arpeggio is a rate and a direction, a rhythm is a figure with a name.
+    const figure = rhythm
+      ? applyChordRhythm(upper, chord.startTick, chord.durationTick, rhythm, {
+        ticksPerBeat: beatTicks,
+        beatsPerBar: composition.ticksPerBar / beatTicks,
+        sustain: composition.settings.chordRhythm?.sustain,
+      })
+      : arpeggiateChord(
+        upper,
+        chord.startTick,
+        chord.durationTick,
+        ticksPerStep,
+        composition.settings.arpeggio,
+      ).map((note) => ({ ...note, accent: 1 }));
     for (const [index, note] of figure.entries()) {
       chordNotes.push(
         chordNote(
@@ -304,6 +326,7 @@ export function buildCompositionTracks(
           note.midi,
           `right-${index}`,
           note.midi === top ? "top" : "inner",
+          note.accent,
         ),
       );
     }

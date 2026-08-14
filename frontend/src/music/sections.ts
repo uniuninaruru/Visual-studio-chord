@@ -223,13 +223,21 @@ function chooseProgression(
     const pool = fresh.length > 0 ? fresh : matching;
     if (pool.length === 0) continue;
     gathered.push(...pool.filter((template) => !gathered.includes(template)));
-    // A tier with one template in it is not a choice, it is a constant.
-    // Measured: exactly one template in the whole catalogue is marked for a
+    // A tier with one template in it is not a choice, it is a constant, and a
+    // tier with two is a coin toss.
+    //
+    // Measured: exactly one template in the whole catalogue was marked for a
     // bridge, so every major-key bridge in every piece was the same four
-    // chords -- forty out of forty. Where the section's own tier can offer a
-    // real choice it is still used alone; where it cannot, the next tier is
-    // merged in rather than the section being handed the same answer forever.
-    if (!widenThinTiers || gathered.length > 1) break;
+    // chords -- forty out of forty. Stopping as soon as there were two moved
+    // the problem rather than fixing it. Once the minor catalogue was widened,
+    // a minor chorus had exactly two templates marked for it and drew from
+    // those two across forty seeds; merging until there are more than two takes
+    // it to eight.
+    //
+    // Major output is unchanged by the threshold -- every major tier is already
+    // deeper than two -- and mixolydian and the minor modes are not, which is
+    // the point of the setting rather than a side effect of it.
+    if (!widenThinTiers || gathered.length > 2) break;
   }
   if (gathered.length === 0) return usable[0];
 

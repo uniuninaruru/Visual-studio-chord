@@ -83,14 +83,29 @@ describe("thin section tiers", () => {
     expect(varied.size).toBeGreaterThan(plain.size);
   });
 
-  it("cannot help a minor key, and does not pretend to", () => {
-    // The bridge tier is empty in minor, so the section already falls through
-    // to the next tier on its own. What limits it there is that the catalogue
-    // holds five minor templates in total, which is a data problem this change
-    // does not touch and must not appear to fix.
+  it("has minor bridges to offer at all, which is a catalogue fact not a widening one", () => {
+    // This test used to assert that widening could not help a minor bridge,
+    // and it was right about the mechanism: the bridge tier is empty in minor,
+    // so the section falls through to "any" on its own whether or not widening
+    // is on. What limited it there was a catalogue holding five minor
+    // templates in total -- a data problem, recorded here as one.
+    //
+    // Four sourced minor progressions later, the fall-through has something to
+    // find. Asserted on the plain path precisely because widening is not what
+    // fixed it: the count moved because the catalogue did.
     const plain = variantsOf("bridge", { mode: "naturalMinor", form: "aaba", varied: false });
-    const varied = variantsOf("bridge", { mode: "naturalMinor", form: "aaba", varied: true });
-    expect(varied.size).toBe(plain.size);
+    expect(plain.size).toBeGreaterThan(4);
+  });
+
+  it("keeps widening past a tier of two, which is a coin toss rather than a choice", () => {
+    // The threshold was "more than one", which moved the problem instead of
+    // fixing it: once the minor catalogue was widened, a minor chorus had
+    // exactly two templates marked for it and drew from those two across every
+    // seed. Measured: two before, eight after.
+    const plain = variantsOf("chorus", { mode: "naturalMinor", form: "verseChorus", varied: false });
+    const varied = variantsOf("chorus", { mode: "naturalMinor", form: "verseChorus", varied: true });
+    expect(plain.size).toBe(2);
+    expect(varied.size).toBeGreaterThan(4);
   });
 
   it("leaves a tier that already has a real choice alone", () => {
