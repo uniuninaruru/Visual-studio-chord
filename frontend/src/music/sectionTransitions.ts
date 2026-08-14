@@ -1,6 +1,12 @@
-import type { ChordEvent, ChordQuality, Mode, PitchClassName } from "../types/music";
+import type {
+  ChordEvent,
+  ChordQuality,
+  HarmonyFunction,
+  Mode,
+  PitchClassName,
+} from "../types/music";
 import { deriveSeed, hashSeed, type Seed } from "./random";
-import { pitchClassToSemitone, semitoneToPitchClass } from "./scales";
+import { SCALE_INTERVALS, pitchClassToSemitone, semitoneToPitchClass } from "./scales";
 import { voiceChord } from "./chords";
 
 /**
@@ -31,7 +37,37 @@ export interface TransitionChord {
   quality: ChordQuality;
   /** Roman-numeral label relative to the piece's key, for the chord lane. */
   label: string;
+  /**
+   * What the approach does, which is not what the chord it approaches does.
+   *
+   * The event used to inherit the target's function along with everything else
+   * it was spread from, so a ♭II7 leading into the tonic was labelled tonic --
+   * measured, 132 of 132 chromatic approach chords carried the function of the
+   * chord they were pointing at. Four of these six techniques are dominants by
+   * construction; the subdominant preparation is a predominant; the chromatic
+   * slide claims no function at all, which is the point of using it.
+   */
+  harmonyFunction: HarmonyFunction;
   explanation: string;
+}
+
+/**
+ * The scale degree an approach chord sits on, or zero where it sits outside.
+ *
+ * Zero is the app's own convention for "no degree" -- chords.ts writes it for a
+ * root it cannot place in the scale -- and most of these approaches are
+ * chromatic by construction, so most of them get it. The spread from the target
+ * chord was handing them the target's degree instead, which is a number that
+ * happens to be in range and means something else.
+ */
+function scaleDegreeOf(
+  root: PitchClassName,
+  tonicSemitone: number,
+  mode: Mode,
+): number {
+  const offset = ((pitchClassToSemitone(root) - tonicSemitone) % 12 + 12) % 12;
+  const index = SCALE_INTERVALS[mode].indexOf(offset);
+  return index < 0 ? 0 : index + 1;
 }
 
 /** Whether the target chord is major-ish, which several techniques require. */
@@ -71,6 +107,7 @@ export function transitionsInto(
     root: at(7),
     quality: "dominant7",
     label: `${roman(7)}7`,
+    harmonyFunction: "dominant",
     explanation: `Secondary dominant of ${targetRoot}; resolves down a fifth into the section.`,
   });
 
@@ -82,6 +119,7 @@ export function transitionsInto(
     root: at(1),
     quality: "dominant7",
     label: `${roman(1)}7`,
+    harmonyFunction: "dominant",
     explanation: `Tritone substitute of the dominant of ${targetRoot}; the bass steps down a semitone.`,
   });
 
@@ -94,6 +132,7 @@ export function transitionsInto(
       root: at(10),
       quality: "dominant7",
       label: `${roman(10)}7`,
+      harmonyFunction: "dominant",
       explanation: `Backdoor dominant; resolves up a tone into ${targetRoot}.`,
     });
   }
@@ -105,7 +144,11 @@ export function transitionsInto(
     technique: "diminishedApproach",
     root: at(-1),
     quality: "diminished7",
-    label: `#${roman(-1)}dim7`,
+    // ROMAN already names the pitch class relative to the key, accidental and
+    // all. Prefixing a sharp onto it produced "#bIIdim7" -- a numeral carrying
+    // both accidentals at once, which names nothing.
+    label: `${roman(-1)}dim7`,
+    harmonyFunction: "dominant",
     explanation: `Diminished approach; the bass leads by semitone into ${targetRoot}.`,
   });
 
@@ -117,6 +160,7 @@ export function transitionsInto(
     root: at(1),
     quality: targetQuality,
     label: `${roman(1)}`,
+    harmonyFunction: "other",
     explanation: `Chromatic approach; the whole chord slides down a semitone into ${targetRoot}.`,
   });
 
@@ -128,6 +172,7 @@ export function transitionsInto(
     root: at(5),
     quality: isMinorish(targetQuality) ? "minor7" : "major7",
     label: `${roman(5)}${isMinorish(targetQuality) ? "m7" : "maj7"}`,
+    harmonyFunction: "predominant",
     explanation: `Subdominant preparation a fourth above ${targetRoot}; approaches without leaving the key.`,
   });
 
@@ -296,6 +341,10 @@ export function applySectionTransitions(
       id: `${outgoing.id}-approach`,
       symbol: `${transition.root}${qualitySuffix(transition.quality)}`,
       romanNumeral: transition.label,
+      // Its own, not the target's. Spreading the incoming chord carries its
+      // degree and function across, and an approach chord is neither.
+      function: transition.harmonyFunction,
+      degree: scaleDegreeOf(transition.root, options.tonicSemitone, options.mode),
       root: transition.root,
       quality: transition.quality,
       startTick: outgoing.startTick + (outgoing.durationTick - half),
