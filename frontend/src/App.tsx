@@ -4,6 +4,8 @@ import { AutoFixPanel } from "./features/autoFix/AutoFixPanel";
 import { DiagnosticsPanel } from "./features/diagnostics";
 import { InspectorPanel } from "./features/editor/InspectorPanel";
 import { ReharmonizationPanel } from "./features/editor/ReharmonizationPanel";
+import { ProgressionSearchPanel } from "./features/progressions/ProgressionSearchPanel";
+import { createStepChordEvent } from "./music/chords";
 import { SettingsPanel } from "./features/generator/SettingsPanel";
 import { HistoryPanel } from "./features/history/HistoryPanel";
 import { AppMenu } from "./features/menu/AppMenu";
@@ -567,6 +569,27 @@ export default function App() {
               onChordSelect={handleChordSelect}
               onToggleLock={store.toggleBarLock}
             />
+            <details className="progression-search-shell">
+              <summary>コード進行を探す</summary>
+              <ProgressionSearchPanel
+                mode={composition.settings.mode}
+                onAudition={(result) => {
+                  // The progression's first chord, voiced in the current key.
+                  // Enough to hear whether it is the colour being looked for,
+                  // without committing anything to the piece.
+                  const step = result.variant.steps[0];
+                  if (!step) return;
+                  auditionChord(createStepChordEvent({
+                    step,
+                    key: composition.settings.key,
+                    mode: composition.settings.mode,
+                    startTick: 0,
+                    durationTick: composition.ticksPerBar,
+                    id: `audition-${result.variant.id}`,
+                  }).notes);
+                }}
+              />
+            </details>
             <ReharmonizationPanel
               chord={selectedChord}
               candidates={reharmonization.candidates}
