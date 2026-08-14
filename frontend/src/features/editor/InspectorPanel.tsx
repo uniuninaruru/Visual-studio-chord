@@ -8,6 +8,7 @@ import type {
   NoteEvent,
   ValidationResult,
 } from "../../types/music";
+import { explainChord } from "../../music/explanation";
 import { modeLabel } from "../../utils/musicFormat";
 
 interface InspectorPanelProps {
@@ -141,9 +142,22 @@ export function InspectorPanel({
             <div><dt>転回形</dt><dd>{selectedChord.inversion}</dd></div>
             <div><dt>由来</dt><dd>{selectedChord.source}</dd></div>
           </dl>
-          {selectedChord.explanation && (
-            <p className="theory-explanation">{selectedChord.explanation}</p>
-          )}
+          {/*
+            * The engine's own justification, which it always carried and never
+            * showed: 44% of chords had one and the rest had none, because
+            * validateComposition only requires it for non-diatonic chords.
+            * explainChord fills the rest from the whole piece -- which section,
+            * which progression, which position in it -- and names the body of
+            * theory behind each statement rather than asserting it.
+            */}
+          <ul className="theory-explanation">
+            {explainChord(composition, selectedChord).reasons.map((reason) => (
+              <li key={reason.text}>
+                <span>{reason.text}</span>
+                <em>{reason.source}</em>
+              </li>
+            ))}
+          </ul>
           <p className="field-hint">例: C、Am、F#m、Bdim。Enterで反映します。</p>
         </section>
       ) : (
