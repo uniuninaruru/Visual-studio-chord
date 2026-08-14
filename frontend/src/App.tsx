@@ -29,6 +29,11 @@ import { useReharmonization } from "./hooks/useReharmonization";
 import { usePreferenceLearning } from "./hooks/usePreferenceLearning";
 import { useProjectImportExport } from "./hooks/useProjectImportExport";
 import { usePreferenceProfile } from "./hooks/usePreferenceProfile";
+import {
+  MAX_GUIDANCE_CANDIDATES,
+  usePreferenceGuidance,
+} from "./hooks/usePreferenceGuidance";
+import { PREFERRED_SEED_SEPARATOR } from "./preference/generation";
 import { useStorageCapacity } from "./hooks/useStorageCapacity";
 import { createAutoFixPreview, validateComposition, type AutoFixResult } from "./music";
 import {
@@ -89,6 +94,10 @@ const appStorage = getSafeStorage();
 export default function App() {
   const store = useComposerStore();
   const preferenceProfile = usePreferenceProfile();
+  const guidance = usePreferenceGuidance();
+  const [lastGuidedChoice, setLastGuidedChoice] = useState<
+    { index: number; considered: number } | null
+  >(null);
   // Cross-cutting: several hooks report through the toast, so it is declared
   // before them and passed down rather than owned by any single one.
   const [toast, setToast] = useState<string | null>(null);
@@ -228,9 +237,33 @@ export default function App() {
   }, [store.projectRecoveryReason, store.projectSaveStatus]);
 
   const handleGenerate = () => {
-    store.generateComposition();
+    // Only when asked for. One draw is the button as it always was, and passing
+    // guidance for a single draw would run the model for nothing.
+    const guided = guidance.candidates > 1;
+    store.generateComposition(undefined, guided
+      ? {
+        model: preferenceProfile.model,
+        category: preferenceCategory,
+        candidates: guidance.candidates,
+      }
+      : undefined);
     setSelectedNoteIds([]);
     setSelectedChordId(null);
+    if (guided) {
+      // Read back from the piece rather than returned by the action: the seed
+      // it carries is what makes the choice reproducible, so it is also the
+      // honest place to learn which draw won.
+      const seed = String(useComposerStore.getState().draftComposition.seed);
+      const suffix = seed.startsWith(`${store.settings.seed}${PREFERRED_SEED_SEPARATOR}`)
+        ? Number(seed.slice(String(store.settings.seed).length + 1))
+        : 0;
+      setLastGuidedChoice({ index: suffix, considered: guidance.candidates });
+      setToast(
+        `${guidance.candidates}案から学習した好みに近いものを選びました。シード ${seed} で再現できます。`,
+      );
+      return;
+    }
+    setLastGuidedChoice(null);
     setToast("同じシードで再現できる新しい曲を生成しました。");
   };
 
@@ -712,6 +745,10 @@ export default function App() {
             <div className="phase-two-panel-grid">
               <PreferencePanel
                 explanation={preferenceExplanation}
+                guidanceCandidates={guidance.candidates}
+                onGuidanceCandidatesChange={guidance.setCandidates}
+                maxGuidanceCandidates={MAX_GUIDANCE_CANDIDATES}
+                lastChoice={lastGuidedChoice}
                 category={preferenceCategory}
                 onCategoryChange={(category) => {
                   setPreferenceCategory(category);

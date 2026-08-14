@@ -1,5 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GENERATOR_SETTINGS, validateComposition } from "../src/music";
+import {
+  DEFAULT_GENERATOR_SETTINGS,
+  generateComposition,
+  validateComposition,
+} from "../src/music";
+import {
+  createPreferenceModel,
+  extractPreferenceFeatures,
+  updatePreferenceModel,
+} from "../src/preference";
+import type { GeneratorSettings } from "../src/types/music";
 import { useComposerStore } from "../src/state";
 import { EDITOR_STORAGE_KEY } from "../src/storage";
 
@@ -456,4 +466,71 @@ describe("applying a progression to the piece", () => {
       chord.startTick >= lifted!.startBar * after.ticksPerBar)!;
     expect(tonic.root).toBe(lifted!.key);
   });
+});
+
+
+/**
+ * The generate button consulting what the A/B panel learned.
+ *
+ * The store's job stays generation: whose taste picked the draw is the
+ * caller's business, so the model is passed in rather than held here.
+ */
+describe("generating with preference guidance", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useComposerStore.getState().reset({ seed: "guide-tests" });
+  });
+
+  const seventhRate = (composition: { chords: ReadonlyArray<{ quality: string }> }) =>
+    composition.chords.filter((chord) => chord.quality.endsWith("7")).length
+      / composition.chords.length;
+
+  function trained() {
+    let model = createPreferenceModel();
+    for (let index = 0; index + 1 < 20; index += 2) {
+      const left = generateComposition({
+        ...DEFAULT_GENERATOR_SETTINGS, bars: 16, seed: `t-${index}`,
+      } as GeneratorSettings);
+      const right = generateComposition({
+        ...DEFAULT_GENERATOR_SETTINGS, bars: 16, seed: `t-${index + 1}`,
+      } as GeneratorSettings);
+      const winner = seventhRate(left) >= seventhRate(right) ? left : right;
+      const loser = winner === left ? right : left;
+      model = updatePreferenceModel(model, {
+        type: "ab",
+        winner: extractPreferenceFeatures(winner),
+        loser: extractPreferenceFeatures(loser),
+      });
+    }
+    return model;
+  }
+
+  it("records the winning draw in the piece's own seed", () => {
+    // Which is what keeps the promise: the piece is reproducible from its seed
+    // with no model, however much is learned afterwards.
+    useComposerStore.getState().generateComposition(
+      { seed: "chosen", bars: 16 },
+      { model: trained(), candidates: 8 },
+    );
+    const seed = String(useComposerStore.getState().draftComposition.seed);
+    expect(seed).toMatch(/^chosen(#\d+)?$/);
+    const settings = useComposerStore.getState().draftComposition.settings;
+    expect(JSON.stringify(useComposerStore.getState().draftComposition))
+      .toBe(JSON.stringify(generateComposition({ ...settings, seed })));
+  }, 60_000);
+
+  it("leaves the seed alone when it was not asked to choose", () => {
+    useComposerStore.getState().generateComposition({ seed: "plain", bars: 16 });
+    expect(useComposerStore.getState().draftComposition.seed).toBe("plain");
+  });
+
+  it("generates what it always did when nothing has been learned", () => {
+    useComposerStore.getState().generateComposition({ seed: "same", bars: 16 });
+    const without = JSON.stringify(useComposerStore.getState().draftComposition);
+    useComposerStore.getState().generateComposition(
+      { seed: "same", bars: 16 },
+      { model: createPreferenceModel(), candidates: 8 },
+    );
+    expect(JSON.stringify(useComposerStore.getState().draftComposition)).toBe(without);
+  }, 30_000);
 });

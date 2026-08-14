@@ -38,6 +38,7 @@ import {
   type PersistedEditorSnapshot,
   type StoragePersistenceMode,
 } from "../storage";
+import { generatePreferred, type PreferenceGuidance } from "../preference/generation";
 
 export type PlaybackStatus = "stopped" | "playing" | "paused";
 export type UpdateTiming = "immediate" | "nextBeat" | "nextBar" | "nextLoop";
@@ -126,7 +127,18 @@ export interface ComposerStoreState {
 }
 
 export interface ComposerStoreActions {
-  generateComposition(settings?: GeneratorSettingsPatch): void;
+  /**
+   * `guidance` lets the preference model pick among several draws.
+   *
+   * Passed in rather than held here, because the learned model belongs to the
+   * profile and not to the piece: the store's job is to generate, and whose
+   * taste decided which draw is the caller's business. Absent means one draw,
+   * which is what this always did.
+   */
+  generateComposition(
+    settings?: GeneratorSettingsPatch,
+    guidance?: PreferenceGuidance,
+  ): void;
   adoptAutoFixPreview(composition: GeneratedComposition): boolean;
   regenerateSelected(options?: RegenerationOptions): boolean;
   generatePreviewVariations(
@@ -557,10 +569,14 @@ if (
 export const useComposerStore = create<ComposerStore>()((set, get) => ({
   ...initialState,
 
-  generateComposition: (patch = {}) => {
+  generateComposition: (patch = {}, guidance) => {
     const state = get();
     const settings = settingsWithPatch(state.settings, patch);
-    const composition = buildComposition(settings);
+    // The piece carries the seed of the draw that won, so it stays reproducible
+    // from the seed alone with no model in the picture.
+    const composition = guidance
+      ? generatePreferred(settings, guidance, buildComposition).composition
+      : buildComposition(settings);
     const update = stateAfterComposition(state, composition, "generate", null, true);
     const loopRange = { startTick: 0, endTick: composition.totalTicks };
     set({
