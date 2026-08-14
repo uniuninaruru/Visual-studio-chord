@@ -3288,3 +3288,30 @@ button.voice-chip {
   background: var(--color-surface-subtle);
 }
 .progression-search-more { margin-top: 10px; width: 100%; }
+
+/* The engine's own justification for the selected chord, with its provenance. */
+ul.theory-explanation {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+ul.theory-explanation li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 10px;
+  border-left: 2px solid var(--color-accent-subtle);
+  background: var(--color-surface-subtle);
+  border-radius: 0 var(--radius-small) var(--radius-small) 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+}
+ul.theory-explanation em {
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  font-style: normal;
+}
