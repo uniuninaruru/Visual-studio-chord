@@ -120,6 +120,9 @@ export const DEFAULT_GENERATOR_SETTINGS: Readonly<GeneratorSettings> = Object.fr
   // seeds of these defaults before it did: 1024 chord-track onsets, none of
   // them sounding with another.
   arpeggio: Object.freeze({ enabled: true, sustain: true }),
+  // The style picks the figure. Naming one here would be the same mistake as
+  // naming a voicing shape: the catalogue exists so the idiom can choose.
+  chordRhythm: Object.freeze({ enabled: true }),
 });
 
 function copySettings(settings: GeneratorSettings): GeneratorSettings {
@@ -141,6 +144,7 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
     dynamics: settings.dynamics ? { ...settings.dynamics } : undefined,
     tensions: settings.tensions ? { ...settings.tensions } : undefined,
     arpeggio: settings.arpeggio ? { ...settings.arpeggio } : undefined,
+    chordRhythm: settings.chordRhythm ? { ...settings.chordRhythm } : undefined,
 
     melodyVoicing: settings.melodyVoicing ? { ...settings.melodyVoicing } : undefined,
     sectionTransitions: settings.sectionTransitions ? { ...settings.sectionTransitions } : undefined,
@@ -258,6 +262,13 @@ function compositionFingerprint(settings: GeneratorSettings): string {
         // Appended only when asked for, so every composition made before it
         // existed keeps the id it already had.
         ...(settings.arpeggio.sustain ? ["sustain"] : []),
+      ]
+      : []),
+    ...(settings.chordRhythm?.enabled
+      ? [
+        "chord-rhythm",
+        settings.chordRhythm.pattern ?? "by-style",
+        ...(settings.chordRhythm.sustain ? ["sustain"] : []),
       ]
       : []),
     ...(settings.tensions?.enabled
