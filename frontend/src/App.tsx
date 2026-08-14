@@ -6,6 +6,7 @@ import { InspectorPanel } from "./features/editor/InspectorPanel";
 import { ReharmonizationPanel } from "./features/editor/ReharmonizationPanel";
 import { ProgressionSearchPanel } from "./features/progressions/ProgressionSearchPanel";
 import { createStepChordEvent } from "./music/chords";
+import { SECTION_LABEL } from "./music/explanation";
 import { SettingsPanel } from "./features/generator/SettingsPanel";
 import { HistoryPanel } from "./features/history/HistoryPanel";
 import { AppMenu } from "./features/menu/AppMenu";
@@ -151,6 +152,39 @@ export default function App() {
   const selectedNoteId = selectedNoteIds.at(-1) ?? null;
   const selectedNote = composition.notes.find((note) => note.id === selectedNoteId) ?? null;
   const selectedChord = composition.chords.find((chord) => chord.id === selectedChordId) ?? null;
+
+  /**
+   * Where "使う" would put a progression, and what to call that place.
+   *
+   * The section the selection is in, if the piece has sections and something is
+   * selected -- a progression is a section's worth of harmony, and applying one
+   * to a bar and a half of a chorus is not what anyone means by using it.
+   * Failing that the selected bars, and failing that the whole piece. Named
+   * rather than implied, because replacing eight bars of chorus when the user
+   * expected one bar is not a mistake they can see coming.
+   */
+  const progressionTarget = useMemo(() => {
+    const range = store.selectedBarRange;
+    const anchorBar = range?.startBar
+      ?? (selectedChord
+        ? Math.floor(selectedChord.startTick / composition.ticksPerBar)
+        : undefined);
+    const section = anchorBar === undefined
+      ? undefined
+      : composition.sections?.find(
+        (entry) => anchorBar >= entry.startBar && anchorBar < entry.endBar,
+      );
+    if (section) {
+      return {
+        range: { startBar: section.startBar, endBar: section.endBar },
+        label: `${SECTION_LABEL[section.kind]}（${section.startBar + 1}〜${section.endBar}小節）`,
+      };
+    }
+    if (range) {
+      return { range, label: `${range.startBar + 1}〜${range.endBar}小節` };
+    }
+    return { range: null, label: "曲全体" };
+  }, [store.selectedBarRange, selectedChord, composition]);
   const validation = validateComposition(composition);
   const currentPreferenceFeatures = useMemo(
     () => extractPreferenceFeatures(composition),
@@ -587,6 +621,18 @@ export default function App() {
                     durationTick: composition.ticksPerBar,
                     id: `audition-${result.variant.id}`,
                   }).notes);
+                }}
+                target={progressionTarget.label}
+                onApply={(result) => {
+                  // A derived variant has no catalogue entry, so it hands over
+                  // no name: the section then says what it is chord by chord
+                  // rather than claiming a progression that was never written
+                  // down under that name.
+                  store.applyProgression(
+                    result.variant.steps,
+                    progressionTarget.range,
+                    result.variant.devices.length === 0 ? result.variant.id : undefined,
+                  );
                 }}
               />
             </details>

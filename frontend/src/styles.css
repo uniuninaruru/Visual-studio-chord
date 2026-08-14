@@ -3315,3 +3315,42 @@ ul.theory-explanation em {
   font-size: 11px;
   font-style: normal;
 }
+
+/* The same justification at the scale a listener hears: one entry per section. */
+.composition-explanation {
+  margin-top: 14px;
+}
+.composition-explanation h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.composition-explanation ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.composition-explanation-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+.composition-explanation-heading span {
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  /* The bar range is what tells two choruses apart, so it never wraps away. */
+  white-space: nowrap;
+}
+.composition-explanation ol > li > ul.theory-explanation {
+  margin-top: 5px;
+}
+.composition-explanation-copy {
+  margin-top: 12px;
+  width: 100%;
+}

@@ -3,6 +3,7 @@ import {
   DEFAULT_GENERATOR_SETTINGS,
   analyzeArrangementQuality,
   generateComposition as buildComposition,
+  createStepChordEvent,
   regenerateRange,
   replaceChordSymbol,
   ticksPerBeat,
@@ -11,6 +12,7 @@ import {
 import type {
   BarRange,
   ChordEvent,
+  ProgressionStep,
   GeneratedComposition,
   GeneratorSettings,
   NoteEvent,
@@ -142,6 +144,30 @@ export interface ComposerStoreActions {
   auditionPreviewVariation(index: number | null): boolean;
   adoptPreviewVariation(index: number): boolean;
   editChord(chordId: string, edit: ChordEdit): boolean;
+  /**
+   * Rewrites a stretch of the piece onto a progression.
+   *
+   * The bars keep their harmonic rhythm and the chords keep their ids: what
+   * changes is which degree each one spells. A progression is a sequence of
+   * degrees, not a sequence of durations, so imposing its length on the bars
+   * would be reading it as something it does not say -- and the selection, the
+   * locks and the undo entry all key off the ids.
+   *
+   * Cycled when the stretch is longer than the progression, which is what a
+   * four-chord loop over eight bars already is.
+   *
+   * Any section the rewrite touches gives up the progression it recorded, and
+   * takes the new one only where the rewrite covers all of it and the caller
+   * has a catalogued name to give. The section's progressionId is what the
+   * explanation panel reads to say "this section is the royal road", and a
+   * section rewritten onto other chords that still claims the royal road is a
+   * false statement the app makes about itself.
+   */
+  applyProgression(
+    steps: readonly ProgressionStep[],
+    range?: BarRange | null,
+    progressionId?: string,
+  ): boolean;
   transposeNote(noteId: string, semitones: number): boolean;
   moveNote(noteId: string, move: NoteMove): boolean;
   moveNotes(noteIds: string[], move: NoteMove): number;
@@ -803,6 +829,60 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
       startBar: Math.floor(current.startTick / composition.ticksPerBar),
       endBar: Math.floor(current.startTick / composition.ticksPerBar) + 1,
     }));
+    return true;
+  },
+
+  applyProgression: (steps, range, progressionId) => {
+    const state = get();
+    if (steps.length === 0) return false;
+
+    const source = state.draftComposition;
+    const bars = normalizedBarRange(
+      range ?? state.selectedBarRange,
+      source,
+    ) ?? { startBar: 0, endBar: Math.ceil(source.totalTicks / source.ticksPerBar) };
+
+    const composition = clone(source);
+    const startTick = bars.startBar * composition.ticksPerBar;
+    const endTick = bars.endBar * composition.ticksPerBar;
+    const targets = composition.chords
+      .map((chord, index) => ({ chord, index }))
+      .filter(({ chord }) => chord.startTick >= startTick && chord.startTick < endTick);
+    if (targets.length === 0) return false;
+
+    // The section's key, not the piece's. A modulated final section spells its
+    // degrees against where it modulated to, and rebuilding it against the
+    // composition key would transpose it back without saying so.
+    let previousNotes: readonly number[] | undefined;
+    for (const [position, { chord, index }] of targets.entries()) {
+      const bar = Math.floor(chord.startTick / composition.ticksPerBar);
+      const section = composition.sections?.find(
+        (entry) => bar >= entry.startBar && bar < entry.endBar,
+      );
+      composition.chords[index] = createStepChordEvent({
+        step: steps[position % steps.length] as ProgressionStep,
+        key: section?.key ?? composition.settings.key,
+        mode: section?.mode ?? composition.settings.mode,
+        startTick: chord.startTick,
+        durationTick: chord.durationTick,
+        id: chord.id,
+        previousNotes,
+      });
+      previousNotes = composition.chords[index]!.notes;
+    }
+
+    if (composition.sections) {
+      composition.sections = composition.sections.map((section) => {
+        if (section.endBar <= bars.startBar || section.startBar >= bars.endBar) return section;
+        const covered = section.startBar >= bars.startBar && section.endBar <= bars.endBar;
+        const { progressionId: previous, ...rest } = section;
+        return covered && progressionId !== undefined
+          ? { ...rest, progressionId }
+          : rest;
+      });
+    }
+
+    set(stateAfterComposition(state, composition, "apply-progression", bars));
     return true;
   },
 
