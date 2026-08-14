@@ -165,17 +165,90 @@ describe("the shape of a piece", () => {
 });
 
 describe("how long each section is", () => {
-  it("gives a chorus more room than an intro", () => {
+  it("gives a chorus more room than an intro, once the floor is paid", () => {
     // An even split gave every section the same length, so a chorus arrived and
     // left in the same breath as the intro. Measured: a sixteen-bar piece was
     // eight two-bar sections.
+    //
+    // Two claims rather than one, because the four-bar floor outranks the
+    // weighting and sometimes spends the whole budget. At thirty-two bars the
+    // eight sections are four bars each with nothing left over, and a chorus
+    // that cannot be longer without pushing a pre-chorus under a period is not
+    // a chorus that should be longer. Where bars remain, the weighting spends
+    // them, and the chorus is strictly the longer.
     for (const bars of [16, 24, 32, 48] as const) {
       const piece = generateComposition(settings({ bars, seed: "len" }));
-      const of = (kind: SectionKind) => (piece.sections ?? [])
+      const sections = piece.sections ?? [];
+      const of = (kind: SectionKind) => sections
         .filter((section) => section.kind === kind)
         .map((section) => section.endBar - section.startBar);
-      expect(Math.min(...of("chorus")), `${bars}`).toBeGreaterThan(Math.max(...of("intro")));
-      expect(Math.min(...of("verse")), `${bars}`).toBeGreaterThan(Math.max(...of("preChorus")));
+      const compare = (heavy: SectionKind, light: SectionKind) => {
+        if (of(heavy).length === 0 || of(light).length === 0) return;
+        expect(Math.min(...of(heavy)), `${bars}: ${heavy} vs ${light}`)
+          .toBeGreaterThanOrEqual(Math.max(...of(light)));
+        if (bars > 4 * sections.length) {
+          expect(Math.min(...of(heavy)), `${bars}: ${heavy} vs ${light}`)
+            .toBeGreaterThan(Math.max(...of(light)));
+        }
+      };
+      compare("chorus", "intro");
+      compare("verse", "preChorus");
+    }
+  });
+
+  it("gives no section fewer than four bars once the piece can afford it", () => {
+    // A section is not a slice of the bar count; it is a length a listener can
+    // hear as a phrase, and phrases.ts puts that at four bars -- an antecedent
+    // and a consequent -- with eight the full sentence. Measured before this,
+    // sixteen bars gave intro(1) verse(3) preChorus(1) chorus(3) verse(3)
+    // preChorus(1) chorus(3) outro(1): three of the eight were a single bar.
+    //
+    // Sixteen is where the claim starts rather than an arbitrary size: every
+    // form's smallest layout is four sections, so sixteen bars is the shortest
+    // piece for which a four-bar floor is reachable at all.
+    for (const form of ["verseChorus", "aaba", "throughComposed"] as const) {
+      for (const bars of [16, 24, 32, 48] as const) {
+        const piece = generateComposition(settings({ bars, seed: "floor", songForm: { form } }));
+        for (const section of piece.sections ?? []) {
+          expect(section.endBar - section.startBar, `${form}/${bars}: ${section.kind}`)
+            .toBeGreaterThanOrEqual(4);
+        }
+      }
+    }
+  });
+
+  it("never makes a lighter section longer than a heavier one", () => {
+    // The weight order, not the numbers behind it: asserting the table against
+    // itself would prove nothing. Stated across every form and length, because
+    // the floor and the weighting are applied in that order and the bug this
+    // replaced was the floor surviving while the weighting did not.
+    const heavier: ReadonlyArray<readonly [SectionKind, SectionKind]> = [
+      ["chorus", "intro"], ["chorus", "outro"], ["chorus", "preChorus"],
+      ["verse", "intro"], ["verse", "outro"], ["verse", "preChorus"],
+      ["bridge", "intro"], ["bridge", "outro"],
+    ];
+    for (const form of ["verseChorus", "aaba", "throughComposed"] as const) {
+      for (const bars of [4, 8, 16, 24, 32, 48] as const) {
+        const piece = generateComposition(settings({ bars, seed: "order", songForm: { form } }));
+        const lengths = new Map((piece.sections ?? [])
+          .map((section) => [section.kind, section.endBar - section.startBar] as const));
+        for (const [heavy, light] of heavier) {
+          const long = lengths.get(heavy);
+          const short = lengths.get(light);
+          if (long === undefined || short === undefined) continue;
+          expect(long, `${form}/${bars}: ${heavy} vs ${light}`).toBeGreaterThanOrEqual(short);
+        }
+      }
+    }
+  });
+
+  it("divides a piece too short for the floor evenly instead of demanding bars", () => {
+    // Four bars cannot give four sections four bars each. Asking for the floor
+    // anyway would overshoot the piece it is dividing.
+    for (const form of ["verseChorus", "aaba", "throughComposed"] as const) {
+      const lengths = (generateComposition(settings({ bars: 4, seed: "tiny", songForm: { form } }))
+        .sections ?? []).map((section) => section.endBar - section.startBar);
+      expect(Math.max(...lengths) - Math.min(...lengths), form).toBeLessThanOrEqual(1);
     }
   });
 

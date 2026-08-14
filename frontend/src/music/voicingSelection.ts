@@ -532,6 +532,7 @@ export function revoiceForMelody<TChord extends RevoiceableChord>(
   const result: TChord[] = [];
   let previousNotes: readonly number[] | undefined;
   let previousShape: VoicingShape | undefined;
+  let previousTarget: number | undefined;
 
   for (const chord of chords) {
     const end = chord.startTick + chord.durationTick;
@@ -548,13 +549,42 @@ export function revoiceForMelody<TChord extends RevoiceableChord>(
       ? reduceStack(chord.quality, tensions, false)
       : undefined;
 
+    const registerTarget = options.registerFor?.(chord.id);
+
+    // Voice leading is measured from where the previous section left off, moved
+    // by the register change, rather than from the notes themselves.
+    //
+    // The two terms were pulling against each other at exactly the moment the
+    // arc exists for. The register wish is a pull, deliberately outweighed by
+    // voice leading, so a chorus did not arrive in its new register -- it
+    // climbed into it. Measured across eight pop pieces at thirty-two bars, the
+    // midpoint of a chorus by bar of its own section: 50.3, 51.4, 53.8, 54.7.
+    // The first two bars of the chorus sat BELOW the verse that set it up, and
+    // the section was half over before the lift landed. It was invisible while
+    // sections were weighted, because a longer chorus had bars left after the
+    // climb to pull its average up; equal-length sections took those bars away
+    // and the whole effect went with them.
+    //
+    // Shifting the reference rather than discarding it is the point. Dropping
+    // previousNotes at a boundary would take voice leading, retention, density
+    // and shape coherence with it, and the arrival would be arbitrary instead
+    // of merely high. Shifted, "smooth" keeps its meaning and is simply
+    // measured at the new height -- which is what a player does at an arrival:
+    // the hands move, the shape does not.
+    const priorTarget = previousTarget;
+    const shifted = previousNotes !== undefined && priorTarget !== undefined
+      && registerTarget !== undefined && registerTarget !== priorTarget
+      ? previousNotes.map((note) => note + (registerTarget - priorTarget))
+      : previousNotes;
+
     const choice = selectVoicing(chord.root, chord.quality, chord.tensions, {
       style: options.style,
-      previousNotes,
+      previousNotes: shifted,
       previousShape,
       melody: sounding,
-      registerTarget: options.registerFor?.(chord.id),
+      registerTarget,
     }, stack);
+    previousTarget = registerTarget;
 
     // No candidate fitting the register is not a licence to invent one: the
     // chord keeps the voicing it already had.

@@ -94,21 +94,50 @@ export function isSongFormId(value: unknown): value is SongFormId {
  * twelve-bar pre-chorus is not a pre-chorus. Taking the sixteen-bar layout
  * gives the same song eight six-bar sections, which is what the form means.
  */
+/**
+ * The fewest bars a section can be and still be that section.
+ *
+ * Four, because that is where this app's own phrase grammar begins: its
+ * four-bar layout is an antecedent and a consequent, and eight is the full
+ * sentence. Below that a section has no room to state anything and then
+ * answer it.
+ *
+ * Measured before this bound existed: sixteen bars took the eight-section
+ * layout and produced intro(1) verse(3) preChorus(1) chorus(3) verse(3)
+ * preChorus(1) chorus(3) outro(1). A one-bar pre-chorus is not a pre-chorus,
+ * and everything downstream reads it as one -- the register arc, the dynamics
+ * arc, the progression choice and the approach chord at its seam all treat a
+ * single bar as a formal section.
+ */
+const MIN_SECTION_BARS = 4;
+
+/**
+ * The richest layout the piece has room for.
+ *
+ * Room means bars per section, not bars: a layout is only available if every
+ * section it asks for can reach MIN_SECTION_BARS. Where nothing does -- a
+ * four-bar piece cannot hold two four-bar sections -- the simplest layout is
+ * used rather than none, since a short piece with a crowded form is still
+ * better than a short piece the section work cannot reach at all.
+ */
 function richestLayoutWithin(
   layouts: Readonly<Record<number, readonly SectionKind[]>>,
   bars: number,
 ): readonly SectionKind[] {
   let best: readonly SectionKind[] = [];
   let bestBars = 0;
+  let fewest: readonly SectionKind[] = [];
   for (const [key, kinds] of Object.entries(layouts)) {
     const layoutBars = Number(key);
-    if (layoutBars > bars || layoutBars < bestBars) continue;
     // A section must never be squeezed to zero bars.
     if (kinds.length > bars) continue;
+    if (fewest.length === 0 || kinds.length < fewest.length) fewest = kinds;
+    if (layoutBars > bars || layoutBars < bestBars) continue;
+    if (bars / kinds.length < MIN_SECTION_BARS) continue;
     best = kinds;
     bestBars = layoutBars;
   }
-  return best;
+  return best.length > 0 ? best : fewest;
 }
 
 /**
@@ -159,33 +188,74 @@ function allocateBars(bars: number, kinds: readonly SectionKind[]): number[] {
   // choruses take twice the room of one.
   const order = [...occurrences.keys()]
     .sort((left, right) => SECTION_WEIGHT[right] - SECTION_WEIGHT[left] || left.localeCompare(right));
-  const total = order.reduce(
-    (sum, kind) => sum + SECTION_WEIGHT[kind] * (occurrences.get(kind) as number), 0,
-  );
 
-  const perKind = new Map<SectionKind, number>();
-  for (const kind of order) {
-    const times = occurrences.get(kind) as number;
-    const share = Math.floor((bars * SECTION_WEIGHT[kind] * times) / total / times);
-    perKind.set(kind, Math.max(1, share));
-  }
+  // The floor every kind gets before weight is applied at all.
+  //
+  // Choosing a layout by bars-per-section is not enough on its own: the weights
+  // then redistribute, and a light kind falls back under the minimum. Measured
+  // with only the layout bound in place, sixteen bars gave verse(4)
+  // preChorus(2) chorus(5) chorus(5) -- a two-bar pre-chorus in a form that had
+  // just been chosen for having room for four.
+  //
+  // Never more than the piece can pay for, so a short piece still divides
+  // evenly rather than demanding bars it does not have.
+  const floorBars = Math.min(MIN_SECTION_BARS, Math.floor(bars / count));
 
-  let spare = bars - order.reduce(
-    (sum, kind) => sum + (perKind.get(kind) as number) * (occurrences.get(kind) as number), 0,
-  );
-  let cursor = 0;
-  // A whole kind at a time, so its instances stay equal to one another.
-  while (spare > 0 && order.length > 0) {
-    const kind = order[cursor % order.length] as SectionKind;
-    const times = occurrences.get(kind) as number;
-    if (times <= spare) {
-      perKind.set(kind, (perKind.get(kind) as number) + 1);
-      spare -= times;
+  // The floor first, the weights only over what is left.
+  //
+  // Weighting first and then repairing the result does not work: applying the
+  // floor afterwards overshoots the bar count, and trimming back takes the
+  // bars from the lightest kinds -- which are exactly the ones that were at
+  // the floor. Measured that way, thirty-two bars gave preChorus two bars in a
+  // layout that had just been chosen for having room for four.
+  //
+  // Distributing the floor first cannot overshoot, since floorBars is at most
+  // bars/count, and the spare below is what carries the weighting.
+  const perKind = new Map<SectionKind, number>(order.map((kind) => [kind, floorBars]));
+
+  // What is left after the floor, shared out by weight.
+  //
+  // Proportional with a largest-remainder pass, not the round robin this
+  // replaced. Round robin gave every kind one bar per cycle whatever its
+  // weight, so with enough spare every section came out the same length and
+  // the weights only decided who won the final partial cycle -- measured,
+  // forty-eight bars gave all eight sections six bars each. Its fallback,
+  // dumping whatever would not divide into the last section, gave one verse of
+  // an AABA piece twenty-eight bars.
+  //
+  // A kind is bought in whole units of its own occurrences, so two choruses
+  // stay the same length as each other.
+  const spare = bars - floorBars * count;
+  if (spare > 0) {
+    const weightOf = (kind: SectionKind) =>
+      SECTION_WEIGHT[kind] * (occurrences.get(kind) as number);
+    const totalWeight = order.reduce((sum, kind) => sum + weightOf(kind), 0);
+
+    const wanted = new Map<SectionKind, number>();
+    let handedOut = 0;
+    for (const kind of order) {
+      const times = occurrences.get(kind) as number;
+      // Rounded down to a whole number of bars per instance, so the kind's
+      // instances stay equal.
+      const perInstance = Math.floor((spare * weightOf(kind)) / totalWeight / times);
+      wanted.set(kind, perInstance);
+      handedOut += perInstance * times;
     }
-    cursor += 1;
-    // Nothing left that fits: the remaining bars go to the last section rather
-    // than leaving the piece short of the length that was asked for.
-    if (cursor > order.length * 2) break;
+
+    // The remainder, a bar at a time to the heaviest kind that can still take
+    // one, so the chorus gains it rather than the intro.
+    let remaining = spare - handedOut;
+    for (const kind of order) {
+      const times = occurrences.get(kind) as number;
+      while (remaining >= times) {
+        wanted.set(kind, (wanted.get(kind) as number) + 1);
+        remaining -= times;
+      }
+    }
+
+    for (const kind of order) {
+      perKind.set(kind, (perKind.get(kind) as number) + (wanted.get(kind) as number));
+    }
   }
 
   const lengths = kinds.map((kind) => perKind.get(kind) as number);
@@ -278,7 +348,13 @@ export function planSections(
   if (options.form === "none") return undefined;
 
   const layouts = FORM_LAYOUTS[options.form];
-  const kinds = layouts[options.bars] ?? richestLayoutWithin(layouts, options.bars);
+  // The exact-length layout is subject to the same room rule as the fallback:
+  // sixteen bars has an entry asking for eight sections, and two bars each is
+  // not a form.
+  const exact = layouts[options.bars];
+  const kinds = exact !== undefined && options.bars / exact.length >= MIN_SECTION_BARS
+    ? exact
+    : richestLayoutWithin(layouts, options.bars);
   if (kinds.length === 0) return undefined;
 
   const lengths = allocateBars(options.bars, kinds);
