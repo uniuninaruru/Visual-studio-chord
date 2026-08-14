@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { MINIMAL_GENERATOR_SETTINGS, generateComposition, validateComposition } from "../src/music";
+import {
+  DEFAULT_GENERATOR_SETTINGS,
+  MINIMAL_GENERATOR_SETTINGS,
+  generateComposition,
+  validateComposition,
+} from "../src/music";
 import {
   planTransition,
   transitionProfileFor,
@@ -350,5 +355,85 @@ describe("the approach techniques themselves", () => {
       )));
     }
     expect(choices.size).toBeGreaterThan(2);
+  });
+
+  it("gives an approach chord its own function, not the one it points at", () => {
+    // The event is spread from the chord it precedes, so degree and function
+    // came across with everything else. Measured before this: 132 of 132
+    // chromatic approach chords carried the function of their target -- a ♭II7
+    // leading into the tonic was labelled tonic, which is the one thing it is
+    // not.
+    for (const target of ["C", "A", "F#"] as PitchClassName[]) {
+      for (const quality of ["major", "minor", "major7", "minor7"] as ChordQuality[]) {
+        for (const transition of transitionsInto(target, quality, 0)) {
+          const expected = transition.technique === "subdominantPrep"
+            ? "predominant"
+            : transition.technique === "chromaticApproach"
+              ? "other"
+              : "dominant";
+          expect(transition.harmonyFunction, `${transition.technique} into ${target}`)
+            .toBe(expected);
+        }
+      }
+    }
+  });
+
+  it("never writes a numeral carrying two accidentals", () => {
+    // "#bIIdim7" -- a sharp prefixed onto a table that had already flattened
+    // the pitch class. It names nothing, and it reached the chord lane.
+    for (const target of ["C", "D", "E", "F", "G", "A", "B"] as PitchClassName[]) {
+      for (const quality of ["major", "minor", "dominant7"] as ChordQuality[]) {
+        for (const transition of transitionsInto(target, quality, 0)) {
+          expect(transition.label, `${transition.technique} into ${target}`)
+            .not.toMatch(/[#♯][b♭]|[b♭][#♯]/);
+        }
+      }
+    }
+  });
+
+  it("puts the approach on its own degree, or on none", () => {
+    // Zero is this app's convention for a root it cannot place in the scale,
+    // and most of these approaches are chromatic by construction. Inheriting
+    // the target's degree gave them a number in range that meant something
+    // else.
+    const composed = generateComposition({
+      ...DEFAULT_GENERATOR_SETTINGS, bars: 32, seed: "deg", style: "jazz",
+    } as GeneratorSettings);
+    const approaches = composed.chords.filter((chord) => chord.id.endsWith("-approach"));
+    expect(approaches.length).toBeGreaterThan(0);
+    for (const chord of approaches) {
+      if (!/^[♭♯b#]/.test(chord.romanNumeral)) continue;
+      expect(chord.degree, `${chord.romanNumeral} kept a degree`).toBe(0);
+    }
+  });
+
+  it("does not label an approach with the function of the chord after it", () => {
+    // The end-to-end form, so a future path that rebuilds these events cannot
+    // quietly reintroduce the inheritance. Matched back to the technique that
+    // produced it rather than asserted against the target -- an approach and
+    // its target can share a function by coincidence, and only the technique
+    // says what the approach is.
+    let checked = 0;
+    for (const seed of ["a", "b", "c", "d"]) {
+      const composed = generateComposition({
+        ...DEFAULT_GENERATOR_SETTINGS, bars: 32, seed, style: "jazz",
+      } as GeneratorSettings);
+      const tonicSemitone = pitchClassToSemitone(composed.settings.key);
+      for (const [index, chord] of composed.chords.entries()) {
+        if (!chord.id.endsWith("-approach")) continue;
+        const target = composed.chords[index + 1];
+        if (!target) continue;
+        const technique = transitionsInto(target.root, target.quality, tonicSemitone)
+          .find((entry) => entry.root === chord.root && entry.quality === chord.quality);
+        if (!technique) continue;
+        checked += 1;
+        expect(chord.function, `${chord.romanNumeral} (${technique.technique}) -> ${target.romanNumeral}`)
+          .toBe(technique.harmonyFunction);
+        if (/^[♭♯b#]/.test(chord.romanNumeral)) {
+          expect(chord.degree, `${chord.romanNumeral} kept a degree`).toBe(0);
+        }
+      }
+    }
+    expect(checked, "no approach chords were reached").toBeGreaterThan(10);
   });
 });
