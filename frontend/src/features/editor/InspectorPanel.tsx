@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type { BackendConnection } from "../../api/inferenceClient";
 import { Icon } from "../../components/Icon";
 import type { NoteMove } from "../../state";
@@ -8,7 +9,7 @@ import type {
   NoteEvent,
   ValidationResult,
 } from "../../types/music";
-import { explainChord } from "../../music/explanation";
+import { explainChord, explainComposition } from "../../music/explanation";
 import { modeLabel } from "../../utils/musicFormat";
 
 interface InspectorPanelProps {
@@ -48,6 +49,14 @@ export function InspectorPanel({
   onImportMelody,
   onMobileClose,
 }: InspectorPanelProps) {
+  // Only when there is no chord selected, which is when it is shown: the whole
+  // piece is every chord's explanation and there is no reason to build it while
+  // the panel is showing one of them.
+  const explanation = useMemo(
+    () => (selectedChord ? null : explainComposition(composition)),
+    [composition, selectedChord],
+  );
+
   const submitChord = (value: string) => {
     const symbol = value.trim();
     if (selectedChord && symbol && symbol !== selectedChord.symbol) {
@@ -177,6 +186,56 @@ export function InspectorPanel({
             <div><dt>スタイル</dt><dd>{composition.resolvedStyle}</dd></div>
             <div><dt>シード</dt><dd className="seed-value">{composition.seed}</dd></div>
           </dl>
+          {explanation && (<>{/*
+            * The same justification the chord panel shows, at the scale a
+            * listener hears. explainComposition already assembled it -- what
+            * each section is for, which progression it was built from, where it
+            * modulates -- and nothing displayed any of it: selecting a chord
+            * explained that chord, and selecting nothing explained nothing.
+            *
+            * Computed here rather than stored, like the chord explanation, so
+            * it cannot drift from the piece it describes.
+            */}
+          {explanation.sections.length > 0 && (
+            <div className="composition-explanation">
+              <h4>構成</h4>
+              <ol>
+                {explanation.sections.map((section) => (
+                  <li key={`${section.startBar}-${section.kind}`}>
+                    <div className="composition-explanation-heading">
+                      <strong>{section.label}</strong>
+                      <span>{section.startBar}〜{section.endBar}小節</span>
+                    </div>
+                    <ul className="theory-explanation">
+                      {section.reasons.map((reason) => (
+                        <li key={reason.text}>
+                          <span>{reason.text}</span>
+                          <em>{reason.source}</em>
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+          {/*
+            * The prose form, which is the same statements joined up. Offered
+            * for copying because it is what someone pastes into a note, a
+            * question, or an assistant -- and it is generated from the
+            * structures above rather than written separately, so the two cannot
+            * disagree.
+            */}
+          <button
+            type="button"
+            className="composition-explanation-copy"
+            onClick={() => {
+              void navigator.clipboard?.writeText(explanation.text);
+            }}
+          >
+            解説をテキストでコピー
+          </button>
+          </>)}
         </section>
       )}
 
