@@ -7,6 +7,139 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Added — the A/B judgements now decide what gets generated
+
+The preference model has been learning since the A/B panel existed and
+**had never once changed what came out of the generator.** `generator.ts`
+holds no reference to preference of any kind: every judgement went into
+reordering five candidates that had already been drawn.
+
+The model cannot compose. Its features measure a finished piece — how often
+the melody leaps, what share of chords are sevenths, how wide the voicings sit
+— and there is no inverse from a weight on `melody.leapRate` to a generator
+setting. **What it can do is choose.** So generation draws several pieces and
+keeps the one the model likes best: best-of-n, said plainly.
+
+**Measured on seeds it was never trained on**, which is the only measurement
+worth having. A model taught from twenty A/B pairs where the piece with more
+sevenths won moves the seventh rate of twenty held-out seeds from **37.5% to
+66.2%**, and reaches past the first draw in eighteen of them.
+
+**Same seed, same piece survives intact.** The draws are seeds derived from the
+one the user gave, and the winner carries the derived seed it was drawn from.
+Generating `abc` with a trained model may hand back the piece whose seed is
+`abc#3`, and `abc#3` reproduces it exactly, with no model, however much is
+learned afterwards.
+
+**Off by default, and doing nothing is not a special case.** An untrained model
+has no weights and no bias, so every candidate scores zero, the tie goes to the
+earliest draw, and the earliest draw is the seed as typed. Eight draws of a
+thirty-two bar piece take 514ms, which is why the count is a setting and why it
+is clamped rather than trusted.
+
+### Added — a found progression can be used, and the piece explains itself
+
+Two things the engine already did and the app never surfaced.
+
+**"Use" in the progression search.** Fifteen hundred progressions listed and not
+one of them could reach the piece: 試聴 sounded the first chord, and the panel's
+`onApply` had no caller. A progression is a sequence of degrees, not of
+durations, so **the bars keep their harmonic rhythm and their chord ids, and
+only what each one spells changes.** Four steps over six chords cycles, which is
+what a four-chord loop over eight bars already is.
+
+Where it lands is named on the button (the selected section, failing that the
+selected bars, failing that the whole piece). Replacing four bars of chorus when
+one bar was expected is not a mistake anyone can see coming.
+
+A rewritten section gives up the progression it recorded, and takes the new one
+only when the caller has a catalogued name to give — a derived variant was never
+written down under a name, so it hands over none. Without this the explanation
+panel goes on calling a rewritten chorus the royal road, which is **the app
+stating something false about itself** in the one place a reader goes to find
+out what it did.
+
+**The whole-composition explanation.** `explainComposition` assembled what each
+section is for, which progression it was built from, where it modulates — and
+nothing displayed any of it. Selecting a chord explained that chord; selecting
+nothing explained nothing. The composition summary now carries the same
+justification per section, with the prose form offered for copying.
+
+### Added — a long piece can reach its 落ちサビ and its 大サビ
+
+The verse-chorus form ran out at eight sections: intro, two cycles, outro. **It
+could not state the shape it is named for** — a bridge after the second chorus,
+then the sabi twice more, once stripped back and once at full height.
+
+Eleven sections need forty-four bars to clear the four-bar floor, so the layout
+is reachable only at the longest length the app offers. That is the point rather
+than a limitation.
+
+Both borrow the chorus's progression by construction. **Three progressions where
+the form calls for one heard three ways would be three pieces of material, and
+none of them would read as a return.** Everything separating them lives in the
+per-kind tables, so the tests measure whether those tables actually separate
+them. Pooled over six pieces: the 落ちサビ is the quietest thing in the piece at
+46 velocity against the intro's 56, the 大サビ the loudest at 90 against the
+choruses' 82, and the accompaniment midpoint goes 52.90 to 54.68 with the
+choruses between them.
+
+The remainder pass in `allocateBars` is rewritten as the largest-remainder
+method it already claimed to be. Handing the whole remainder to the heaviest
+kind that fits is the same fault as dumping it in the last section. The
+eleven-section form leaves four spare and every kind rounds down to nothing, so
+**the 大サビ took all four and the other ten sections got none.**
+
+Two of these tests were written from one piece, which is one section per kind at
+this length — **measured that way the register table could be replaced with any
+other number and they still passed.** They read six pieces now, and neutralising
+the 大サビ's register entry turns its 1.78-semitone lift into -0.29.
+
+### Fixed — a one-bar pre-chorus is not a pre-chorus
+
+Sixteen bars gave `intro(1) verse(3) preChorus(1) chorus(3) verse(3)
+preChorus(1) chorus(3) outro(1)`. **Three of the eight sections were a single
+bar.** That is a division of the bar count, not a form.
+
+The floor is four bars, from this app's own `phrases.ts`: four bars is an
+antecedent and a consequent, eight the full sentence. It applies twice — no
+layout is chosen unless every section in it clears the floor, and the bars
+inside are handed out floor-first — and **both were needed.** With only the
+layout bound the weights redistributed underneath it and the pre-chorus fell to
+two; weighting first and repairing after was worse, because the trim took bars
+from the lightest kinds, which were exactly the ones at the floor.
+
+Two things this exposed, both older than the change.
+
+**The chorus did not arrive in its register, it climbed into it.** Voice leading
+is measured from the previous chord and outweighs the register wish by design,
+so the pull had to overcome it bar by bar. Across eight pop pieces, the chorus
+midpoint by bar of its own section: 50.3, 51.4, 53.8, 54.7 — **the first two
+bars sat below the verse that set it up**, and the section was half over before
+the lift landed. It was invisible while sections were weighted, because a longer
+chorus had bars left after the climb to carry its average. The reference is now
+moved by the register change rather than discarded, so "smooth" keeps its
+meaning at the new height. The chorus-verse gap is positive in all eight styles
+(0.17 to 1.74).
+
+**The key finder named keys that cannot spell the melody.** Krumhansl-Schmuckler
+correlates against twelve numbers, so weight outside the scale costs a little
+rather than ruling the key out. Two melodies in ten — **a C major tune with no
+accidentals anywhere, called E natural minor**, a scale with no F in it, over an
+F sounding seventeen times. Candidates are now ranked by how many sounded
+pitches the key has no room for before correlation decides among equals: no
+constant, and the old ordering exactly when the criterion has nothing to say.
+Zero in ten now, and the imported-melody chord-tone rate matches what supplying
+the key by hand gets.
+
+**Four chords in 3297 sit under a low interval limit** where none did before.
+Each is the same corner: **every voicing of that chord that clears the limits
+would cover the melody.** Measured on one, twelve clean candidates exist and the
+cheapest costs 57.2 for burying the line against 39.6 for the violation. The
+test now states the claim it is entitled to — the section register adds no
+violations, which measures identical with it on and off — rather than an
+absolute zero that was a fact about particular pieces.
+
 ### Investigated — neither the cluster rate nor the missing pre-chorus templates is a defect
 
 Two items recorded as unresolved, chased down. **Neither produced a code
