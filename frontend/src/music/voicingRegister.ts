@@ -160,22 +160,23 @@ export function melodyConflict(
 }
 
 /**
- * How badly the chord crowds the bass beneath it.
+ * There is no bass-crowding term, and that is deliberate.
  *
- * The bass states the foundation and needs room above it; a chord voice sitting
- * on or just above the bass note doubles it in the worst register and takes the
- * weight out of both. A tenth above the bass is the conventional comfortable
- * floor for the next voice up.
+ * There was one: it charged a voicing whose lowest note sat closer than a major
+ * tenth to the bass, on the orchestration convention that the next voice up
+ * needs that much room. It never charged anything, because no caller ever
+ * passed it a bass -- and wiring one would not have helped. buildCompositionTracks
+ * takes the bass from the chord's own lowest note, so the gap it would measure
+ * is either zero, before bassRegisterPitch moves it, or a whole number of
+ * octaves after. Zero for every candidate and twelve for every candidate are
+ * the same thing to a search: a constant added to the whole field, deciding
+ * nothing.
+ *
+ * The convention is real. It applies where the bass is an independent line,
+ * which is not this architecture. If one ever arrives, this is the term to
+ * write, and the reason it was removed is that it could not have worked rather
+ * than that the idea is wrong.
  */
-export function bassCrowding(notes: readonly number[], bass: number | undefined): number {
-  if (bass === undefined || notes.length === 0) return 0;
-  const lowest = Math.min(...notes);
-  const gap = lowest - bass;
-  if (gap >= 16) return 0;
-  // Below the bass entirely is worse than merely close to it, and the penalty
-  // grows accordingly rather than flattening out.
-  return 16 - gap;
-}
 
 /** Lowest to highest, in semitones. */
 export function span(notes: readonly number[]): number {
