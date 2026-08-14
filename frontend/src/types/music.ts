@@ -163,6 +163,16 @@ export type SectionKind =
   | "preChorus"
   | "chorus"
   | "bridge"
+  /**
+   * 落ちサビ: the chorus stripped back, and 大サビ: the chorus at full height.
+   *
+   * Both sing the sabi -- same progression, same material -- so they are not
+   * new music but new settings of it. What separates them from `chorus`, and
+   * from each other, is register, dynamics and energy, which is exactly what
+   * the per-kind tables carry.
+   */
+  | "quietChorus"
+  | "finalChorus"
   | "outro";
 
 export type SongFormId =

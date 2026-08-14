@@ -102,10 +102,16 @@ describe("song form at the longer lengths", () => {
       const sections = planSections({
         key: "C", mode: "major", bars, seed: "f", form: "verseChorus",
       })!;
-      expect(sections.map((section) => section.kind), `${bars}`).toEqual([
-        "intro", "verse", "preChorus", "chorus",
-        "verse", "preChorus", "chorus", "outro",
-      ]);
+      // Opens and closes the piece, and states the cycle twice. The exact list
+      // differs by length -- forty-eight bars reaches the eleven-section entry
+      // with its 落ちサビ and 大サビ, which has its own case below -- so what is
+      // claimed here is what both must have.
+      const kinds = sections.map((section) => section.kind);
+      expect(kinds.length, `${bars}`).toBeGreaterThanOrEqual(8);
+      expect(kinds[0], `${bars}`).toBe("intro");
+      expect(kinds[kinds.length - 1], `${bars}`).toBe("outro");
+      expect(kinds.filter((kind) => kind === "verse").length, `${bars}`).toBe(2);
+      expect(kinds.filter((kind) => kind === "preChorus").length, `${bars}`).toBe(2);
       // Weighted by role, not divided evenly. An even split gave every
       // section the same length, so a chorus arrived and left in the same
       // breath as the intro before it -- measured, a sixteen-bar piece was
@@ -146,6 +152,53 @@ describe("song form at the longer lengths", () => {
       "verse", "preChorus", "chorus", "chorus",
     ]);
     expect(sections.map((section) => section.endBar - section.startBar)).toEqual([7, 5, 6, 6]);
+  });
+
+  it("gives the longest piece a 落ちサビ and a 大サビ, in that order", () => {
+    // The shape the form is named for and could not previously reach: two
+    // verse-chorus cycles, a bridge, then the sabi twice more -- once with the
+    // band gone, once at full height.
+    const sections = planSections({
+      key: "C", mode: "major", bars: 48, seed: "f", form: "verseChorus",
+    })!;
+    expect(sections.map((section) => section.kind)).toEqual([
+      "intro", "verse", "preChorus", "chorus",
+      "verse", "preChorus", "chorus",
+      "bridge", "quietChorus", "finalChorus", "outro",
+    ]);
+    // Eleven sections and every one of them a period.
+    for (const section of sections) {
+      expect(section.endBar - section.startBar, section.kind).toBeGreaterThanOrEqual(4);
+    }
+    expect(sections[sections.length - 1]!.endBar).toBe(48);
+  });
+
+  it("sings the same sabi three times rather than writing three choruses", () => {
+    // What makes them a 落ちサビ and a 大サビ rather than two more choruses.
+    // Three progressions where the form calls for one heard three ways would be
+    // three pieces of material, and none of them would read as a return.
+    const sections = planSections({
+      key: "C", mode: "major", bars: 48, seed: "f", form: "verseChorus",
+    })!;
+    const sabi = sections.filter((section) =>
+      section.kind === "chorus" || section.kind === "quietChorus"
+      || section.kind === "finalChorus");
+    expect(sabi).toHaveLength(4);
+    expect(new Set(sabi.map((section) => section.progressionId)).size).toBe(1);
+    // And it is still a chorus progression, not whatever the verse had.
+    const verse = sections.find((section) => section.kind === "verse")!;
+    expect(sabi[0]!.progressionId).not.toBe(verse.progressionId);
+  });
+
+  it("does not reach for the long form at a length that cannot hold it", () => {
+    // Eleven sections need forty-four bars to clear the four-bar floor. Thirty
+    // two would give each of them two, which is the crowding the floor exists
+    // to prevent -- so that length keeps the eight-section layout.
+    const sections = planSections({
+      key: "C", mode: "major", bars: 32, seed: "f", form: "verseChorus",
+    })!;
+    expect(sections.map((section) => section.kind)).not.toContain("finalChorus");
+    expect(sections).toHaveLength(8);
   });
 
   it("leaves AABA as four sections, which is what AABA is", () => {

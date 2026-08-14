@@ -57,6 +57,8 @@ export const SECTION_LABEL: Readonly<Record<SectionKind, string>> = {
   preChorus: "Bメロ",
   chorus: "サビ",
   bridge: "ブリッジ",
+  quietChorus: "落ちサビ",
+  finalChorus: "大サビ",
   outro: "アウトロ",
 };
 
@@ -66,6 +68,8 @@ const SECTION_ROLE: Readonly<Record<SectionKind, string>> = {
   preChorus: "サビへの橋渡し。緊張を溜める",
   chorus: "曲の頂点。いちばん高く、いちばん強い",
   bridge: "対比。登るのではなく別のことを言う",
+  quietChorus: "サビと同じ和音を、音を減らして低く。次の頂点のために一度落とす",
+  finalChorus: "最後のサビ。曲全体でいちばん高く、いちばん強い",
   outro: "閉じるところ",
 };
 

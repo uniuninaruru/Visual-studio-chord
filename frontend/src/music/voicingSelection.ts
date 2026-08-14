@@ -455,6 +455,11 @@ export const SECTION_REGISTER: Readonly<Record<string, number>> = {
   preChorus: 2,
   chorus: 5,
   bridge: -4,
+  // Below the verse, not merely below the chorus: the hands come down with the
+  // texture, which is what makes the 大サビ after it an arrival rather than a
+  // repeat.
+  quietChorus: -2,
+  finalChorus: 7,
   outro: -3,
 };
 
