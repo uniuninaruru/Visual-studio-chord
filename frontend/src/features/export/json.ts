@@ -286,7 +286,10 @@ export function isGeneratedComposition(value: unknown): value is GeneratedCompos
   // When present they must tile the bar grid exactly, which is the invariant
   // the rest of the engine relies on to resolve a chord's key.
   if (value.sections !== undefined) {
-    const sectionKinds = ["intro", "verse", "preChorus", "chorus", "bridge", "outro"];
+    const sectionKinds = [
+      "intro", "verse", "preChorus", "chorus", "bridge",
+      "quietChorus", "finalChorus", "outro",
+    ];
     const sectionModes = ["major", "naturalMinor", "harmonicMinor", "dorian", "mixolydian"];
     const melodyScales = ["diatonic", "yonaNuki", "niroNuki"];
     const pitchClasses = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];

@@ -403,6 +403,13 @@ const SECTION_INTENSITY: Readonly<Record<SectionKind, number>> = {
   // A bridge contrasts rather than climbs; it is the one section that gets
   // quieter than the verse before it.
   bridge: 0.8,
+  // Quieter than anything else in the piece, including the intro. A 落ちサビ is
+  // the sabi with the band gone, and if it is merely a little softer than the
+  // chorus it reads as a chorus played badly rather than as a drop.
+  quietChorus: 0.6,
+  // And the 大サビ above the choruses it follows, because it is the one they
+  // were leading to.
+  finalChorus: 1.16,
   outro: 0.74,
 };
 
