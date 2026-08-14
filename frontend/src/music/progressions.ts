@@ -455,6 +455,62 @@ export const PROGRESSION_TEMPLATES: readonly ProgressionTemplate[] = [
     modes: MINOR,
     steps: [step(1), step(7), step(6), step(5, { quality: "major" })],
   },
+
+  // ------------------------------------------------------------ minor, added
+  //
+  // The catalogue held five templates a minor key could use, against
+  // twenty-nine for a major one, and a minor bridge therefore had two
+  // progressions to choose between however many pieces were generated. These
+  // four clear the same bar as everything above: two or more independent
+  // practitioner sources describing the same degrees.
+  //
+  // Their `usage` is "any" because that is what the sources say. None of them
+  // calls a progression a bridge progression, and marking one as such to fill
+  // the tier would be inventing the evidence the catalogue exists to require.
+  // A bridge draws from "bridge" then "any", so widening "any" is what reaches
+  // it honestly.
+  {
+    id: "minor-three-chord",
+    label: "i–iv–v–i（短調スリーコード）",
+    numeric: "1451",
+    usage: "any",
+    modes: MINOR,
+    // The most heavily attested of the four: four independent sources give it,
+    // two of them naming it as the minor three-chord progression.
+    steps: [step(1), step(4), step(5), step(1)],
+  },
+  {
+    id: "minor-VI-III-VII",
+    label: "i–♭VI–♭III–♭VII",
+    usage: "any",
+    modes: MINOR,
+    // Am–F–C–G. The same four chords as the major-key axis progressions, heard
+    // from the relative minor, which is why it is as common as it is.
+    steps: [step(1), step(6), step(3), step(7)],
+  },
+  {
+    id: "minor-VII-VI-VII",
+    label: "i–♭VII–♭VI–♭VII",
+    usage: "any",
+    modes: MINOR,
+    // The Andalusian descent that turns back instead of reaching the dominant.
+    // Distinct from minor-descending in exactly that: it never resolves, which
+    // is what makes it a vamp rather than a cadence.
+    steps: [step(1), step(7), step(6), step(7)],
+  },
+  {
+    id: "komuro-minor",
+    label: "小室進行（短調形）",
+    numeric: "1673",
+    usage: "any",
+    modes: MINOR,
+    // The relative-minor reading of the 小室進行 already in this file: the same
+    // chords, begun from the vi rather than resolved to the I. Included as its
+    // own entry rather than by widening the major one's modes, because a
+    // template's degrees are read against the key it is used in and 6-4-5-1 in
+    // a minor key is not this progression.
+    steps: [step(1), step(6), step(7), step(3)],
+  },
 ];
 
 const BY_ID = new Map(PROGRESSION_TEMPLATES.map((t) => [t.id, t]));
