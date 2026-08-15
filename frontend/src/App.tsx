@@ -29,6 +29,7 @@ import { useReharmonization } from "./hooks/useReharmonization";
 import { usePreferenceLearning } from "./hooks/usePreferenceLearning";
 import { useProjectImportExport } from "./hooks/useProjectImportExport";
 import { usePreferenceProfile } from "./hooks/usePreferenceProfile";
+import { useTheme } from "./hooks/useTheme";
 import {
   MAX_GUIDANCE_CANDIDATES,
   usePreferenceGuidance,
@@ -95,6 +96,7 @@ export default function App() {
   const store = useComposerStore();
   const preferenceProfile = usePreferenceProfile();
   const guidance = usePreferenceGuidance();
+  const theme = useTheme();
   const [lastGuidedChoice, setLastGuidedChoice] = useState<
     { index: number; considered: number } | null
   >(null);
@@ -878,6 +880,9 @@ export default function App() {
       <AppMenu
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
+        theme={theme.theme}
+        onThemeChange={theme.setTheme}
+        resolvedTheme={theme.systemResolved}
         mixer={mixer}
         onMixerChange={setMixer}
         onOpenTutorial={() => setTutorialOpen(true)}

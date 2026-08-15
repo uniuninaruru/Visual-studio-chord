@@ -24,7 +24,29 @@ export interface CompositionTrack {
   id: string;
   name: string;
   role: CompositionTrackRole;
+  /**
+   * The track's colour, as a CSS custom property reference rather than a hex
+   * literal.
+   *
+   * It is applied as an inline style, so no stylesheet rule can reach it and a
+   * literal here would have been the one colour in the app that cannot follow
+   * the theme. Four of the six literals this replaced were also already under
+   * 3:1 against white, so this was a light-mode defect before it was a
+   * dark-mode one.
+   */
   color: string;
+  /**
+   * The same colour as a fill behind a note.
+   *
+   * Its own token rather than the colour with an alpha suffix appended:
+   * `${color}99` only works on a hex literal, and the same 60% over a dark
+   * canvas is not the same colour as over a white one. Tuned per theme rather
+   * than derived.
+   *
+   * Optional because a project saved before it existed has voices carrying only
+   * a colour, and a stored piece must keep opening.
+   */
+  fill?: string;
   midiChannel: number;
   notes: NoteEvent[];
   editable: boolean;
@@ -337,7 +359,8 @@ export function buildCompositionTracks(
       id: "track-bass",
       name: "Bass / Left Hand",
       role: "bass",
-      color: "#d88745",
+      color: "var(--track-bass)",
+      fill: "var(--track-bass-fill)",
       midiChannel: 0,
       notes: bassNotes,
       editable: false,
@@ -348,7 +371,8 @@ export function buildCompositionTracks(
       id: "track-chords",
       name: "Chords / Right Hand",
       role: "chords",
-      color: "#6f78d8",
+      color: "var(--track-chords)",
+      fill: "var(--track-chords-fill)",
       midiChannel: 1,
       notes: chordNotes,
       editable: false,
@@ -359,7 +383,8 @@ export function buildCompositionTracks(
       id: "track-melody",
       name: "Melody",
       role: "melody",
-      color: "#356ae6",
+      color: "var(--track-melody)",
+      fill: "var(--track-melody-fill)",
       midiChannel: 2,
       notes: composition.notes.map((note) => ({ ...note })),
       editable: true,
@@ -371,6 +396,7 @@ export function buildCompositionTracks(
       name: voice.name,
       role: voice.role,
       color: voice.color,
+      fill: voice.fill,
       midiChannel: Math.min(15, voice.midiChannel + 1),
       notes: voice.notes.map((note) => ({ ...note })),
       editable: false,

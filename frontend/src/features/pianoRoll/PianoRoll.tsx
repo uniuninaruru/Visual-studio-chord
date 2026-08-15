@@ -436,7 +436,7 @@ export function PianoRoll({
                     top: `${top}%`,
                     height: `${height}%`,
                     borderColor: track.color,
-                    backgroundColor: `${track.color}99`,
+                    backgroundColor: track.fill ?? track.color,
                   }}
                   aria-label={`${track.name}、${note.noteName}、${note.barIndex + 1}小節目`}
                   title={`${track.name} · ${note.noteName}`}

@@ -1,54 +1,385 @@
 :root {
+  color-scheme: light;
   font-family:
     Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", sans-serif;
-  color: #18181b;
-  background: #f6f7f9;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  color: var(--color-text-primary);
+  background: var(--color-background);
+
+  /* Surfaces. Dark elevation comes from these stepping up, not from shadow. */
   --color-background: #f6f7f9;
   --color-surface: #ffffff;
   --color-surface-subtle: #f1f3f5;
-  /* Above the surface rather than beside it: dialogs, toasts, and the cards
-     that sit on top of a panel. Identical to --color-surface in this theme --
-     white on white, with the shadow doing the lifting -- which is exactly why
-     it has to be its own token rather than an alias. */
+  /* The near-white fills the stylesheet spelled five different ways. */
+  --color-surface-muted: #fafbfc;
+  /* Above the surface rather than beside it: dialogs, toasts, popovers.
+     Identical to --color-surface in light, where the shadow does the
+     lifting, and genuinely lighter in dark, where shadow cannot. */
   --color-surface-raised: #ffffff;
+  /* The well a lane or a canvas sits in. */
+  --color-surface-sunken: #f8f9fb;
+  --color-surface-accent: #f8faff;
+  /* Translucent chrome over scrolling content. */
+  --color-chrome-veil: rgb(255 255 255 / 0.96);
+  --color-chrome-edge: rgb(255 255 255 / 0.75);
+  --color-scrim: rgb(19 29 48 / 0.5);
+  --color-scrim-light: rgb(19 29 48 / 0.28);
+
+  /* Text. */
   --color-text-primary: #18181b;
   --color-text-secondary: #5f6368;
   --color-text-tertiary: #666c75;
-  /* Quieter than tertiary, for help text that must not compete with the control
-     it explains. Referenced in three places before it existed, which meant that
-     help text rendered at full-strength --color-text-primary instead: an
-     undefined custom property is not a fallback, it makes the declaration
-     invalid at computed-value time and the property inherits. 4.64:1 on the
-     surface, so it is quiet without dropping under AA. */
+  /* Help text that must not compete with the control it explains.
+     4.64:1 light and 4.55:1 dark, so quiet without dropping under AA. */
   --color-text-muted: #6f757e;
+  /* Legitimately under AA. Named so that it is a decision rather than a slip. */
+  --color-text-disabled: #9aa0a8;
+  /* Text on an accent fill. It must invert: white on the dark theme's
+     lighter accent is 2.5:1. */
+  --color-on-accent: #ffffff;
+
+  /* Borders. */
+  /* 1.54:1 on the dark surface. Below about 1.5 a hairline stops reading,
+     and this UI hangs its entire structure on this one token. */
   --color-border: #dfe3e8;
   --color-border-strong: #cbd1d8;
-  /* A separator inside a panel, where --color-border would read as a division
-     between panels. Referenced by .preference-guidance before it existed, so
-     that rule's border-top computed to none and simply did not draw. */
+  /* A separator inside a panel, where --color-border would read as a
+     division between panels. */
   --color-border-subtle: #eaedf0;
+  --color-border-hairline: rgb(223 227 232 / 0.62);
+  --color-scrollbar-thumb: #cdd3dc;
+
+  /* Accent. */
   --color-accent: #2457d6;
   --color-accent-hover: #1949bf;
   --color-accent-subtle: #eaf0ff;
   --color-accent-faint: #f4f7ff;
+  /* Keyed to the actual accent. The literals it replaces were built from
+     rgb(53 106 230), which is not this accent and never was. */
+  --color-accent-tint: rgb(36 87 214 / 0.05);
+  --color-accent-border: #b7c9f6;
+  --color-accent-glow: rgb(36 87 214 / 0.22);
+  /* Raised from the old 0.2: a 3px ring at 20% is a weak indicator on
+     light and close to invisible on dark. */
+  --color-focus-ring: rgb(36 87 214 / 0.35);
+
+  /* Status. */
   --color-success: #217a58;
   --color-success-subtle: #e7f6ef;
+  --color-success-border: #c5e5d7;
   --color-warning: #8f4d16;
+  /* The warning tint was spelled three different ways. */
+  --color-warning-subtle: #fdf0e0;
+  --color-warning-border: #e9c69a;
   --color-danger: #c2414b;
   --color-danger-subtle: #fff0f1;
-  --color-tonic: #2d55b2;
-  --color-tonic-subtle: #edf1ff;
-  --color-predominant: #6d4299;
-  --color-predominant-subtle: #f4edff;
-  --color-dominant: #954619;
-  --color-dominant-subtle: #fff1e7;
+  --color-danger-border: #f0c7ca;
+  --color-danger-strong: #a13f3f;
+  --color-info: #315184;
+  --color-info-subtle: #edf3ff;
+
+  /* Harmonic function: the app's semantic core, driving the chord lane.
+   Predominant is rotated from violet toward magenta. The old trio all sat
+   within 2.5 of each other in L*, so the only channel separating them was
+   red-green -- and simulated, tonic and predominant collapsed to a CIE76
+   difference of 9.3 under protanopia, below the threshold for telling two
+   colours apart at all. They are carried on a 3px stripe. Rotating along
+   the blue-yellow axis, which both protanopes and deuteranopes keep,
+   takes that to 25.8 protan and 45.3 deutan. */
+  --color-tonic: #1e4fb0;
+  --color-tonic-subtle: #e8eeff;
+  --color-predominant: #8e2f7d;
+  --color-predominant-subtle: #fceaf7;
+  --color-dominant: #8a4a10;
+  --color-dominant-subtle: #fdf0e0;
+  --color-function-none: #9da5af;
+
+  /* Chord lane and piano roll. */
+  --color-lane-well: #f8f9fb;
+  /* Inverts. */
+  --color-lane-playing: #2a343f;
+  --color-lane-playing-glow: rgb(23 35 50 / 0.12);
+  --color-lane-locked-hatch: rgb(90 103 120 / 0.05);
+  --color-grid-line: #c7cdd5;
+  --color-grid-subdivision: rgb(223 227 232 / 0.55);
+  --color-grid-row: rgb(223 227 232 / 0.62);
+  --color-accidental-row: #f5f6f8;
+  --color-accidental-label: #e6e9ed;
+  --color-bar-number: #979da6;
+  /* Raised from #eb4d5b, which was 3.9:1 against the lane. */
+  --color-playhead: #d92d3c;
+  --color-playhead-wash: rgb(217 45 60 / 0.08);
+  --color-note-chord-fg: #17377e;
+  --color-note-chord-bg: #b9cafa;
+  --color-note-chord-border: #3d63c4;
+  --color-note-chord-glow: rgb(38 59 111 / 0.12);
+  --color-note-scale-fg: #123055;
+  --color-note-scale-bg: #d5e5ff;
+  --color-note-scale-border: #4b78bf;
+  --color-note-approach-fg: #285a4a;
+  --color-note-approach-bg: #d9eee7;
+  --color-note-approach-border: #5d8577;
+  /* Inverts. */
+  --color-note-selected-ring: #121b2f;
+
+  /* Track colours, consumed from TypeScript as inline styles. Six literals
+   lived in src/music/*.ts and no stylesheet could reach them; four of the
+   six were already under 3:1 on white before dark mode was a question. */
+  --track-bass-fill: rgb(168 86 15 / 0.30);
+  --track-bass-fill: rgb(232 160 94 / 0.34);
+  --track-bass: #a8560f;
+  --track-chords-fill: rgb(74 82 184 / 0.28);
+  --track-chords-fill: rgb(141 150 240 / 0.32);
+  --track-chords: #4a52b8;
+  --track-melody-fill: rgb(36 87 214 / 0.28);
+  --track-melody-fill: rgb(111 155 255 / 0.32);
+  --track-melody: #2457d6;
+  --track-countermelody-fill: rgb(15 111 128 / 0.28);
+  --track-countermelody-fill: rgb(95 208 226 / 0.30);
+  --track-countermelody: #0f6f80;
+  --track-canon-fill: rgb(123 63 191 / 0.26);
+  --track-canon-fill: rgb(201 156 255 / 0.30);
+  --track-canon: #7b3fbf;
+  --track-pulse-fill: rgb(138 90 18 / 0.28);
+  --track-pulse-fill: rgb(240 184 120 / 0.32);
+  --track-pulse: #8a5a12;
+
+  /* Elevation. In dark these carry almost nothing, which is correct: depth
+   there comes from the surface tokens stepping up, and the shadow only
+   softens the edge. */
+  --shadow-hairline: 0 1px 2px rgb(31 41 55 / 0.05);
+  --shadow-soft: 0 8px 28px rgb(35 43 58 / 0.07);
+  --shadow-raised: 0 14px 42px rgb(14 21 35 / 0.16);
+  --shadow-overlay: 0 22px 70px rgb(14 21 35 / 0.28);
+
+  /* Radii. Four steps, and the nesting rule: an inner radius is the outer one
+     minus the padding between them, so corners stay concentric. */
   --radius-small: 6px;
   --radius-medium: 10px;
   --radius-large: 14px;
-  --shadow-soft: 0 8px 28px rgb(35 43 58 / 0.07);
+  --radius-pill: 999px;
+
+  /* Spacing. Every margin, padding and gap in this file was a literal, in
+     twenty-two distinct values. */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 12px;
+  --space-6: 16px;
+  --space-7: 20px;
+  --space-8: 28px;
+
+  /* Motion. The whole stylesheet held six transition declarations, so this is
+     mostly new. A tool used for hours gets short durations and no bounce: the
+     hundredth press of a button should not perform. */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-instant: 90ms;
+  --duration-fast: 140ms;
+  --duration-slow: 220ms;
+}
+
+/*
+ * Dark, from the system setting.
+ *
+ * Only the tokens are redefined; every one of them already has its light value
+ * on bare :root above, so a browser that never matches this block still renders
+ * a complete theme. Excluding an explicit light choice here is what lets the
+ * toggle win on a dark-OS machine -- and because this selector and the explicit
+ * dark one below have equal specificity, the explicit one has to come second.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-background: #0f1116;
+    --color-surface: #171a21;
+    --color-surface-subtle: #1e222b;
+    --color-surface-muted: #1a1e26;
+    --color-surface-raised: #232833;
+    --color-surface-sunken: #0b0d12;
+    --color-surface-accent: #141a26;
+    --color-chrome-veil: rgb(23 26 33 / 0.92);
+    --color-chrome-edge: rgb(255 255 255 / 0.05);
+    --color-scrim: rgb(4 6 10 / 0.66);
+    --color-scrim-light: rgb(4 6 10 / 0.5);
+    --color-text-primary: #e8eaee;
+    --color-text-secondary: #a9b1bd;
+    --color-text-tertiary: #8f97a3;
+    --color-text-muted: #7b838f;
+    --color-text-disabled: #606772;
+    --color-on-accent: #0b1020;
+    --color-border: #343b47;
+    --color-border-strong: #48505e;
+    --color-border-subtle: #242a34;
+    --color-border-hairline: rgb(120 132 152 / 0.22);
+    --color-scrollbar-thumb: #3d4552;
+    --color-accent: #6f9bff;
+    --color-accent-hover: #8fb1ff;
+    --color-accent-subtle: #1b2740;
+    --color-accent-faint: #151b28;
+    --color-accent-tint: rgb(111 155 255 / 0.10);
+    --color-accent-border: #3a4d76;
+    --color-accent-glow: rgb(111 155 255 / 0.24);
+    --color-focus-ring: rgb(143 177 255 / 0.5);
+    --color-success: #4ecb8f;
+    --color-success-subtle: #12291f;
+    --color-success-border: #22523c;
+    --color-warning: #e0a04a;
+    --color-warning-subtle: #2b2110;
+    --color-warning-border: #5a4520;
+    --color-danger: #ff8189;
+    --color-danger-subtle: #2e161a;
+    --color-danger-border: #5e2b31;
+    --color-danger-strong: #ff9d9d;
+    --color-info: #8fb1ff;
+    --color-info-subtle: #1a2337;
+    --color-tonic: #7ea8ff;
+    --color-tonic-subtle: #1b2740;
+    --color-predominant: #e58ccd;
+    --color-predominant-subtle: #2f1b2a;
+    --color-dominant: #e0a04a;
+    --color-dominant-subtle: #2b2110;
+    --color-function-none: #5d6572;
+    --color-lane-well: #0b0d12;
+    --color-lane-playing: #e8eaee;
+    --color-lane-playing-glow: rgb(232 234 238 / 0.14);
+    --color-lane-locked-hatch: rgb(190 205 225 / 0.06);
+    --color-grid-line: #39414f;
+    --color-grid-subdivision: rgb(120 132 152 / 0.16);
+    --color-grid-row: rgb(120 132 152 / 0.20);
+    --color-accidental-row: #12151b;
+    --color-accidental-label: #1a1e26;
+    --color-bar-number: #79818e;
+    --color-playhead: #ff5f6d;
+    --color-playhead-wash: rgb(255 95 109 / 0.12);
+    --color-note-chord-fg: #dae6ff;
+    --color-note-chord-bg: #31456f;
+    --color-note-chord-border: #6d8fd8;
+    --color-note-chord-glow: rgb(0 0 0 / 0.3);
+    --color-note-scale-fg: #c9dcf5;
+    --color-note-scale-bg: #243651;
+    --color-note-scale-border: #5b7ea8;
+    --color-note-approach-fg: #cfe8dd;
+    --color-note-approach-bg: #22453a;
+    --color-note-approach-border: #5f9382;
+    --color-note-selected-ring: #ffffff;
+    --track-bass-fill: rgb(232 160 94 / 0.34);
+    --track-bass: #e8a05e;
+    --track-chords-fill: rgb(141 150 240 / 0.32);
+    --track-chords: #8d96f0;
+    --track-melody-fill: rgb(111 155 255 / 0.32);
+    --track-melody: #6f9bff;
+    --track-countermelody-fill: rgb(95 208 226 / 0.30);
+    --track-countermelody: #5fd0e2;
+    --track-canon-fill: rgb(201 156 255 / 0.30);
+    --track-canon: #c99cff;
+    --track-pulse-fill: rgb(240 184 120 / 0.32);
+    --track-pulse: #f0b878;
+    --shadow-hairline: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-soft: 0 8px 28px rgb(0 0 0 / 0.45);
+    --shadow-raised: 0 14px 42px rgb(0 0 0 / 0.55);
+    --shadow-overlay: 0 24px 70px rgb(0 0 0 / 0.7);
+  }
+}
+
+/* The explicit choice, last, so it beats the system preference both ways. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-background: #0f1116;
+  --color-surface: #171a21;
+  --color-surface-subtle: #1e222b;
+  --color-surface-muted: #1a1e26;
+  --color-surface-raised: #232833;
+  --color-surface-sunken: #0b0d12;
+  --color-surface-accent: #141a26;
+  --color-chrome-veil: rgb(23 26 33 / 0.92);
+  --color-chrome-edge: rgb(255 255 255 / 0.05);
+  --color-scrim: rgb(4 6 10 / 0.66);
+  --color-scrim-light: rgb(4 6 10 / 0.5);
+  --color-text-primary: #e8eaee;
+  --color-text-secondary: #a9b1bd;
+  --color-text-tertiary: #8f97a3;
+  --color-text-muted: #7b838f;
+  --color-text-disabled: #606772;
+  --color-on-accent: #0b1020;
+  --color-border: #343b47;
+  --color-border-strong: #48505e;
+  --color-border-subtle: #242a34;
+  --color-border-hairline: rgb(120 132 152 / 0.22);
+  --color-scrollbar-thumb: #3d4552;
+  --color-accent: #6f9bff;
+  --color-accent-hover: #8fb1ff;
+  --color-accent-subtle: #1b2740;
+  --color-accent-faint: #151b28;
+  --color-accent-tint: rgb(111 155 255 / 0.10);
+  --color-accent-border: #3a4d76;
+  --color-accent-glow: rgb(111 155 255 / 0.24);
+  --color-focus-ring: rgb(143 177 255 / 0.5);
+  --color-success: #4ecb8f;
+  --color-success-subtle: #12291f;
+  --color-success-border: #22523c;
+  --color-warning: #e0a04a;
+  --color-warning-subtle: #2b2110;
+  --color-warning-border: #5a4520;
+  --color-danger: #ff8189;
+  --color-danger-subtle: #2e161a;
+  --color-danger-border: #5e2b31;
+  --color-danger-strong: #ff9d9d;
+  --color-info: #8fb1ff;
+  --color-info-subtle: #1a2337;
+  --color-tonic: #7ea8ff;
+  --color-tonic-subtle: #1b2740;
+  --color-predominant: #e58ccd;
+  --color-predominant-subtle: #2f1b2a;
+  --color-dominant: #e0a04a;
+  --color-dominant-subtle: #2b2110;
+  --color-function-none: #5d6572;
+  --color-lane-well: #0b0d12;
+  --color-lane-playing: #e8eaee;
+  --color-lane-playing-glow: rgb(232 234 238 / 0.14);
+  --color-lane-locked-hatch: rgb(190 205 225 / 0.06);
+  --color-grid-line: #39414f;
+  --color-grid-subdivision: rgb(120 132 152 / 0.16);
+  --color-grid-row: rgb(120 132 152 / 0.20);
+  --color-accidental-row: #12151b;
+  --color-accidental-label: #1a1e26;
+  --color-bar-number: #79818e;
+  --color-playhead: #ff5f6d;
+  --color-playhead-wash: rgb(255 95 109 / 0.12);
+  --color-note-chord-fg: #dae6ff;
+  --color-note-chord-bg: #31456f;
+  --color-note-chord-border: #6d8fd8;
+  --color-note-chord-glow: rgb(0 0 0 / 0.3);
+  --color-note-scale-fg: #c9dcf5;
+  --color-note-scale-bg: #243651;
+  --color-note-scale-border: #5b7ea8;
+  --color-note-approach-fg: #cfe8dd;
+  --color-note-approach-bg: #22453a;
+  --color-note-approach-border: #5f9382;
+  --color-note-selected-ring: #ffffff;
+  --track-bass-fill: rgb(232 160 94 / 0.34);
+  --track-bass: #e8a05e;
+  --track-chords-fill: rgb(141 150 240 / 0.32);
+  --track-chords: #8d96f0;
+  --track-melody-fill: rgb(111 155 255 / 0.32);
+  --track-melody: #6f9bff;
+  --track-countermelody-fill: rgb(95 208 226 / 0.30);
+  --track-countermelody: #5fd0e2;
+  --track-canon-fill: rgb(201 156 255 / 0.30);
+  --track-canon: #c99cff;
+  --track-pulse-fill: rgb(240 184 120 / 0.32);
+  --track-pulse: #f0b878;
+  --shadow-hairline: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-soft: 0 8px 28px rgb(0 0 0 / 0.45);
+  --shadow-raised: 0 14px 42px rgb(0 0 0 / 0.55);
+  --shadow-overlay: 0 24px 70px rgb(0 0 0 / 0.7);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 * {
@@ -81,7 +412,7 @@ button {
 button:focus-visible,
 input:focus-visible,
 select:focus-visible {
-  outline: 3px solid rgb(53 106 230 / 0.2);
+  outline: 3px solid var(--color-focus-ring);
   outline-offset: 1px;
 }
 
@@ -100,8 +431,8 @@ select:focus-visible {
   min-height: 72px;
   padding: 0 20px;
   border-bottom: 1px solid var(--color-border);
-  background: rgb(255 255 255 / 0.96);
-  box-shadow: 0 1px 0 rgb(255 255 255 / 0.75);
+  background: var(--color-chrome-veil);
+  box-shadow: 0 1px 0 var(--color-chrome-edge);
   backdrop-filter: blur(14px);
 }
 
@@ -138,14 +469,14 @@ select:focus-visible {
   padding: 8px;
   border-radius: 10px;
   background: var(--color-accent);
-  box-shadow: 0 5px 14px rgb(53 106 230 / 0.24);
+  box-shadow: 0 5px 14px var(--color-accent-glow);
 }
 
 .brand-mark span {
   display: block;
   width: 3px;
   border-radius: 3px;
-  background: white;
+  background: var(--color-surface);
 }
 
 .brand-mark span:nth-child(1) { height: 8px; opacity: 0.75; }
@@ -184,9 +515,9 @@ select:focus-visible {
   height: 42px;
   border-color: var(--color-accent);
   border-radius: 50%;
-  color: white;
+  color: var(--color-on-accent);
   background: var(--color-accent);
-  box-shadow: 0 6px 16px rgb(53 106 230 / 0.22);
+  box-shadow: 0 6px 16px var(--color-accent-glow);
 }
 
 .transport-button.play-button:hover,
@@ -204,7 +535,7 @@ select:focus-visible {
   padding: 7px 12px;
   border: 1px solid var(--color-border);
   border-radius: 9px;
-  background: #fafbfc;
+  background: var(--color-surface-muted);
   font-variant-numeric: tabular-nums;
 }
 
@@ -255,7 +586,7 @@ select:focus-visible {
 }
 
 .icon-button:disabled {
-  color: #b8bdc5;
+  color: var(--color-border-strong);
   cursor: not-allowed;
   opacity: 0.55;
 }
@@ -269,11 +600,11 @@ select:focus-visible {
   padding: 0 5px 0 10px;
   border: 1px solid var(--color-border);
   border-radius: 9px;
-  background: white;
+  background: var(--color-surface);
 }
 
 .timing-control.pending {
-  border-color: #b9caf6;
+  border-color: var(--color-accent-border);
   background: var(--color-accent-faint);
 }
 
@@ -314,9 +645,9 @@ select:focus-visible {
 
 .primary-button {
   border: 1px solid var(--color-accent);
-  color: white;
+  color: var(--color-on-accent);
   background: var(--color-accent);
-  box-shadow: 0 5px 13px rgb(53 106 230 / 0.18);
+  box-shadow: 0 5px 13px var(--color-accent-glow);
 }
 
 .primary-button:hover:not(:disabled) {
@@ -326,15 +657,15 @@ select:focus-visible {
 }
 
 .primary-button:disabled {
-  border-color: #b8c5e5;
-  background: #b8c5e5;
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-border);
   box-shadow: none;
   cursor: not-allowed;
 }
 
 .secondary-button {
   border: 1px solid var(--color-border-strong);
-  background: white;
+  background: var(--color-surface);
 }
 
 .secondary-button:hover {
@@ -343,14 +674,14 @@ select:focus-visible {
 
 .danger-button {
   width: 100%;
-  border: 1px solid #f1c7cb;
+  border: 1px solid var(--color-danger-border);
   color: var(--color-danger);
   background: var(--color-danger-subtle);
 }
 
 .danger-button:hover {
-  border-color: #e9aeb4;
-  background: #ffe4e7;
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-subtle);
 }
 
 .text-button {
@@ -379,7 +710,7 @@ select:focus-visible {
   overflow-y: auto;
   background: var(--color-surface);
   scrollbar-width: thin;
-  scrollbar-color: #cdd3dc transparent;
+  scrollbar-color: var(--color-scrollbar-thumb) transparent;
 }
 
 .settings-panel {
@@ -431,7 +762,7 @@ select:focus-visible {
 .settings-section,
 .inspector-section {
   padding: 17px 18px;
-  border-bottom: 1px solid #eaedf0;
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .section-label,
@@ -491,7 +822,7 @@ select:focus-visible {
   border: 1px solid var(--color-border);
   border-radius: 7px;
   color: var(--color-text-primary);
-  background-color: #fbfcfd;
+  background-color: var(--color-surface-muted);
   font-size: 12px;
   transition: 120ms ease;
 }
@@ -504,7 +835,7 @@ select:focus-visible {
 .field input:focus,
 .field select:focus {
   border-color: var(--color-accent);
-  background: white;
+  background: var(--color-surface);
 }
 
 .range-field input[type="range"] {
@@ -538,8 +869,8 @@ select:focus-visible {
 
 .phase-controls {
   padding: 17px 12px;
-  border-bottom: 1px solid #eaedf0;
-  background: #f8faff;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-accent);
 }
 
 .phase-intro {
@@ -550,7 +881,7 @@ select:focus-visible {
   margin-top: 8px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: white;
+  background: var(--color-surface);
   overflow: hidden;
 }
 
@@ -600,7 +931,7 @@ select:focus-visible {
   width: 24px;
   height: 24px;
   border-radius: 7px;
-  color: white;
+  color: var(--color-on-accent);
   background: var(--color-accent);
   font-size: 10px;
   font-weight: 850;
@@ -618,9 +949,9 @@ select:focus-visible {
   gap: 8px;
   margin-bottom: 10px;
   padding: 9px;
-  border: 1px solid #e6eaf0;
+  border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
-  background: #fbfcfe;
+  background: var(--color-surface-muted);
 }
 
 .phase-toggle > span {
@@ -654,7 +985,7 @@ select:focus-visible {
 }
 
 .seed-section {
-  background: #fbfcfe;
+  background: var(--color-surface-muted);
 }
 
 .generator-footer {
@@ -678,7 +1009,7 @@ select:focus-visible {
   border: 1px solid var(--color-border);
   border-radius: 999px;
   color: var(--color-text-secondary);
-  background: #fafbfc;
+  background: var(--color-surface-muted);
   font-size: 10px;
 }
 
@@ -691,11 +1022,11 @@ select:focus-visible {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #9aa1aa;
+  background: var(--color-function-none);
 }
 
-.device-pill.connected .status-dot { background: #31a270; box-shadow: 0 0 0 3px rgb(49 162 112 / 0.12); }
-.device-pill.browser .status-dot { background: #e49a43; box-shadow: 0 0 0 3px rgb(228 154 67 / 0.13); }
+.device-pill.connected .status-dot { background: var(--color-success); box-shadow: 0 0 0 3px var(--color-success-subtle); }
+.device-pill.browser .status-dot { background: var(--color-warning); box-shadow: 0 0 0 3px var(--color-warning-subtle); }
 .device-pill.checking .status-dot { animation: pulse 1.2s infinite; }
 
 @keyframes pulse {
@@ -714,11 +1045,11 @@ select:focus-visible {
   display: grid;
   gap: 14px;
   padding: 16px;
-  border: 1px solid #cdd9fb;
+  border: 1px solid var(--color-accent-border);
   border-radius: 12px;
   background:
-    radial-gradient(circle at 100% 0, rgb(99 140 255 / 0.12), transparent 38%),
-    #f8faff;
+    radial-gradient(circle at 100% 0, var(--color-accent-tint), transparent 38%),
+    var(--color-surface-accent);
 }
 
 .auto-fix-copy {
@@ -734,7 +1065,7 @@ select:focus-visible {
   width: 38px;
   height: 38px;
   border-radius: 11px;
-  color: white;
+  color: var(--color-on-accent);
   background: var(--color-accent);
 }
 
@@ -758,7 +1089,7 @@ select:focus-visible {
 .auto-fix-start {
   justify-self: start;
   border: 1px solid var(--color-accent);
-  color: white;
+  color: var(--color-on-accent);
   background: var(--color-accent);
 }
 
@@ -773,7 +1104,7 @@ select:focus-visible {
   padding: 13px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: white;
+  background: var(--color-surface);
 }
 
 .auto-fix-result-heading {
@@ -801,8 +1132,8 @@ select:focus-visible {
   margin: 0;
   padding: 8px;
   border-radius: 7px;
-  color: #8b5113;
-  background: #fff2d9;
+  color: var(--color-warning);
+  background: var(--color-warning-subtle);
   font-size: 9px;
 }
 
@@ -827,8 +1158,8 @@ select:focus-visible {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  color: #197754;
-  background: #dcf4e9;
+  color: var(--color-success);
+  background: var(--color-success-subtle);
   font-size: 9px;
   font-weight: 900;
 }
@@ -857,8 +1188,8 @@ select:focus-visible {
 .auto-fix-checks span {
   padding: 4px 7px;
   border-radius: 999px;
-  color: #315184;
-  background: #edf3ff;
+  color: var(--color-info);
+  background: var(--color-info-subtle);
   font-size: 8px;
   font-weight: 700;
 }
@@ -876,7 +1207,7 @@ select:focus-visible {
   min-height: 76px;
   padding: 14px 22px;
   border-bottom: 1px solid var(--color-border);
-  background: rgb(250 251 252 / 0.95);
+  background: var(--color-chrome-veil);
 }
 
 .composition-title-row {
@@ -900,7 +1231,7 @@ select:focus-visible {
 
 .style-badge {
   padding: 4px 7px;
-  border: 1px solid #ccdafc;
+  border: 1px solid var(--color-accent-border);
   border-radius: 999px;
   color: var(--color-accent);
   background: var(--color-accent-subtle);
@@ -924,7 +1255,7 @@ select:focus-visible {
   border: 1px solid var(--color-border);
   border-radius: 7px;
   color: var(--color-text-secondary);
-  background: white;
+  background: var(--color-surface);
   font-size: 9px;
   font-weight: 700;
   text-transform: capitalize;
@@ -936,20 +1267,20 @@ select:focus-visible {
   border: 1px solid var(--color-border);
   border-radius: 7px;
   color: var(--color-accent);
-  background: white;
+  background: var(--color-surface);
   font-size: 9px;
   font-weight: 750;
   cursor: pointer;
 }
 
 .workspace-status > span.valid {
-  border-color: #c5e5d7;
+  border-color: var(--color-success-border);
   color: var(--color-success);
   background: var(--color-success-subtle);
 }
 
 .workspace-status > span.invalid {
-  border-color: #f0c7ca;
+  border-color: var(--color-danger-border);
   color: var(--color-danger);
   background: var(--color-danger-subtle);
 }
@@ -966,7 +1297,7 @@ select:focus-visible {
   overflow-y: auto;
   padding: 20px 22px 26px;
   scrollbar-width: thin;
-  scrollbar-color: #cdd3dc transparent;
+  scrollbar-color: var(--color-scrollbar-thumb) transparent;
 }
 
 .lane-section {
@@ -975,7 +1306,7 @@ select:focus-visible {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-large);
   background: var(--color-surface);
-  box-shadow: 0 1px 2px rgb(31 41 55 / 0.025);
+  box-shadow: 0 1px 2px var(--color-accent-tint);
 }
 
 .lane-heading {
@@ -1019,7 +1350,7 @@ select:focus-visible {
   overflow: hidden;
   border: 1px solid var(--color-border-strong);
   border-radius: 10px;
-  background: #f8f9fb;
+  background: var(--color-lane-well);
 }
 
 .chord-lane-section {
@@ -1030,7 +1361,7 @@ select:focus-visible {
   position: relative;
   min-height: 122px;
   border-right: 1px solid var(--color-border);
-  background: white;
+  background: var(--color-surface);
   transition: 140ms ease;
 }
 
@@ -1045,7 +1376,7 @@ select:focus-visible {
   right: 0;
   left: 0;
   height: 3px;
-  background: #9da5af;
+  background: var(--color-function-none);
   content: "";
 }
 
@@ -1053,8 +1384,8 @@ select:focus-visible {
 .chord-cell.predominant::before { background: var(--color-predominant); }
 .chord-cell.dominant::before { background: var(--color-dominant); }
 .chord-cell.selected { background: var(--color-accent-faint); box-shadow: inset 0 0 0 2px var(--color-accent); }
-.chord-cell.playing { z-index: 3; box-shadow: inset 0 0 0 2px #2a343f, 0 4px 14px rgb(23 35 50 / 0.12); }
-.chord-cell.locked { background-image: repeating-linear-gradient(135deg, transparent, transparent 9px, rgb(90 103 120 / 0.025) 9px, rgb(90 103 120 / 0.025) 18px); }
+.chord-cell.playing { z-index: 3; box-shadow: inset 0 0 0 2px var(--color-lane-playing), 0 4px 14px var(--color-lane-playing-glow); }
+.chord-cell.locked { background-image: repeating-linear-gradient(135deg, transparent, transparent 9px, var(--color-lane-locked-hatch) 9px, var(--color-lane-locked-hatch) 18px); }
 
 .bar-number {
   display: flex;
@@ -1075,7 +1406,7 @@ select:focus-visible {
   padding: 0;
   border: 0;
   border-radius: 5px;
-  color: #a3a9b1;
+  color: var(--color-function-none);
   background: transparent;
   cursor: pointer;
 }
@@ -1132,7 +1463,7 @@ select:focus-visible {
 
 .chord-content:hover,
 .chord-content.inspected {
-  background: rgb(53 106 230 / 0.045);
+  background: var(--color-accent-tint);
 }
 
 .chord-content strong {
@@ -1190,7 +1521,7 @@ select:focus-visible {
   border: 1px solid var(--color-border);
   border-radius: 999px;
   color: var(--color-text-primary);
-  background: white;
+  background: var(--color-surface);
   font-size: 9px;
   font-weight: 750;
 }
@@ -1225,7 +1556,7 @@ button.voice-chip {
   padding: 8px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: #f7f8fa;
+  background: var(--color-surface-subtle);
 }
 
 .track-all-button {
@@ -1237,7 +1568,7 @@ button.voice-chip {
   border: 1px solid var(--color-border-strong);
   border-radius: 7px;
   color: var(--color-text-secondary);
-  background: white;
+  background: var(--color-surface);
   font-size: 10px;
   font-weight: 850;
   text-align: left;
@@ -1268,7 +1599,7 @@ button.voice-chip {
   overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: 7px;
-  background: white;
+  background: var(--color-surface);
 }
 
 .track-row.selected {
@@ -1333,13 +1664,13 @@ button.voice-chip {
 }
 
 .track-control.active {
-  color: #a13f3f;
-  background: #fff0f0;
+  color: var(--color-danger-strong);
+  background: var(--color-danger-subtle);
 }
 
 .track-control.solo.active {
-  color: #7a5b00;
-  background: #fff6c9;
+  color: var(--color-warning);
+  background: var(--color-warning-subtle);
 }
 
 .secondary-voice-note {
@@ -1361,7 +1692,7 @@ button.voice-chip {
   overflow: auto;
   border: 1px solid var(--color-border-strong);
   border-radius: 10px;
-  background: white;
+  background: var(--color-surface);
 }
 
 .piano-labels {
@@ -1372,7 +1703,7 @@ button.voice-chip {
   flex-direction: column;
   height: var(--piano-content-height, 366px);
   border-right: 1px solid var(--color-border-strong);
-  background: #f7f8fa;
+  background: var(--color-surface-subtle);
 }
 
 .pitch-label {
@@ -1381,7 +1712,7 @@ button.voice-chip {
   justify-content: flex-end;
   min-height: 1px;
   padding-right: 7px;
-  border-bottom: 1px solid rgb(223 227 232 / 0.62);
+  border-bottom: 1px solid var(--color-grid-row);
   color: var(--color-text-tertiary);
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 7px;
@@ -1389,7 +1720,7 @@ button.voice-chip {
 }
 
 .pitch-label.accidental {
-  background: #e6e9ed;
+  background: var(--color-accidental-label);
 }
 
 .piano-canvas {
@@ -1397,7 +1728,7 @@ button.voice-chip {
   min-width: max(740px, calc(var(--bar-count) * 154px));
   height: var(--piano-content-height, 366px);
   overflow: hidden;
-  background: white;
+  background: var(--color-surface);
 }
 
 .pitch-grid,
@@ -1415,18 +1746,18 @@ button.voice-chip {
 .pitch-grid span {
   display: block;
   min-height: 1px;
-  border-bottom: 1px solid rgb(223 227 232 / 0.62);
+  border-bottom: 1px solid var(--color-grid-row);
 }
 
 .pitch-grid .accidental-row {
-  background: #f5f6f8;
+  background: var(--color-accidental-row);
 }
 
 .bar-grid span {
   position: absolute;
   inset-block: 0;
   width: 1px;
-  border-left: 1px solid #c7cdd5;
+  border-left: 1px solid var(--color-grid-line);
 }
 
 .bar-grid span::after {
@@ -1435,8 +1766,8 @@ button.voice-chip {
   left: 25%;
   width: 50%;
   height: 100%;
-  border-right: 1px solid rgb(223 227 232 / 0.55);
-  border-left: 1px solid rgb(223 227 232 / 0.55);
+  border-right: 1px solid var(--color-grid-subdivision);
+  border-left: 1px solid var(--color-grid-subdivision);
   content: "";
 }
 
@@ -1444,7 +1775,7 @@ button.voice-chip {
   position: absolute;
   top: 4px;
   left: 5px;
-  color: #979da6;
+  color: var(--color-bar-number);
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 7px;
 }
@@ -1453,9 +1784,9 @@ button.voice-chip {
   position: absolute;
   z-index: 1;
   inset-block: 0;
-  border-right: 1px solid rgb(53 106 230 / 0.25);
-  border-left: 1px solid rgb(53 106 230 / 0.25);
-  background: rgb(53 106 230 / 0.045);
+  border-right: 1px solid var(--color-accent-glow);
+  border-left: 1px solid var(--color-accent-glow);
+  background: var(--color-accent-tint);
   pointer-events: none;
 }
 
@@ -1465,11 +1796,11 @@ button.voice-chip {
   min-width: 6px;
   overflow: hidden;
   padding: 0 4px;
-  border: 1px solid #3d63c4;
+  border: 1px solid var(--color-note-chord-border);
   border-radius: 3px;
-  color: #17377e;
-  background: #b9cafa;
-  box-shadow: 0 1px 2px rgb(38 59 111 / 0.12);
+  color: var(--color-note-chord-fg);
+  background: var(--color-note-chord-bg);
+  box-shadow: 0 1px 2px var(--color-note-chord-glow);
   text-align: left;
   cursor: pointer;
 }
@@ -1484,12 +1815,12 @@ button.voice-chip {
   white-space: nowrap;
 }
 
-.piano-note.scaleTone { border-color: #4b78bf; background: #d5e5ff; }
+.piano-note.scaleTone { border-color: var(--color-note-scale-border); background: var(--color-note-scale-bg); }
 .piano-note.passing,
 .piano-note.neighbor,
-.piano-note.approach { border-color: #70978a; color: #285a4a; background: #d9eee7; }
+.piano-note.approach { border-color: var(--color-note-approach-border); color: var(--color-note-approach-fg); background: var(--color-note-approach-bg); }
 .piano-note:hover { z-index: 6; filter: brightness(0.96); }
-.piano-note.selected { z-index: 7; border-color: #121b2f; box-shadow: 0 0 0 2px white, 0 0 0 4px var(--color-accent); }
+.piano-note.selected { z-index: 7; border-color: var(--color-note-selected-ring); box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-accent); }
 
 .playhead {
   position: absolute;
@@ -1497,8 +1828,8 @@ button.voice-chip {
   top: 0;
   bottom: 0;
   width: 1px;
-  background: #eb4d5b;
-  box-shadow: 0 0 0 1px rgb(235 77 91 / 0.08);
+  background: var(--color-playhead);
+  box-shadow: 0 0 0 1px var(--color-playhead-wash);
   pointer-events: none;
 }
 
@@ -1509,7 +1840,7 @@ button.voice-chip {
   width: 9px;
   height: 7px;
   border-radius: 1px 1px 5px 5px;
-  background: #eb4d5b;
+  background: var(--color-playhead);
 }
 
 .regeneration-dock {
@@ -1521,8 +1852,8 @@ button.voice-chip {
   min-height: 76px;
   padding: 12px 18px;
   border-top: 1px solid var(--color-border);
-  background: rgb(255 255 255 / 0.97);
-  box-shadow: 0 -8px 25px rgb(39 49 67 / 0.045);
+  background: var(--color-chrome-veil);
+  box-shadow: 0 -8px 25px var(--color-accent-tint);
 }
 
 .selection-status {
@@ -1590,8 +1921,8 @@ button.voice-chip {
 .target-control button:hover,
 .target-control button.active {
   color: var(--color-accent);
-  background: white;
-  box-shadow: 0 1px 4px rgb(47 56 72 / 0.1);
+  background: var(--color-surface);
+  box-shadow: 0 1px 4px var(--color-scrim-light);
 }
 
 .regeneration-actions {
@@ -1643,12 +1974,12 @@ button.voice-chip {
   position: sticky;
   z-index: 5;
   top: 0;
-  background: rgb(255 255 255 / 0.96);
+  background: var(--color-chrome-veil);
   backdrop-filter: blur(10px);
 }
 
 .selected-object {
-  background: #fcfdff;
+  background: var(--color-surface-muted);
 }
 
 .object-identity,
@@ -1713,14 +2044,14 @@ button.voice-chip {
   padding: 0 5px;
   border: 1px solid var(--color-border);
   border-radius: 7px;
-  background: white;
+  background: var(--color-surface);
   font-size: 9px;
   font-weight: 700;
   cursor: pointer;
 }
 
 .button-grid button:hover {
-  border-color: #b7c9f6;
+  border-color: var(--color-accent-border);
   color: var(--color-accent);
   background: var(--color-accent-faint);
 }
@@ -1745,7 +2076,7 @@ button.voice-chip {
   grid-template-columns: minmax(66px, 0.7fr) minmax(0, 1.3fr);
   gap: 8px;
   padding: 8px 0;
-  border-bottom: 1px solid #eceff2;
+  border-bottom: 1px solid var(--color-surface-subtle);
 }
 
 .property-list dt {
@@ -1810,7 +2141,7 @@ button.voice-chip {
   flex: 1;
   height: 8px;
   border-radius: 2px;
-  background: #e5e8ec;
+  background: var(--color-border-subtle);
 }
 
 .mini-timeline span.selected {
@@ -1818,7 +2149,7 @@ button.voice-chip {
 }
 
 .local-engine {
-  background: #fbfcfe;
+  background: var(--color-surface-muted);
 }
 
 .local-engine p {
@@ -1845,12 +2176,12 @@ button.voice-chip {
   border: 1px solid var(--color-border);
   border-radius: 9px;
   color: var(--color-text-secondary);
-  background: white;
+  background: var(--color-surface);
   cursor: pointer;
 }
 
 .export-grid button:hover {
-  border-color: #b8caf7;
+  border-color: var(--color-accent-border);
   color: var(--color-accent);
   background: var(--color-accent-faint);
 }
@@ -1879,11 +2210,11 @@ button.voice-chip {
   gap: 10px;
   max-width: min(420px, calc(100vw - 44px));
   padding: 12px 15px 12px 11px;
-  border: 1px solid #cfd7e2;
+  border: 1px solid var(--color-border-strong);
   border-radius: 11px;
-  background: #172033;
-  box-shadow: 0 14px 42px rgb(14 21 35 / 0.24);
-  color: white;
+  background: var(--color-text-primary);
+  box-shadow: 0 14px 42px rgb(0 0 0 / 0.24);
+  color: var(--color-on-accent);
   font-size: 11px;
   line-height: 1.45;
   animation: toast-in 180ms ease-out;
@@ -1896,8 +2227,8 @@ button.voice-chip {
   width: 25px;
   height: 25px;
   border-radius: 50%;
-  color: #183b2e;
-  background: #8ee4bd;
+  color: var(--color-success-subtle);
+  background: var(--color-success);
 }
 
 .toast svg {
@@ -1938,7 +2269,7 @@ button.voice-chip {
   min-height: 44px;
   overflow-x: auto;
   border-bottom: 1px solid var(--color-border);
-  background: #f9fafc;
+  background: var(--color-surface-muted);
   scrollbar-width: thin;
 }
 
@@ -1987,7 +2318,7 @@ button.voice-chip {
   border: 1px solid var(--color-border);
   border-radius: 999px;
   color: var(--color-text-secondary);
-  background: white;
+  background: var(--color-surface);
   font-size: 7px;
 }
 
@@ -1996,7 +2327,7 @@ button.voice-chip {
   padding: 1px 6px;
   border: 1px solid var(--color-border-strong);
   border-radius: 4px;
-  background: white;
+  background: var(--color-surface);
   font-size: 8px;
   cursor: pointer;
 }
@@ -2030,7 +2361,7 @@ button.voice-chip {
   border: 0;
   border-left: 1px solid var(--color-border);
   color: var(--color-accent);
-  background: white;
+  background: var(--color-surface);
   font-size: 9px;
   font-weight: 800;
   cursor: pointer;
@@ -2060,7 +2391,7 @@ button.voice-chip {
   gap: 3px;
   padding: 7px 8px;
   border-bottom: 1px solid var(--color-border);
-  background: rgb(255 255 255 / 0.96);
+  background: var(--color-chrome-veil);
 }
 
 .settings-tabs button {
@@ -2077,7 +2408,7 @@ button.voice-chip {
 }
 
 .settings-tabs button.active {
-  border-color: #c8d6f8;
+  border-color: var(--color-accent-border);
   color: var(--color-accent);
   background: var(--color-accent-subtle);
 }
@@ -2137,7 +2468,7 @@ button.voice-chip {
   padding: 0 24px 0 8px;
   border: 1px solid var(--color-border);
   border-radius: 6px;
-  background: white;
+  background: var(--color-surface);
   font-size: 9px;
 }
 
@@ -2192,7 +2523,7 @@ button.voice-chip {
   padding: 12px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: #fbfcfe;
+  background: var(--color-surface-muted);
 }
 
 .variation-card.is-auditioning {
@@ -2213,7 +2544,7 @@ button.voice-chip {
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  color: white;
+  color: var(--color-on-accent);
   background: var(--color-accent);
   font-weight: 850;
 }
@@ -2232,7 +2563,7 @@ button.voice-chip {
   grid-column: 1 / -1;
   justify-self: start;
   padding: 3px 6px;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, white);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, var(--color-surface));
   border-radius: 999px;
   color: var(--color-accent);
   background: var(--color-accent-subtle);
@@ -2241,9 +2572,9 @@ button.voice-chip {
 }
 
 .variation-neural-badge.is-mock {
-  border-color: color-mix(in srgb, var(--color-warning) 55%, white);
+  border-color: color-mix(in srgb, var(--color-warning) 55%, var(--color-surface));
   color: var(--color-warning);
-  background: color-mix(in srgb, var(--color-warning) 8%, white);
+  background: color-mix(in srgb, var(--color-warning) 8%, var(--color-surface));
 }
 
 .variation-chord-summary > span,
@@ -2298,7 +2629,7 @@ button.voice-chip {
   padding: 0 7px;
   border: 1px solid var(--color-border);
   border-radius: 6px;
-  background: white;
+  background: var(--color-surface);
   font-size: 8px;
   font-weight: 700;
   cursor: pointer;
@@ -2336,7 +2667,7 @@ button.voice-chip {
 .history-comparison ul { margin: 0; padding-left: 18px; }
 .history-entry-list { display: grid; gap: 6px; max-height: 460px; overflow-y: auto; padding: 0; list-style: none; }
 .history-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 8px; border: 1px solid var(--color-border); border-radius: 8px; }
-.history-entry.is-current { border-color: #b7c9f6; background: var(--color-accent-faint); }
+.history-entry.is-current { border-color: var(--color-accent-border); background: var(--color-accent-faint); }
 .history-name-field input { width: 100%; border: 0; background: transparent; font-size: 9px; font-weight: 750; }
 .history-entry-meta { display: flex; flex-wrap: wrap; gap: 5px; color: var(--color-text-tertiary); font-size: 7px; }
 .history-current-marker { color: var(--color-accent); }
@@ -2350,7 +2681,7 @@ button.voice-chip {
   display: grid;
   place-items: center;
   padding: 18px;
-  background: rgb(19 29 48 / 0.5);
+  background: var(--color-scrim);
   backdrop-filter: blur(3px);
 }
 
@@ -2358,8 +2689,8 @@ button.voice-chip {
   width: min(620px, 100%);
   padding: 20px;
   border-radius: 14px;
-  background: white;
-  box-shadow: 0 20px 60px rgb(14 21 35 / 0.3);
+  background: var(--color-surface);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 0.3);
 }
 
 .diagnostics-backdrop {
@@ -2369,7 +2700,7 @@ button.voice-chip {
   display: grid;
   place-items: center;
   padding: 18px;
-  background: rgb(19 29 48 / 0.55);
+  background: var(--color-scrim);
   backdrop-filter: blur(3px);
 }
 
@@ -2380,8 +2711,8 @@ button.voice-chip {
   max-height: min(820px, calc(100vh - 36px));
   overflow: hidden;
   border-radius: 14px;
-  background: white;
-  box-shadow: 0 20px 70px rgb(14 21 35 / 0.36);
+  background: var(--color-surface);
+  box-shadow: 0 20px 70px rgb(0 0 0 / 0.36);
 }
 
 .diagnostics-heading,
@@ -2402,7 +2733,7 @@ button.voice-chip {
   padding: 0 12px;
   border: 1px solid var(--color-border-strong);
   border-radius: 7px;
-  background: white;
+  background: var(--color-surface);
   font-size: 9px;
   font-weight: 750;
   cursor: pointer;
@@ -2437,10 +2768,10 @@ button.voice-chip {
 .diagnostic-row p,
 .diagnostic-remedy,
 .diagnostic-empty-state { margin: 5px 0 0; color: var(--color-text-secondary); font-size: 9px; line-height: 1.5; }
-.diagnostic-remedy { padding: 7px; border-radius: 6px; background: #fff8ed; }
-.diagnostic-error { padding: 10px; border: 1px solid #f0c7ca; border-radius: 8px; background: var(--color-danger-subtle); font-size: 9px; }
+.diagnostic-remedy { padding: 7px; border-radius: 6px; background: var(--color-warning-subtle); }
+.diagnostic-error { padding: 10px; border: 1px solid var(--color-danger-border); border-radius: 8px; background: var(--color-danger-subtle); font-size: 9px; }
 .diagnostics-actions { justify-content: flex-end; border-top: 1px solid var(--color-border); border-bottom: 0; }
-.diagnostics-actions button:last-child { border-color: var(--color-accent); color: white; background: var(--color-accent); }
+.diagnostics-actions button:last-child { border-color: var(--color-accent); color: var(--color-on-accent); background: var(--color-accent); }
 
 .onboarding-backdrop {
   position: fixed;
@@ -2449,7 +2780,7 @@ button.voice-chip {
   display: grid;
   place-items: center;
   padding: 18px;
-  background: rgb(19 29 48 / 0.55);
+  background: var(--color-scrim);
   backdrop-filter: blur(3px);
 }
 
@@ -2457,15 +2788,15 @@ button.voice-chip {
   width: min(520px, 100%);
   padding: 24px;
   border-radius: 16px;
-  background: white;
-  box-shadow: 0 22px 70px rgb(14 21 35 / 0.36);
+  background: var(--color-surface);
+  box-shadow: 0 22px 70px rgb(0 0 0 / 0.36);
 }
 
 .onboarding-dialog h2 { margin: 8px 0; font-size: 22px; }
 .onboarding-dialog > p:not(.eyebrow) { min-height: 66px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.7; }
 .onboarding-progress { display: flex; gap: 7px; margin-bottom: 18px; }
 .onboarding-progress span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: var(--color-text-tertiary); background: var(--color-surface-subtle); font-size: 9px; font-weight: 800; }
-.onboarding-progress span.active { color: white; background: var(--color-accent); }
+.onboarding-progress span.active { color: var(--color-on-accent); background: var(--color-accent); }
 .onboarding-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; }
 .onboarding-actions > div { display: flex; gap: 6px; }
 
@@ -2599,7 +2930,7 @@ button.voice-chip {
     max-height: none;
     visibility: hidden;
     pointer-events: none;
-    box-shadow: 0 18px 52px rgb(21 30 48 / 0.22);
+    box-shadow: 0 18px 52px var(--color-scrim-light);
     transition:
       transform 180ms ease,
       visibility 180ms;
@@ -2636,7 +2967,7 @@ button.voice-chip {
     display: block;
     padding: 0;
     border: 0;
-    background: rgb(19 29 48 / 0.28);
+    background: var(--color-scrim-light);
     backdrop-filter: blur(2px);
   }
 
@@ -2668,14 +2999,14 @@ button.voice-chip {
     border: 1px solid var(--color-border-strong);
     border-radius: 8px;
     color: var(--color-text-secondary);
-    background: white;
+    background: var(--color-surface);
     font-size: 10px;
     font-weight: 700;
     cursor: pointer;
   }
 
   .mobile-panel-switcher button:hover {
-    border-color: #b8caf7;
+    border-color: var(--color-accent-border);
     color: var(--color-accent);
     background: var(--color-accent-faint);
   }
@@ -2905,7 +3236,7 @@ button.voice-chip {
   z-index: 220;
   inset: 0;
   display: flex;
-  background: rgb(19 29 48 / 0.5);
+  background: var(--color-scrim);
   backdrop-filter: blur(3px);
 }
 
@@ -2915,7 +3246,7 @@ button.voice-chip {
   width: min(560px, 100%);
   height: 100%;
   background: var(--color-surface);
-  box-shadow: 0 0 60px rgb(14 21 35 / 0.35);
+  box-shadow: 0 0 60px rgb(0 0 0 / 0.35);
 }
 
 .menu-header {
@@ -3401,5 +3732,58 @@ ul.theory-explanation em {
 .preference-guidance-last {
   margin: 6px 0 0;
   font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+/* The theme choice, as a segmented control rather than a switch: "follow the
+   machine" is a third state, and a two-position switch cannot say it. */
+.menu-theme-choice {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  /* The parent section stretches its children, which would make three 44px
+     buttons as tall as the panel. */
+  align-items: start;
+  align-self: start;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-medium);
+  background: var(--color-surface-subtle);
+}
+.menu-theme-option {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 1px;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: var(--space-3) var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease),
+    color var(--duration-fast) var(--ease);
+}
+.menu-theme-option span {
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+}
+.menu-theme-option:hover {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+}
+.menu-theme-option.selected {
+  border-color: var(--color-accent-border);
+  background: var(--color-surface);
+  color: var(--color-accent);
+  font-weight: 650;
+  box-shadow: var(--shadow-hairline);
+}
+.menu-theme-option.selected span {
   color: var(--color-text-secondary);
 }

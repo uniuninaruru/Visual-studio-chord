@@ -62,6 +62,19 @@ export async function importCompositionFile(
   return { json, composition: importCompositionJson(json) };
 }
 
+/**
+ * A colour a voice may carry into an inline style.
+ *
+ * Either a six-digit hex, which is what every project saved before the theme
+ * work holds, or a reference to one of this app's own track tokens. Kept to a
+ * closed pattern rather than "any string": the value is written straight into a
+ * style attribute by the piano roll, so an imported file must not be able to
+ * put arbitrary CSS there.
+ */
+function isTrackColour(value: string): boolean {
+  return /^#[0-9a-f]{6}$/i.test(value) || /^var\(--track-[a-z]+(-fill)?\)$/.test(value);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -471,7 +484,9 @@ export function isGeneratedComposition(value: unknown): value is GeneratedCompos
       && typeof voice.instrument === "string"
       && voiceInstruments.includes(voice.instrument)
       && typeof voice.color === "string"
-      && /^#[0-9a-f]{6}$/i.test(voice.color)
+      && isTrackColour(voice.color)
+      && (voice.fill === undefined
+        || (typeof voice.fill === "string" && isTrackColour(voice.fill)))
       && Number.isInteger(voice.midiChannel)
       && (voice.midiChannel as number) >= 0
       && (voice.midiChannel as number) <= 15
