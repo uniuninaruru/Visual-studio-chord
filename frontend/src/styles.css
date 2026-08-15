@@ -149,6 +149,10 @@
   /* Elevation. In dark these carry almost nothing, which is correct: depth
    there comes from the surface tokens stepping up, and the shadow only
    softens the edge. */
+  /* The lift under an accent-filled control, tinted rather than neutral so it
+     reads as the control's own colour rather than as a drop shadow. Three
+     values within a pixel of each other before this. */
+  --shadow-accent: 0 5px 14px var(--color-accent-glow);
   --shadow-hairline: 0 1px 2px rgb(31 41 55 / 0.05);
   --shadow-soft: 0 8px 28px rgb(35 43 58 / 0.07);
   --shadow-raised: 0 14px 42px rgb(14 21 35 / 0.16);
@@ -312,6 +316,7 @@
     --track-canon: #c99cff;
     --track-pulse-fill: rgb(240 184 120 / 0.32);
     --track-pulse: #f0b878;
+    --shadow-accent: 0 5px 14px var(--color-accent-glow);
     --shadow-hairline: 0 1px 2px rgb(0 0 0 / 0.4);
     --shadow-soft: 0 8px 28px rgb(0 0 0 / 0.45);
     --shadow-raised: 0 14px 42px rgb(0 0 0 / 0.55);
@@ -406,6 +411,7 @@
   --track-canon: #c99cff;
   --track-pulse-fill: rgb(240 184 120 / 0.32);
   --track-pulse: #f0b878;
+  --shadow-accent: 0 5px 14px var(--color-accent-glow);
   --shadow-hairline: 0 1px 2px rgb(0 0 0 / 0.4);
   --shadow-soft: 0 8px 28px rgb(0 0 0 / 0.45);
   --shadow-raised: 0 14px 42px rgb(0 0 0 / 0.55);
@@ -543,15 +549,15 @@ summary:focus-visible {
   width: 34px;
   height: 34px;
   padding: 8px;
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
   background: var(--color-accent);
-  box-shadow: 0 5px 14px var(--color-accent-glow);
+  box-shadow: var(--shadow-accent);
 }
 
 .brand-mark span {
   display: block;
   width: 3px;
-  border-radius: 3px;
+  border-radius: var(--radius-small);
   background: var(--color-surface);
 }
 
@@ -574,10 +580,12 @@ summary:focus-visible {
   height: 36px;
   padding: 0;
   border: 1px solid var(--color-border);
-  border-radius: 9px;
+  border-radius: var(--radius-medium);
   background: var(--color-surface);
   cursor: pointer;
-  transition: 140ms ease;
+  transition: background var(--duration-fast) var(--ease),
+    border-color var(--duration-fast) var(--ease),
+    color var(--duration-fast) var(--ease);
 }
 
 .transport-button:hover,
@@ -593,7 +601,7 @@ summary:focus-visible {
   border-radius: 50%;
   color: var(--color-on-accent);
   background: var(--color-accent);
-  box-shadow: 0 6px 16px var(--color-accent-glow);
+  box-shadow: var(--shadow-accent);
 }
 
 .transport-button.play-button:hover,
@@ -610,7 +618,7 @@ summary:focus-visible {
   margin-left: 8px;
   padding: 7px 12px;
   border: 1px solid var(--color-border);
-  border-radius: 9px;
+  border-radius: var(--radius-medium);
   background: var(--color-surface-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -675,7 +683,7 @@ summary:focus-visible {
   height: 36px;
   padding: 0 5px 0 10px;
   border: 1px solid var(--color-border);
-  border-radius: 9px;
+  border-radius: var(--radius-medium);
   background: var(--color-surface);
 }
 
@@ -712,18 +720,20 @@ summary:focus-visible {
   gap: 7px;
   min-height: 38px;
   padding: 0 14px;
-  border-radius: 9px;
+  border-radius: var(--radius-medium);
   font-size: var(--text-sm);
   font-weight: 700;
   cursor: pointer;
-  transition: 140ms ease;
+  transition: background var(--duration-fast) var(--ease),
+    border-color var(--duration-fast) var(--ease),
+    color var(--duration-fast) var(--ease);
 }
 
 .primary-button {
   border: 1px solid var(--color-accent);
   color: var(--color-on-accent);
   background: var(--color-accent);
-  box-shadow: 0 5px 13px var(--color-accent-glow);
+  box-shadow: var(--shadow-accent);
 }
 
 .primary-button:hover:not(:disabled) {
@@ -899,11 +909,12 @@ summary:focus-visible {
   height: 35px;
   padding: 0 10px;
   border: 1px solid var(--color-border);
-  border-radius: 7px;
+  border-radius: var(--radius-small);
   color: var(--color-text-primary);
   background-color: var(--color-surface-muted);
   font-size: var(--text-sm);
-  transition: 120ms ease;
+  transition: background var(--duration-instant) var(--ease),
+    color var(--duration-instant) var(--ease);
 }
 
 .field input:hover,
@@ -921,7 +932,7 @@ summary:focus-visible {
   width: 100%;
   height: 4px;
   margin: 4px 0 0;
-  border-radius: 3px;
+  border-radius: var(--radius-small);
   accent-color: var(--color-accent);
   cursor: pointer;
 }
@@ -959,7 +970,7 @@ summary:focus-visible {
 .phase-card {
   margin-top: 8px;
   border: 1px solid var(--color-border);
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
   background: var(--color-surface);
   overflow: hidden;
 }
@@ -1009,7 +1020,7 @@ summary:focus-visible {
   place-items: center;
   width: 24px;
   height: 24px;
-  border-radius: 7px;
+  border-radius: var(--radius-small);
   color: var(--color-on-accent);
   background: var(--color-accent);
   font-size: var(--text-xs);
@@ -1029,7 +1040,7 @@ summary:focus-visible {
   margin-bottom: 10px;
   padding: 9px;
   border: 1px solid var(--color-border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius-medium);
   background: var(--color-surface-muted);
 }
 
@@ -1086,7 +1097,7 @@ summary:focus-visible {
   max-width: 100%;
   padding: 5px 9px;
   border: 1px solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-text-secondary);
   background: var(--color-surface-muted);
   font-size: var(--text-xs);
@@ -1125,7 +1136,7 @@ summary:focus-visible {
   gap: 14px;
   padding: 16px;
   border: 1px solid var(--color-accent-border);
-  border-radius: 12px;
+  border-radius: var(--radius-medium);
   background:
     radial-gradient(circle at 100% 0, var(--color-accent-tint), transparent 38%),
     var(--color-surface-accent);
@@ -1143,7 +1154,7 @@ summary:focus-visible {
   place-items: center;
   width: 38px;
   height: 38px;
-  border-radius: 11px;
+  border-radius: var(--radius-medium);
   color: var(--color-on-accent);
   background: var(--color-accent);
 }
@@ -1182,7 +1193,7 @@ summary:focus-visible {
   gap: 11px;
   padding: 13px;
   border: 1px solid var(--color-border);
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
   background: var(--color-surface);
 }
 
@@ -1210,7 +1221,7 @@ summary:focus-visible {
 .auto-fix-stale {
   margin: 0;
   padding: 8px;
-  border-radius: 7px;
+  border-radius: var(--radius-small);
   color: var(--color-warning);
   background: var(--color-warning-subtle);
   font-size: var(--text-xs);
@@ -1266,7 +1277,7 @@ summary:focus-visible {
 
 .auto-fix-checks span {
   padding: 4px 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-info);
   background: var(--color-info-subtle);
   font-size: var(--text-2xs);
@@ -1311,7 +1322,7 @@ summary:focus-visible {
 .style-badge {
   padding: 4px 7px;
   border: 1px solid var(--color-accent-border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-accent);
   background: var(--color-accent-subtle);
   font-size: var(--text-xs);
@@ -1332,7 +1343,7 @@ summary:focus-visible {
   gap: 6px;
   padding: 5px 8px;
   border: 1px solid var(--color-border);
-  border-radius: 7px;
+  border-radius: var(--radius-small);
   color: var(--color-text-secondary);
   background: var(--color-surface);
   font-size: var(--text-xs);
@@ -1344,7 +1355,7 @@ summary:focus-visible {
   min-height: var(--control-height);
   padding: 0 8px;
   border: 1px solid var(--color-border);
-  border-radius: 7px;
+  border-radius: var(--radius-small);
   color: var(--color-accent);
   background: var(--color-surface);
   font-size: var(--text-xs);
@@ -1414,7 +1425,7 @@ summary:focus-visible {
 .legend-item i {
   width: 7px;
   height: 7px;
-  border-radius: 2px;
+  border-radius: var(--radius-small);
   background: currentColor;
 }
 
@@ -1428,7 +1439,7 @@ summary:focus-visible {
   min-width: max(100%, calc(var(--bar-count) * 122px));
   overflow: hidden;
   border: 1px solid var(--color-border-strong);
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
   background: var(--color-lane-well);
 }
 
@@ -1441,7 +1452,9 @@ summary:focus-visible {
   min-height: 122px;
   border-right: 1px solid var(--color-border);
   background: var(--color-surface);
-  transition: 140ms ease;
+  transition: background var(--duration-fast) var(--ease),
+    border-color var(--duration-fast) var(--ease),
+    color var(--duration-fast) var(--ease);
 }
 
 .chord-cell:last-child {
@@ -1484,7 +1497,7 @@ summary:focus-visible {
   height: 22px;
   padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--radius-small);
   color: var(--color-function-none);
   background: transparent;
   cursor: pointer;
@@ -1598,7 +1611,7 @@ summary:focus-visible {
   min-height: var(--control-height);
   padding: 5px 9px;
   border: 1px solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-text-primary);
   background: var(--color-surface);
   font-size: var(--text-xs);
@@ -1634,7 +1647,7 @@ button.voice-chip {
   margin-bottom: 10px;
   padding: 8px;
   border: 1px solid var(--color-border);
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
   background: var(--color-surface-subtle);
 }
 
@@ -1645,7 +1658,7 @@ button.voice-chip {
   min-height: 46px;
   padding: 8px 10px;
   border: 1px solid var(--color-border-strong);
-  border-radius: 7px;
+  border-radius: var(--radius-small);
   color: var(--color-text-secondary);
   background: var(--color-surface);
   font-size: var(--text-xs);
@@ -1677,7 +1690,7 @@ button.voice-chip {
   min-height: 46px;
   overflow: hidden;
   border: 1px solid var(--color-border);
-  border-radius: 7px;
+  border-radius: var(--radius-small);
   background: var(--color-surface);
 }
 
@@ -1710,7 +1723,7 @@ button.voice-chip {
   flex: 0 0 auto;
   width: 7px;
   height: 28px;
-  border-radius: 4px;
+  border-radius: var(--radius-small);
 }
 
 .track-select span {
@@ -1770,7 +1783,7 @@ button.voice-chip {
   height: min(520px, var(--piano-content-height, 366px));
   overflow: auto;
   border: 1px solid var(--color-border-strong);
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
   background: var(--color-surface);
 }
 
@@ -1876,7 +1889,7 @@ button.voice-chip {
   overflow: hidden;
   padding: 0 4px;
   border: 1px solid var(--color-note-chord-border);
-  border-radius: 3px;
+  border-radius: var(--radius-small);
   color: var(--color-note-chord-fg);
   background: var(--color-note-chord-bg);
   box-shadow: 0 1px 2px var(--color-note-chord-glow);
@@ -1934,7 +1947,7 @@ button.voice-chip {
   left: -4px;
   width: 9px;
   height: 7px;
-  border-radius: 1px 1px 5px 5px;
+  border-radius: 0 0 var(--radius-small) var(--radius-small);
   background: var(--color-playhead);
 }
 
@@ -1963,7 +1976,7 @@ button.voice-chip {
   place-items: center;
   width: 34px;
   height: 34px;
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
   color: var(--color-accent);
   background: var(--color-accent-subtle);
 }
@@ -1989,7 +2002,7 @@ button.voice-chip {
   gap: 3px;
   padding: 3px;
   border: 1px solid var(--color-border);
-  border-radius: 9px;
+  border-radius: var(--radius-medium);
   background: var(--color-surface-subtle);
 }
 
@@ -2004,7 +2017,7 @@ button.voice-chip {
   min-height: var(--control-height);
   padding: 0 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-small);
   color: var(--color-text-secondary);
   background: transparent;
   font-size: var(--text-xs);
@@ -2031,7 +2044,7 @@ button.voice-chip {
   max-width: 180px;
   padding: 4px 7px;
   border: 1px solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-text-tertiary);
   background: var(--color-surface-subtle);
   font-size: var(--text-2xs);
@@ -2112,7 +2125,7 @@ button.voice-chip {
   place-items: center;
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
   color: var(--color-accent);
   background: var(--color-accent-subtle);
 }
@@ -2138,7 +2151,7 @@ button.voice-chip {
   min-height: 32px;
   padding: 0 5px;
   border: 1px solid var(--color-border);
-  border-radius: 7px;
+  border-radius: var(--radius-small);
   background: var(--color-surface);
   font-size: var(--text-xs);
   font-weight: 700;
@@ -2235,7 +2248,7 @@ button.voice-chip {
 .mini-timeline span {
   flex: 1;
   height: 8px;
-  border-radius: 2px;
+  border-radius: var(--radius-small);
   background: var(--color-border-subtle);
 }
 
@@ -2269,7 +2282,7 @@ button.voice-chip {
   min-height: 74px;
   padding: 9px 4px;
   border: 1px solid var(--color-border);
-  border-radius: 9px;
+  border-radius: var(--radius-medium);
   color: var(--color-text-secondary);
   background: var(--color-surface);
   cursor: pointer;
@@ -2306,9 +2319,9 @@ button.voice-chip {
   max-width: min(420px, calc(100vw - 44px));
   padding: 12px 15px 12px 11px;
   border: 1px solid var(--color-border-strong);
-  border-radius: 11px;
+  border-radius: var(--radius-medium);
   background: var(--color-text-primary);
-  box-shadow: 0 14px 42px rgb(0 0 0 / 0.24);
+  box-shadow: var(--shadow-raised);
   color: var(--color-on-accent);
   font-size: var(--text-xs);
   line-height: 1.45;
@@ -2411,7 +2424,7 @@ button.voice-chip {
 .ai-provenance-badges > span {
   padding: 1px 4px;
   border: 1px solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-text-secondary);
   background: var(--color-surface);
   font-size: var(--text-2xs);
@@ -2421,7 +2434,7 @@ button.voice-chip {
   margin-left: 0;
   padding: 1px 6px;
   border: 1px solid var(--color-border-strong);
-  border-radius: 4px;
+  border-radius: var(--radius-small);
   background: var(--color-surface);
   font-size: var(--text-2xs);
   cursor: pointer;
@@ -2494,7 +2507,7 @@ button.voice-chip {
   min-height: var(--control-height);
   padding: 0 3px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-small);
   color: var(--color-text-secondary);
   background: transparent;
   font-size: var(--text-2xs);
@@ -2562,7 +2575,7 @@ button.voice-chip {
   height: 28px;
   padding: 0 24px 0 8px;
   border: 1px solid var(--color-border);
-  border-radius: 6px;
+  border-radius: var(--radius-small);
   background: var(--color-surface);
   font-size: var(--text-xs);
 }
@@ -2644,7 +2657,7 @@ button.voice-chip {
   min-width: 0;
   padding: 12px;
   border: 1px solid var(--color-border);
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
   background: var(--color-surface-muted);
 }
 
@@ -2665,7 +2678,7 @@ button.voice-chip {
   place-items: center;
   width: 30px;
   height: 30px;
-  border-radius: 8px;
+  border-radius: var(--radius-medium);
   color: var(--color-on-accent);
   background: var(--color-accent);
   font-weight: 850;
@@ -2686,7 +2699,7 @@ button.voice-chip {
   justify-self: start;
   padding: 3px 6px;
   border: 1px solid color-mix(in srgb, var(--color-accent) 45%, var(--color-surface));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-accent);
   background: var(--color-accent-subtle);
   font-size: var(--text-2xs);
@@ -2729,7 +2742,7 @@ button.voice-chip {
 }
 .variation-provenance-row span {
   padding: 2px 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-text-secondary);
   background: var(--color-surface-subtle);
   font-size: var(--text-2xs);
@@ -2750,7 +2763,7 @@ button.voice-chip {
   min-height: var(--control-height);
   padding: 0 7px;
   border: 1px solid var(--color-border);
-  border-radius: 6px;
+  border-radius: var(--radius-small);
   background: var(--color-surface);
   font-size: var(--text-2xs);
   font-weight: 700;
@@ -2764,7 +2777,7 @@ button.voice-chip {
 }
 
 .preference-category-field { display: grid; gap: 4px; font-size: var(--text-2xs); }
-.preference-category-field select { height: 30px; border: 1px solid var(--color-border); border-radius: 6px; }
+.preference-category-field select { height: 30px; border: 1px solid var(--color-border); border-radius: var(--radius-small); }
 .preference-evidence-summary { display: grid; grid-template-columns: 1fr auto; gap: 12px; }
 .preference-confidence > div,
 .preference-feedback-count { display: flex; justify-content: space-between; gap: 10px; font-size: var(--text-xs); }
@@ -2775,7 +2788,7 @@ button.voice-chip {
 .preference-explanation-summary,
 .preference-insufficient-evidence { color: var(--color-text-secondary); font-size: var(--text-xs); line-height: 1.5; }
 .preference-reason-list { display: grid; gap: 6px; padding: 0; list-style: none; }
-.preference-reason-list li { display: grid; gap: 2px; padding: 8px; border-radius: 7px; background: var(--color-surface-subtle); font-size: var(--text-2xs); }
+.preference-reason-list li { display: grid; gap: 2px; padding: 8px; border-radius: var(--radius-small); background: var(--color-surface-subtle); font-size: var(--text-2xs); }
 .preference-reason-list li strong { font-size: var(--text-xs); }
 .preference-reason-direction { color: var(--color-accent); font-weight: 800; }
 .preference-reason-list .is-avoid .preference-reason-direction { color: var(--color-warning); }
@@ -2783,12 +2796,12 @@ button.voice-chip {
 .preference-data-actions .danger-button { min-height: var(--control-height); }
 
 .history-compare-count { color: var(--color-text-secondary); font-size: var(--text-xs); }
-.history-comparison { padding: 10px; border-radius: 8px; background: var(--color-accent-faint); font-size: var(--text-xs); }
+.history-comparison { padding: 10px; border-radius: var(--radius-medium); background: var(--color-accent-faint); font-size: var(--text-xs); }
 .history-comparison header { display: flex; gap: 6px; }
 .history-comparison p { margin: 7px 0; }
 .history-comparison ul { margin: 0; padding-left: 18px; }
 .history-entry-list { display: grid; gap: 6px; max-height: 460px; overflow-y: auto; padding: 0; list-style: none; }
-.history-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 8px; border: 1px solid var(--color-border); border-radius: 8px; }
+.history-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 8px; border: 1px solid var(--color-border); border-radius: var(--radius-medium); }
 .history-entry.is-current { border-color: var(--color-accent-border); background: var(--color-accent-faint); }
 .history-name-field input { width: 100%; border: 0; background: transparent; font-size: var(--text-xs); font-weight: 750; }
 .history-entry-meta { display: flex; flex-wrap: wrap; gap: 5px; color: var(--color-text-tertiary); font-size: var(--text-2xs); }
@@ -2810,9 +2823,9 @@ button.voice-chip {
 .diagnostics-placeholder {
   width: min(620px, 100%);
   padding: 20px;
-  border-radius: 14px;
+  border-radius: var(--radius-large);
   background: var(--color-surface);
-  box-shadow: 0 20px 60px rgb(0 0 0 / 0.3);
+  box-shadow: var(--shadow-overlay);
 }
 
 .diagnostics-backdrop {
@@ -2832,9 +2845,9 @@ button.voice-chip {
   width: min(760px, 100%);
   max-height: min(820px, calc(100vh - 36px));
   overflow: hidden;
-  border-radius: 14px;
+  border-radius: var(--radius-large);
   background: var(--color-surface);
-  box-shadow: 0 20px 70px rgb(0 0 0 / 0.36);
+  box-shadow: var(--shadow-overlay);
 }
 
 .diagnostics-heading,
@@ -2854,7 +2867,7 @@ button.voice-chip {
   min-height: 34px;
   padding: 0 12px;
   border: 1px solid var(--color-border-strong);
-  border-radius: 7px;
+  border-radius: var(--radius-small);
   background: var(--color-surface);
   font-size: var(--text-xs);
   font-weight: 750;
@@ -2873,7 +2886,7 @@ button.voice-chip {
 
 .diagnostics-content h3 { margin: 0 0 10px; font-size: var(--text-sm); }
 .diagnostic-summary-list { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin: 0; }
-.diagnostic-summary-list > div { display: grid; gap: 3px; padding: 8px; border-radius: 7px; background: var(--color-surface-subtle); }
+.diagnostic-summary-list > div { display: grid; gap: 3px; padding: 8px; border-radius: var(--radius-small); background: var(--color-surface-subtle); }
 .diagnostic-summary-list dt { color: var(--color-text-tertiary); font-size: var(--text-2xs); }
 .diagnostic-summary-list dd { margin: 0; font-size: var(--text-xs); font-weight: 700; }
 .diagnostic-status { display: inline-flex; align-items: center; gap: 4px; }
@@ -2885,13 +2898,13 @@ button.voice-chip {
 .diagnostic-status[data-status="error"],
 .diagnostic-status[data-status="incompatible"] { color: var(--color-danger); }
 .diagnostic-list { display: grid; gap: 7px; padding: 0; list-style: none; }
-.diagnostic-row { padding: 9px; border: 1px solid var(--color-border); border-radius: 7px; }
+.diagnostic-row { padding: 9px; border: 1px solid var(--color-border); border-radius: var(--radius-small); }
 .diagnostic-row-heading { display: flex; justify-content: space-between; gap: 10px; font-size: var(--text-xs); }
 .diagnostic-row p,
 .diagnostic-remedy,
 .diagnostic-empty-state { margin: 5px 0 0; color: var(--color-text-secondary); font-size: var(--text-xs); line-height: 1.5; }
-.diagnostic-remedy { padding: 7px; border-radius: 6px; background: var(--color-warning-subtle); }
-.diagnostic-error { padding: 10px; border: 1px solid var(--color-danger-border); border-radius: 8px; background: var(--color-danger-subtle); font-size: var(--text-xs); }
+.diagnostic-remedy { padding: 7px; border-radius: var(--radius-small); background: var(--color-warning-subtle); }
+.diagnostic-error { padding: 10px; border: 1px solid var(--color-danger-border); border-radius: var(--radius-medium); background: var(--color-danger-subtle); font-size: var(--text-xs); }
 .diagnostics-actions { justify-content: flex-end; border-top: 1px solid var(--color-border); border-bottom: 0; }
 .diagnostics-actions button:last-child { border-color: var(--color-accent); color: var(--color-on-accent); background: var(--color-accent); }
 
@@ -2909,9 +2922,9 @@ button.voice-chip {
 .onboarding-dialog {
   width: min(520px, 100%);
   padding: 24px;
-  border-radius: 16px;
+  border-radius: var(--radius-large);
   background: var(--color-surface);
-  box-shadow: 0 22px 70px rgb(0 0 0 / 0.36);
+  box-shadow: var(--shadow-overlay);
 }
 
 .onboarding-dialog h2 { margin: 8px 0; font-size: var(--text-2xl); }
@@ -3124,7 +3137,7 @@ button.voice-chip {
     min-height: 34px;
     padding: 0 10px;
     border: 1px solid var(--color-border-strong);
-    border-radius: 8px;
+    border-radius: var(--radius-medium);
     color: var(--color-text-secondary);
     background: var(--color-surface);
     font-size: var(--text-xs);
@@ -3240,6 +3253,72 @@ button.voice-chip {
     min-width: 102px;
     margin-left: 2px;
     padding-inline: 9px;
+  }
+}
+
+
+/*
+ * Motion.
+ *
+ * The stylesheet held four transition declarations before this, so most of the
+ * app changed state by cutting. What is animated here is only what a pointer
+ * causes -- a hover, a press, a selection -- and only the properties that carry
+ * the state: colour, border, background, and the shadow that says a thing is
+ * raised. Nothing moves position, nothing scales, nothing eases in from
+ * elsewhere.
+ *
+ * That restraint is the point rather than a shortcut. This is a tool someone
+ * has open for an hour, pressing the same buttons; a transition that reads as
+ * craft on the first press reads as latency on the fiftieth. Durations are
+ * 90-140ms, below the threshold where a control feels like it is answering
+ * late, and the easing has no overshoot.
+ *
+ * Everything below is covered by the prefers-reduced-motion block at the end of
+ * this file, which zeroes transition-duration on every element rather than on a
+ * list that would have to be maintained.
+ */
+.settings-tabs button,
+.device-chip,
+.menu-tab,
+.progression-result,
+.reharmonization-candidate,
+.variation-card,
+.history-entry,
+.chord-content,
+.status-item,
+.bar-lock-button,
+.piano-note,
+.menu-theme-option,
+a[href] {
+  transition:
+    background var(--duration-fast) var(--ease),
+    border-color var(--duration-fast) var(--ease),
+    color var(--duration-fast) var(--ease),
+    box-shadow var(--duration-fast) var(--ease);
+}
+
+/* A press answers immediately or it does not read as a press. */
+button:active,
+.chord-content:active,
+.piano-note:active {
+  transition-duration: var(--duration-instant);
+}
+
+/*
+ * The panels that appear rather than change: a dialog, a toast, the mobile
+ * sheets. These may move, because they are arriving from somewhere.
+ */
+.menu-panel,
+.diagnostics-dialog,
+.onboarding-dialog,
+.toast {
+  animation: surface-in var(--duration-slow) var(--ease-out);
+}
+
+@keyframes surface-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
   }
 }
 
@@ -3359,7 +3438,7 @@ button.voice-chip {
 .menu-button span {
   display: block;
   height: 2px;
-  border-radius: 1px;
+  border-radius: var(--radius-small);
   background: var(--color-text-secondary);
 }
 
@@ -3387,7 +3466,7 @@ button.voice-chip {
   width: min(560px, 100%);
   height: 100%;
   background: var(--color-surface);
-  box-shadow: 0 0 60px rgb(0 0 0 / 0.35);
+  box-shadow: var(--shadow-overlay);
 }
 
 .menu-header {
@@ -3507,7 +3586,7 @@ button.voice-chip {
 
 .menu-step-where {
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--color-accent-subtle);
   color: var(--color-accent);
   font-size: var(--text-xs);
@@ -3568,7 +3647,7 @@ button.voice-chip {
 
 .menu-credit-license {
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--color-surface-subtle);
   color: var(--color-text-tertiary);
   font-size: var(--text-xs);
@@ -3658,7 +3737,7 @@ button.voice-chip {
 }
 .progression-search-header code {
   padding: 1px 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-small);
   background: var(--color-surface-subtle);
 }
 
@@ -3694,7 +3773,7 @@ button.voice-chip {
 .device-chip {
   padding: 4px 10px;
   border: 1px solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--color-surface);
   color: var(--color-text-secondary);
   cursor: pointer;
@@ -3753,7 +3832,7 @@ button.voice-chip {
 .progression-name { color: var(--color-text-secondary); }
 .progression-derived {
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--color-surface-subtle);
   color: var(--color-text-tertiary);
   font-size: var(--text-xs);
