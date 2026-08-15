@@ -7,6 +7,109 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Added — a dark theme, and a colour system that can carry one
+
+There was **no dark mode**: zero occurrences of `prefers-color-scheme` in 3389
+lines of CSS. The reason it could not simply be added is that the token block
+governed about **a seventh** of the colour decisions in the file. **154 literals
+in 92 distinct values** lived outside it — 40 bare `white` keywords, 74 hex, 40
+`rgb()` — and six more lived in TypeScript, applied as inline styles where no
+stylesheet rule could ever reach them.
+
+So this is one change: **every literal becomes a token, and the token set gains
+a second value.**
+
+**What moved, beyond a straight port:**
+
+The **three harmonic-function colours** drive the chord lane, which is this
+app's semantic core. Measured, all three sat within 2.5 of each other in L*, so
+**the only channel separating them was red-green** — and simulated through
+Viénot, **tonic and predominant collapsed to a CIE76 difference of 9.3 under
+protanopia**, below the threshold for telling two colours apart at all. They are
+carried on a 3px stripe, and the text label that would disambiguate them is
+`display: none` the moment harmonic rhythm subdivides a bar. Rotating
+predominant from violet toward magenta separates them along the blue-yellow
+axis, which both protanopes and deuteranopes keep: **9.3 → 25.8** protan,
+**18.1 → 45.3** deutan, every contrast ratio holding at or above 6.1.
+
+The **six track colours** moved out of `src/music/*.ts`. **Four were already
+under 3:1 on white** before dark mode was a question, and the `${track.color}99`
+alpha concatenation only works on a hex literal — the same 60% over a dark
+canvas is not the same colour as over a white one. Each track carries a tuned
+`fill` token now. `fill` is optional so a project saved before today still
+opens, and the JSON validator's colour check widened to hex-or-track-token
+rather than to "any string": the value goes into a style attribute, so an
+imported file must not be able to put arbitrary CSS there.
+
+The **focus ring** went 20% → 35% alpha; a 3px ring at 20% is weak on light and
+near-invisible on dark. The **playhead** went from `#eb4d5b`, which was 3.9:1
+against the lane, to `#d92d3c`.
+
+The **theme control** sits beside the mixer in the menu, for the reason the
+mixer is there. Three options rather than a switch, because "follow the machine"
+is a third state a switch cannot say — and that option reports **what the
+machine says, not what is on screen**. `index.html` applies the stored theme
+inline before first paint, because a module script runs after paint and a stored
+dark theme would otherwise flash white on every load.
+
+### Fixed — a type scale, and no more seven-pixel text
+
+Measured: **twenty distinct rendered sizes, 273 elements below 11px, 195 of them
+at 7px.** Seven pixels is not a small size, it is an unreadable one — Japanese
+kana lose the strokes that tell them apart, and the Latin caps labels this UI
+leans on stop being words and become texture. The label was costing pixels and
+informing nobody.
+
+Eight steps from 10px to 22px, 172 declarations remapped, **nothing below 10px**.
+The smallest step is reserved for dense in-canvas labels where the alternative is
+not showing the information at all.
+
+**What raising them broke:** growing `.piano-note span` from 7px to 10px made 70
+note names overflow. A clipped "C" where "C5" was meant is worse than no label —
+it names a different note. So it is hidden rather than clipped on notes too
+narrow to hold it (69 of 130 on screen), and the other 61 are legible where none
+were before.
+
+### Fixed — four layout breaks
+
+**The transport bar declared three columns and had four children.** The fourth
+wrapped onto an implicit second row and into the 350px first column: the bar
+rendered 81px against its stated 72, "編集反映" broke to two characters per line,
+and all of it sat under the hamburger rather than at the right where its own
+`justify-content: flex-end` says it belongs.
+
+**The status strip stuck 25px inside the transport bar on mobile** — two
+hard-coded numbers in two places each, disagreeing with reality at the narrow
+breakpoint. One `--transport-height` token feeds both now.
+
+**The regeneration dock squeezed its selection label to 58px**: `1fr auto` gives
+the auto column its content first, and the controls need 273 of 375. Measured,
+"7–7 小節を選択中" rendered **58 wide and 125 tall**. It is the label that says
+what the button beside it will act on.
+
+**Four panel headings put their title in a column beside their own description.**
+
+### Fixed — hit targets, contrast, and three mistakes in my own measurement
+
+**186 controls rendered under 32px tall** — selects at 23, the settings tabs at
+30, every `.text-button` at 27 because a later `min-height: auto` opted the
+family out of its own 38px floor. One `--control-height` token now, with the
+in-canvas objects (notes, bar locks, voice chips) named in a single explicit
+exemption. **Controls under 32px outside the canvas: zero.**
+
+Three contrast failures fixed: the bar number (2.59 light, 4.43 dark), the
+explanation copy button I added earlier today which **had no background at all**
+and rendered with the browser's own grey chrome, and the note name in a
+secondary voice. **Failures in both themes: zero.**
+
+**And a note on measurement, because three of my own audits were wrong.**
+Reading `getComputedStyle` in the same JavaScript task as a theme switch returns
+**interpolated** values — the transitions are 140ms and the colours are
+mid-flight. That reported twelve failures where there was one, twice. And an
+audit that reads an element's own `rgba()` background without compositing it
+over its parent treats a 30% wash as opaque, which is what made the last figure
+look like a failure when the composited value passes at 6.75.
+
 ### Added — the A/B judgements now decide what gets generated
 
 The preference model has been learning since the A/B panel existed and
