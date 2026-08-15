@@ -732,7 +732,29 @@ export interface CompositionVoice {
   name: string;
   role: CompositionVoiceRole;
   instrument: CompositionVoiceInstrument;
+  /**
+   * The track's colour, as a CSS custom property reference rather than a hex
+   * literal.
+   *
+   * It is applied as an inline style, so no stylesheet rule can reach it and a
+   * literal here would have been the one colour in the app that cannot follow
+   * the theme. Four of the six literals this replaced were also already under
+   * 3:1 against white, so this was a light-mode defect before it was a
+   * dark-mode one.
+   */
   color: string;
+  /**
+   * The same colour as a fill behind a note.
+   *
+   * Its own token rather than the colour with an alpha suffix appended:
+   * `${color}99` only works on a hex literal, and the same 60% over a dark
+   * canvas is not the same colour as over a white one. Tuned per theme rather
+   * than derived.
+   *
+   * Optional because a project saved before it existed has voices carrying only
+   * a colour, and a stored piece must keep opening.
+   */
+  fill?: string;
   midiChannel: number;
   muted?: boolean;
   notes: NoteEvent[];
