@@ -200,6 +200,13 @@
   /* Motion. The whole stylesheet held six transition declarations, so this is
      mostly new. A tool used for hours gets short durations and no bounce: the
      hundredth press of a button should not perform. */
+  /* The transport bar's height, and the offset the status strip sticks at.
+     Two hard-coded numbers before this, in two places each, and at the narrow
+     breakpoint they disagreed: the bar rendered 89px tall against a strip that
+     stuck at 64, so the strip sat 25px underneath it and clipped its own
+     labels. One token, referenced by both, cannot drift. */
+  --transport-height: 72px;
+
   --ease: cubic-bezier(0.2, 0, 0, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --duration-instant: 90ms;
@@ -451,9 +458,22 @@ select:focus-visible {
   z-index: 30;
   top: 0;
   display: grid;
-  grid-template-columns: minmax(214px, 0.8fr) minmax(480px, 1.4fr) minmax(360px, 1fr);
+  /*
+   * Four columns for four children.
+   *
+   * It declared three, and the fourth -- the undo/redo, update-timing and
+   * export group -- wrapped onto an implicit second row and into the first
+   * column, 350px wide. Measured at 1440: the bar rendered 81px tall instead of
+   * its stated 72, "編集反映" broke to two characters per line, and "書き出し"
+   * wrapped, all of it sitting under the hamburger on the left rather than at
+   * the right where the rule's own justify-content: flex-end says it belongs.
+   *
+   * The menu button and the brand take what they need, the transport keeps the
+   * slack so it stays centred, and the actions take what they need on the right.
+   */
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
-  min-height: 72px;
+  min-height: var(--transport-height);
   padding: 0 20px;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-chrome-veil);
@@ -2304,7 +2324,7 @@ button.voice-chip {
 .project-status-bar {
   position: sticky;
   z-index: 29;
-  top: 72px;
+  top: var(--transport-height);
   display: flex;
   align-items: stretch;
   min-height: 44px;
@@ -2320,7 +2340,7 @@ button.voice-chip {
   align-content: center;
   gap: 1px;
   min-width: 128px;
-  padding: 6px 12px;
+  padding: var(--space-3) var(--space-5);
   border-right: 1px solid var(--color-border);
 }
 
@@ -2524,15 +2544,42 @@ button.voice-chip {
   background: var(--color-surface);
 }
 
+/*
+ * A panel heading and the sentence explaining the panel, side by side while
+ * there is room and stacked when there is not.
+ *
+ * Without the wrap, space-between kept both on one line at any width, and the
+ * help text -- which is a whole sentence -- took what it needed first.
+ * Measured at 375px: the reharmonisation panel's title rendered in a 313px row
+ * 125px tall, "コードの置き換え" broken to two characters per line beside its own
+ * description. The title is the shorter of the two and should never be the one
+ * that breaks.
+ */
 .variation-panel-heading,
 .reharmonization-heading,
 .preference-panel-heading,
 .history-panel-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4) var(--space-6);
   margin-bottom: 14px;
+}
+
+.variation-panel-heading > *,
+.reharmonization-heading > *,
+.preference-panel-heading > *,
+.history-panel-heading > * {
+  min-width: 0;
+}
+
+/* Wide enough to be worth sitting beside the title, or it takes its own row. */
+.variation-panel-help,
+.reharmonization-help,
+.preference-panel-heading > :last-child,
+.history-panel-heading > :last-child {
+  flex: 1 1 260px;
 }
 
 .variation-panel h2,
@@ -2931,14 +2978,19 @@ button.voice-chip {
 }
 
 @media (max-width: 760px) {
+  /*
+   * Two rows at this width: the menu and the brand above, the transport
+   * controls below, with the actions hidden. The height token is raised to
+   * match, which is what keeps the status strip stuck to the bottom of the bar
+   * rather than 25px inside it.
+   */
+  :root {
+    --transport-height: 88px;
+  }
+
   .transport-bar {
     grid-template-columns: 1fr auto;
     gap: 8px;
-    min-height: 64px;
-  }
-
-  .project-status-bar {
-    top: 64px;
   }
 
   .transport-controls {
@@ -3064,12 +3116,26 @@ button.voice-chip {
     display: none;
   }
 
+  /*
+   * Stacked at this width, not squeezed beside the controls.
+   *
+   * `1fr auto` gives the auto column its content first, and the controls need
+   * 273 of the 375 available -- so the fraction that was left for the selection
+   * label was 58px. Measured, "7-7 小節を選択中" rendered 58 wide and 125 tall:
+   * one or two characters per line, a column of kana where a sentence was
+   * meant. The label is what tells the user what the button beside it will act
+   * on, so it is the one thing in the dock that must stay readable.
+   */
   .regeneration-dock {
     position: sticky;
     bottom: 0;
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr);
     gap: 8px;
+  }
+
+  .selection-status {
+    min-width: 0;
   }
 
   .target-control {
