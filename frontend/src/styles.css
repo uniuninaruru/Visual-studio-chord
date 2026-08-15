@@ -107,7 +107,9 @@
   --color-grid-row: rgb(223 227 232 / 0.62);
   --color-accidental-row: #f5f6f8;
   --color-accidental-label: #e6e9ed;
-  --color-bar-number: #979da6;
+  /* 4.61:1 on the lane it sits over, where #979da6 was 2.59. A bar number is
+     the only thing telling a reader where they are in the piece. */
+  --color-bar-number: #6b727d;
   /* Raised from #eb4d5b, which was 3.9:1 against the lane. */
   --color-playhead: #d92d3c;
   --color-playhead-wash: rgb(217 45 60 / 0.08);
@@ -128,22 +130,16 @@
    lived in src/music/*.ts and no stylesheet could reach them; four of the
    six were already under 3:1 on white before dark mode was a question. */
   --track-bass-fill: rgb(168 86 15 / 0.30);
-  --track-bass-fill: rgb(232 160 94 / 0.34);
   --track-bass: #a8560f;
   --track-chords-fill: rgb(74 82 184 / 0.28);
-  --track-chords-fill: rgb(141 150 240 / 0.32);
   --track-chords: #4a52b8;
   --track-melody-fill: rgb(36 87 214 / 0.28);
-  --track-melody-fill: rgb(111 155 255 / 0.32);
   --track-melody: #2457d6;
   --track-countermelody-fill: rgb(15 111 128 / 0.28);
-  --track-countermelody-fill: rgb(95 208 226 / 0.30);
   --track-countermelody: #0f6f80;
   --track-canon-fill: rgb(123 63 191 / 0.26);
-  --track-canon-fill: rgb(201 156 255 / 0.30);
   --track-canon: #7b3fbf;
   --track-pulse-fill: rgb(138 90 18 / 0.28);
-  --track-pulse-fill: rgb(240 184 120 / 0.32);
   --track-pulse: #8a5a12;
 
   /* Elevation. In dark these carry almost nothing, which is correct: depth
@@ -290,7 +286,7 @@
     --color-grid-row: rgb(120 132 152 / 0.20);
     --color-accidental-row: #12151b;
     --color-accidental-label: #1a1e26;
-    --color-bar-number: #79818e;
+    --color-bar-number: #828a98;
     --color-playhead: #ff5f6d;
     --color-playhead-wash: rgb(255 95 109 / 0.12);
     --color-note-chord-fg: #dae6ff;
@@ -385,7 +381,7 @@
   --color-grid-row: rgb(120 132 152 / 0.20);
   --color-accidental-row: #12151b;
   --color-accidental-label: #1a1e26;
-  --color-bar-number: #79818e;
+  --color-bar-number: #828a98;
   --color-playhead: #ff5f6d;
   --color-playhead-wash: rgb(255 95 109 / 0.12);
   --color-note-chord-fg: #dae6ff;
@@ -399,17 +395,11 @@
   --color-note-approach-bg: #22453a;
   --color-note-approach-border: #5f9382;
   --color-note-selected-ring: #ffffff;
-  --track-bass-fill: rgb(232 160 94 / 0.34);
   --track-bass: #e8a05e;
-  --track-chords-fill: rgb(141 150 240 / 0.32);
   --track-chords: #8d96f0;
-  --track-melody-fill: rgb(111 155 255 / 0.32);
   --track-melody: #6f9bff;
-  --track-countermelody-fill: rgb(95 208 226 / 0.30);
   --track-countermelody: #5fd0e2;
-  --track-canon-fill: rgb(201 156 255 / 0.30);
   --track-canon: #c99cff;
-  --track-pulse-fill: rgb(240 184 120 / 0.32);
   --track-pulse: #f0b878;
   --shadow-accent: 0 5px 14px var(--color-accent-glow);
   --shadow-hairline: 0 1px 2px rgb(0 0 0 / 0.4);
@@ -1763,6 +1753,19 @@ button.voice-chip {
 .track-control.solo.active {
   color: var(--color-warning);
   background: var(--color-warning-subtle);
+}
+
+/*
+ * The note name inside a secondary voice.
+ *
+ * It inherited --color-note-chord-fg, which is tuned for the melody note's own
+ * background and not for a track fill: measured, "G3" over the chords track
+ * came out at 4.11:1 in light and 1.74:1 in dark. The track fills are all a
+ * ~30% wash over the surface, so the surface's own text colour reads on every
+ * one of the six in both themes.
+ */
+.secondary-voice-note span {
+  color: var(--color-text-primary);
 }
 
 .secondary-voice-note {
@@ -3917,9 +3920,32 @@ ul.theory-explanation em {
 .composition-explanation ol > li > ul.theory-explanation {
   margin-top: 5px;
 }
+/*
+ * It carried only a margin and a width, so it rendered with the browser's own
+ * button chrome -- a mid grey that is not in this app's palette and that put
+ * its label at 4.42:1 in dark. It is a secondary button; it should say so.
+ */
 .composition-explanation-copy {
-  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
+  min-height: var(--control-height);
+  margin-top: var(--space-5);
+  padding: 0 var(--space-5);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-medium);
+  color: var(--color-text-primary);
+  background: var(--color-surface);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.composition-explanation-copy:hover {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-faint);
+  color: var(--color-accent);
 }
 
 /* Handing the choice of what to generate to what the A/B panel learned. */
