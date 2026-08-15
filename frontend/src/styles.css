@@ -9,11 +9,27 @@
   --color-background: #f6f7f9;
   --color-surface: #ffffff;
   --color-surface-subtle: #f1f3f5;
+  /* Above the surface rather than beside it: dialogs, toasts, and the cards
+     that sit on top of a panel. Identical to --color-surface in this theme --
+     white on white, with the shadow doing the lifting -- which is exactly why
+     it has to be its own token rather than an alias. */
+  --color-surface-raised: #ffffff;
   --color-text-primary: #18181b;
   --color-text-secondary: #5f6368;
   --color-text-tertiary: #666c75;
+  /* Quieter than tertiary, for help text that must not compete with the control
+     it explains. Referenced in three places before it existed, which meant that
+     help text rendered at full-strength --color-text-primary instead: an
+     undefined custom property is not a fallback, it makes the declaration
+     invalid at computed-value time and the property inherits. 4.64:1 on the
+     surface, so it is quiet without dropping under AA. */
+  --color-text-muted: #6f757e;
   --color-border: #dfe3e8;
   --color-border-strong: #cbd1d8;
+  /* A separator inside a panel, where --color-border would read as a division
+     between panels. Referenced by .preference-guidance before it existed, so
+     that rule's border-top computed to none and simply did not draw. */
+  --color-border-subtle: #eaedf0;
   --color-accent: #2457d6;
   --color-accent-hover: #1949bf;
   --color-accent-subtle: #eaf0ff;
@@ -1173,7 +1189,7 @@ select:focus-visible {
   padding: 5px 9px;
   border: 1px solid var(--color-border);
   border-radius: 999px;
-  color: var(--color-text);
+  color: var(--color-text-primary);
   background: white;
   font-size: 9px;
   font-weight: 750;
@@ -1275,7 +1291,7 @@ button.voice-chip {
   min-width: 0;
   padding: 7px 8px;
   border: 0;
-  color: var(--color-text);
+  color: var(--color-text-primary);
   background: transparent;
   text-align: left;
 }
@@ -2797,7 +2813,7 @@ button.voice-chip {
   padding: 12px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-medium);
-  background: var(--color-surface-raised, var(--color-surface));
+  background: var(--color-surface-raised);
 }
 
 .reharmonization-candidate.is-auditioning {
@@ -2834,7 +2850,7 @@ button.voice-chip {
 
 .reharmonization-warning {
   margin: 0;
-  color: var(--color-warning, var(--color-text-muted));
+  color: var(--color-warning);
   font-size: 0.78rem;
 }
 
