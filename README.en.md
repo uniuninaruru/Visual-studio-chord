@@ -311,6 +311,12 @@ without starting the backend. Only two things become unavailable:
   tracks with visibility, mute, solo, playback, and MIDI export;
 - range regeneration, candidate audition, Like/Dislike preference ranking,
   Auto Fix preview, Apply, and Undo;
+- light / dark / follow-the-system themes (menu → settings → 外観), with every
+  colour tokenised so the chord lane and piano roll are designed for both rather
+  than inverted into one;
+- harmonic-function colours chosen to stay distinguishable under protanopia and
+  deuteranopia — the tonic/predominant separation goes from a simulated 9.3 to
+  25.8;
 - preference-guided generation, off by default: the generate button draws
   several pieces and keeps the one the A/B judgements prefer, and the piece
   carries the seed of the draw that won, so it stays reproducible from that
