@@ -7,6 +7,57 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Fixed — Space was taking every button press in the app
+
+The play/pause shortcut called `preventDefault` on Space unconditionally once
+no text field had focus. Space is also **how a keyboard user presses a focused
+button**, and preventDefault cancels that activation — so tabbing to 生成 and
+pressing Space started playback and generated nothing. Verified in the running
+app before the fix: with the generate button focused the event came back
+`defaultPrevented` and the button never fired. **Every button in the app was
+unreachable this way.**
+
+Space belongs to whatever has focus if that thing answers to Space itself — a
+button, a summary, a link, a checkbox, a radio, a range, or anything carrying
+those roles — and to playback otherwise. The guard lists what DOES answer to
+Space rather than what does not, so a merely focusable panel keeps the shortcut.
+
+Read from `document.activeElement` rather than the event target, because the
+listener is on window and a key pressed with nothing focused targets the body.
+
+Escape now closes a mobile sheet as well, innermost first. That path had **no
+keyboard exit at all**.
+
+One of the new tests reported the typing guard broken when it was not:
+dispatching a KeyboardEvent at window directly leaves `event.target` as window,
+which no real keypress does.
+
+### Added — one line saying what is selected
+
+**Three selection concepts, and nothing said which was live.** The chord and the
+notes are React state in App, the bar range is in the store, and each is read by
+a different set of actions. A user could see a highlighted chord and a
+highlighted range at once with no way to know that 選択範囲を再生成 would ignore
+the chord.
+
+One line under the piece title names what is selected, **ordered by narrowness
+rather than importance**: notes sit inside a chord which sits inside a range, so
+the narrowest live selection is where the user is actually looking. It states
+what IS selected rather than what any one button would do to it, which is the
+only version true for all of them.
+
+Nothing selected is said positively — "選択なし — 操作は曲全体に働きます" — because
+"nothing selected" alone leaves the reader to guess whether the next press does
+nothing or does everything. It does everything.
+
+**The chord lane is first now.** The Auto Fix card sat above it, so the first
+thing in the column was an offer to repair something the reader had not been
+shown yet. It stays on screen, under the chords.
+
+**The progression search says what is behind it** — fifteen hundred
+progressions and the one control that puts one into the piece — with the
+destination following the selection.
+
 ### Added — a dark theme, and a colour system that can carry one
 
 There was **no dark mode**: zero occurrences of `prefers-color-scheme` in 3389
