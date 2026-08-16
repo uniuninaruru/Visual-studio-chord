@@ -640,6 +640,16 @@ export default function App() {
           </div>
 
           <div className="workspace-scroll">
+            {/*
+              * The two views of the piece, together.
+              *
+              * They are the same music at two resolutions -- the lane is the
+              * harmony, the roll is the notes inside it -- and three panels sat
+              * between them: a repair offer, a search box and a reharmoniser.
+              * A reader scrolling from the chords to the notes passed all three
+              * on the way, so the thing being edited never appeared as one
+              * thing. The tools follow, in the order they are reached for.
+              */}
             <ChordLane
               composition={composition}
               selectedRange={store.selectedBarRange}
@@ -649,6 +659,64 @@ export default function App() {
               onBarSelect={handleBarSelect}
               onChordSelect={handleChordSelect}
               onToggleLock={store.toggleBarLock}
+            />
+            <PianoRoll
+              composition={composition}
+              currentTick={editorCurrentTick}
+              selectedRange={store.selectedBarRange}
+              selectedNoteIds={selectedNoteIds}
+              onNoteSelect={handleNoteSelect}
+              onNoteMove={(note, move) => {
+                const ids = selectedNoteIds.includes(note.id) ? selectedNoteIds : [note.id];
+                store.moveNotes(ids, move);
+              }}
+              onAddNote={(midi, startTick) => {
+                const id = store.addNote(midi, startTick);
+                if (id) setSelectedNoteIds([id]);
+              }}
+              onCopyNotes={() => {
+                setCopiedNoteIds([...selectedNoteIds]);
+                setToast(`${selectedNoteIds.length}個のノートをコピーしました。`);
+              }}
+              onPasteNotes={() => {
+                const ids = store.duplicateNotes(copiedNoteIds);
+                setSelectedNoteIds(ids);
+                if (ids.length > 0) setToast(`${ids.length}個のノートを貼り付けました。`);
+              }}
+              onDuplicateNotes={() => {
+                setSelectedNoteIds(store.duplicateNotes(selectedNoteIds));
+              }}
+              onQuantizeNotes={() => {
+                const count = store.quantizeNotes(selectedNoteIds);
+                if (count > 0) setToast(`${count}個のノートを1/16へクオンタイズしました。`);
+              }}
+              onDeleteNotes={handleDeleteNote}
+              canPaste={copiedNoteIds.length > 0}
+              clipboardNoteCount={copiedNoteIds.length}
+              mutedTrackIds={mutedTrackIds}
+              soloTrackId={soloTrackId}
+              onToggleTrackMute={(trackId) => {
+                setMutedTrackIds((current) =>
+                  current.includes(trackId)
+                    ? current.filter((candidate) => candidate !== trackId)
+                    : [...current, trackId],
+                );
+                setToast(
+                  `${trackId === "track-bass" ? "Bass" : trackId === "track-chords" ? "Chords" : "Melody"}のミュートを切り替えました。`,
+                );
+              }}
+              onSoloTrack={(trackId) => {
+                setSoloTrackId(trackId);
+                setToast(trackId ? "選択したトラックだけを再生します。" : "全トラック再生へ戻しました。");
+              }}
+              onToggleVoiceMute={(voiceId) => {
+                if (store.toggleVoiceMute(voiceId)) {
+                  const voice = store.draftComposition.voices?.find(
+                    (candidate) => candidate.id === voiceId,
+                  );
+                  setToast(`${voice?.name ?? "追加声部"}を${voice?.muted ? "ミュート" : "再生"}します。`);
+                }
+              }}
             />
             {/*
               * The piece first.
@@ -738,64 +806,6 @@ export default function App() {
               auditioningSymbol={reharmonization.auditioningSymbol}
               onAudition={reharmonization.audition}
               onApply={reharmonization.apply}
-            />
-            <PianoRoll
-              composition={composition}
-              currentTick={editorCurrentTick}
-              selectedRange={store.selectedBarRange}
-              selectedNoteIds={selectedNoteIds}
-              onNoteSelect={handleNoteSelect}
-              onNoteMove={(note, move) => {
-                const ids = selectedNoteIds.includes(note.id) ? selectedNoteIds : [note.id];
-                store.moveNotes(ids, move);
-              }}
-              onAddNote={(midi, startTick) => {
-                const id = store.addNote(midi, startTick);
-                if (id) setSelectedNoteIds([id]);
-              }}
-              onCopyNotes={() => {
-                setCopiedNoteIds([...selectedNoteIds]);
-                setToast(`${selectedNoteIds.length}個のノートをコピーしました。`);
-              }}
-              onPasteNotes={() => {
-                const ids = store.duplicateNotes(copiedNoteIds);
-                setSelectedNoteIds(ids);
-                if (ids.length > 0) setToast(`${ids.length}個のノートを貼り付けました。`);
-              }}
-              onDuplicateNotes={() => {
-                setSelectedNoteIds(store.duplicateNotes(selectedNoteIds));
-              }}
-              onQuantizeNotes={() => {
-                const count = store.quantizeNotes(selectedNoteIds);
-                if (count > 0) setToast(`${count}個のノートを1/16へクオンタイズしました。`);
-              }}
-              onDeleteNotes={handleDeleteNote}
-              canPaste={copiedNoteIds.length > 0}
-              clipboardNoteCount={copiedNoteIds.length}
-              mutedTrackIds={mutedTrackIds}
-              soloTrackId={soloTrackId}
-              onToggleTrackMute={(trackId) => {
-                setMutedTrackIds((current) =>
-                  current.includes(trackId)
-                    ? current.filter((candidate) => candidate !== trackId)
-                    : [...current, trackId],
-                );
-                setToast(
-                  `${trackId === "track-bass" ? "Bass" : trackId === "track-chords" ? "Chords" : "Melody"}のミュートを切り替えました。`,
-                );
-              }}
-              onSoloTrack={(trackId) => {
-                setSoloTrackId(trackId);
-                setToast(trackId ? "選択したトラックだけを再生します。" : "全トラック再生へ戻しました。");
-              }}
-              onToggleVoiceMute={(voiceId) => {
-                if (store.toggleVoiceMute(voiceId)) {
-                  const voice = store.draftComposition.voices?.find(
-                    (candidate) => candidate.id === voiceId,
-                  );
-                  setToast(`${voice?.name ?? "追加声部"}を${voice?.muted ? "ミュート" : "再生"}します。`);
-                }
-              }}
             />
             <VariationPanel
               candidates={variationCandidates}
