@@ -564,7 +564,6 @@ export default function App() {
         playback={store.playback.status}
         currentTick={store.playback.currentTick}
         ticksPerBar={playbackComposition.ticksPerBar}
-        loopLabel={loopLabel}
         pendingLoopLabel={pendingLoopLabel}
         pendingCommit={store.pendingCommit}
         updateTiming={store.playback.updateTiming}

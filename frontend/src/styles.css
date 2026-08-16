@@ -4067,3 +4067,9 @@ ul.theory-explanation em {
   font-size: var(--text-2xs);
   font-weight: 400;
 }
+
+/* Where inference runs and whether it is reachable, as one statement. */
+.engine-connection {
+  color: var(--color-text-muted);
+  font-size: var(--text-2xs);
+}
