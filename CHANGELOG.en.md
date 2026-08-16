@@ -84,6 +84,85 @@ would wait for a tick that never comes, is already guarded. A deferred edit
 stranded by pressing stop is committed by the stop. The tick callback re-reads
 the committed composition imperatively and reschedules.
 
+### Added — the left hand holds a shell instead of a single note
+
+**This app had no left hand.** It voiced one chord and split it by pitch —
+`pitches[0]` to the bass track, `pitches.slice(1)` to the chords — and a split by
+lowest note can only ever hand the left one pitch. Measured across eight styles
+and four seeds: **0 polyphonic left-hand onsets out of 102 each**, without a
+single exception, in a band eleven semitones wide, while the whole texture
+averaged 13.3 semitones against the 19 a corpus study gives to one hand.
+
+A voicing is, by definition, "which notes are on the top or in the middle, which
+ones are doubled, **which octave each is in**, and **which instruments or voices
+perform each note**". This app decided the first three and let the fourth fall
+out of the third.
+
+**The interval is read off the bass.** Not from style. `LOW_INTERVAL_LIMITS`
+already says how low each interval may be placed, and it lists nothing above an
+octave — which is exactly why a tenth is what a left hand reaches for down there,
+and why "no close four-note structure below C3" and "Powell's shells are R+3,
+R+7, R+10" are the same statement. A bass at D2 can carry a seventh, whose limit
+is D2, and cannot carry a third, whose limit is A2. **The bass itself never
+moves**: dropping the foundation to make room trades one kind of mud for another.
+
+Measured with it on: 432 of 825 chords take a partner, the intervals come out
+{fifth 62, seventh 130, octave 236, minor tenth 4}, and the texture goes from
+13.3 semitones to 16.3.
+
+**Three things I got wrong on the way**, each caught by measuring: checking the
+interval against the bass alone missed the pair the partner forms with the note
+above it (13 violations) and the minor ninths it forms with right-hand tensions
+chosen before it existed (10 more); a count of left-hand notes cannot express an
+assignment where the partner sits above part of the right hand, which is what
+reaching a tenth means; and widest-first put the octave — the one interval always
+available — ahead of everything, 414 times out of 432, with the minor tenth
+missing from the list entirely so a minor chord could never have one.
+
+**What it collided with.** The arrangement checker called any left-hand note at
+or above the lowest right-hand note a crossing: 73 errors. Those are two rules
+that are indistinguishable while the left hand is one note. What has to hold is
+that the bass is the bass and that the hands have not swapped; between those is a
+hand position. The no-swap half is judged on the voicing rather than the instant,
+because a comping figure striking only the lower part of the right hand does not
+move anybody's hand.
+
+### Fixed — a chord describing hands it no longer has
+
+A hand assignment is a set of pitches, not an index, so it goes stale the moment
+the notes change under it — and three paths changed the notes without touching
+it. Measured: changing a chord's symbol left `leftHand: [43, 55]` on a chord
+whose notes had become [57, 60, 64, 65]. The track builder removes the left
+hand's pitches from the right by value, so a stale one sounds in the bass and
+stays in the chord as well.
+
+`withHands` re-decides the assignment from a chord's current notes, and both
+generator paths go through it. `replaceChordSymbol` cannot — it has no access to
+the bass register settings — so it drops the assignment, which is always valid.
+The importer validates `leftHand` as a subset of `notes` whose lowest member is
+the chord's lowest note.
+
+### Investigated — the tenth and the section arc want the same register
+
+The left hand cannot reach a tenth here: the partner would land between 52 and
+64 and the right hand's top sits at 53 to 58. **3 tenths in 609 chords.**
+
+The room exists — the gap between the accompaniment's top and the melody's bottom
+has a median of **twelve semitones**, on every chord. Aiming a stated distance
+under the melody instead of at a fixed pitch delivers: at a clearance of 18,
+**tenths go from 3 to 34**, the texture widens to 18.9 semitones, shells rise
+from 63% to 69% of chords, arrangement errors fall from 24 to 22, and the melody
+stays the ceiling (52 chords reach it before, 61 after).
+
+**It also costs the section register arc, which is why it ships off.** The
+clearance puts a ceiling under the melody that every section is pushed against,
+and the arc is the distance between sections: the intro's accompaniment rose from
+53.93 to 56.14 against a chorus at 56.95, turning a contrast of 2.67 semitones
+into 0.81. Both are measured features wanting the same register, and choosing
+between them is a judgement about how this app should sound rather than a defect
+to fix — so the measurement and the setting are kept and the default is
+unchanged.
+
 ### Fixed — Space was taking every button press in the app
 
 The play/pause shortcut called `preventDefault` on Space unconditionally once
