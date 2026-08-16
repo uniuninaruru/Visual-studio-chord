@@ -7,6 +7,65 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Fixed — the melody's rhythm could only hold two note values
+
+"Every piece comes out sounding the same" was right, and the cause was not a
+learned model. It was **arithmetic**.
+
+`rhythmGenerator.ts` takes the bar's sixteenth count, divides by a target slot
+count and hands out the remainder a unit at a time. The only lengths it can emit
+are `floor(n/k)` and `floor(n/k)+1` — **two, by construction**, not two by
+chance. Measured across 24 seeds: 3349 notes in pop, **59% eighths and 41%
+sixteenths and nothing else**. No quarter, nothing held, nothing dotted, nothing
+across a bar line. And **not one phrase in any piece ended on a note longer than
+an eighth**, because there was no longer note to end on.
+
+The pitches were never the problem. Across the same 24 seeds the melodic
+interval trigrams carried **94% of the available entropy**, and all 24 rhythms
+and all 24 contours were distinct as strings. What sounded the same was not the
+notes; it was that every note was one of two lengths.
+
+Bars are now filled left to right from **the note values the metre admits** —
+whole, dotted half, half, dotted quarter, quarter, dotted eighth, eighth,
+sixteenth — weighted by `density` for length and by beat strength for placement.
+Not a corpus and not a style: the same metric hierarchy `metricStrength` already
+reads.
+
+**A phrase's landing note is reserved before the bar is filled**, because a bar
+already filled has no room left to lengthen anything. A quarter for a soft close,
+a half for a firm one, taken from the phrase plan's own `cadenceStrength`.
+
+Measured over 32 pieces:
+
+| | equal division | note values |
+|---|---|---|
+| distinct note values | **2** | **8** |
+| per piece | 2.0 | 7.8 |
+| rhythm entropy | 1.00 bit | **2.59 bit** |
+| phrases landing on a quarter or longer | **0%** | **100%** |
+| notes per bar | 8.7 | 4.1 |
+| pitch trigram entropy | 9.58 | 9.27 |
+| validation errors | 0 | 0 |
+| arrangement errors | 9 | **1** |
+
+The pitch entropy moving from 9.58 to 9.27 is the sample halving with the note
+count, not the pitches getting worse.
+
+**Two existing claims stopped being true.**
+
+The counterpoint tests' `checked > 300` is a floor on the sample, not a claim
+about the music; the same six pieces now hold 190 notes, and every one is still
+checked.
+
+The section register's **cost in melody cover is gone**. That test asserted the
+arc is not free and stated the price — 10.2% of chords reaching the melody
+before, 13.3% after. With note values the same measurement comes out **8.78%
+before and 7.56% after: the sign reversed.** Fewer, longer melody notes mean
+fewer distinct pitches sounding over any one chord. A test that fails when a cost
+disappears is testing for the cost rather than for what the cost was tolerated
+for, so it holds the bound instead.
+
+
 ### Changed — the five tools become one region with tabs
 
 Below the two views of the piece the centre column ran on for another **two
