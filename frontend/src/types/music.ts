@@ -403,6 +403,11 @@ export interface BassRegisterSettings {
    */
   shell?: boolean;
   /**
+   * How far under the melody the accompaniment aims, in semitones from its
+   * midpoint. Absent keeps the fixed anchor.
+   */
+  melodyClearance?: number;
+  /**
    * Highest MIDI note the bass may sound. Defaults to 48 (C3), the top of a
    * comfortable electric-bass register.
    */

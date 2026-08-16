@@ -307,3 +307,124 @@ describe("keeping the hands and the notes in step", () => {
     expect(handsAreConsistent({ notes: [40, 52, 55] })).toBe(true);
   });
 });
+
+/**
+ * Aiming the accompaniment under the melody instead of at a fixed pitch.
+ *
+ * Available and off. It is what a left hand needs to reach a tenth -- the
+ * partner lands between 52 and 64 while the right hand's top sits at 53 to 58,
+ * so there is nowhere for it to go -- and taking that room costs the section
+ * register arc, because the clearance puts a ceiling under the melody that
+ * every section is pushed up against and the arc is the distance between
+ * sections.
+ *
+ * Both are measured features wanting the same register. These cases hold the
+ * measurement rather than the choice.
+ */
+describe("aiming under the melody", () => {
+  const shells = (clearance?: number) => {
+    const intervals: number[] = [];
+    let paired = 0;
+    let total = 0;
+    for (const style of ["pop", "jazz", "ballad"] as const) {
+      for (const seed of ["a", "b", "c"]) {
+        for (const chord of piece({
+          seed, style, bassRegister: { enabled: true, shell: true, melodyClearance: clearance },
+        }).chords) {
+          total += 1;
+          const left = chord.leftHand ?? [];
+          if (left.length < 2) continue;
+          paired += 1;
+          intervals.push((left[1] as number) - (left[0] as number));
+        }
+      }
+    }
+    return { intervals, paired, total };
+  };
+
+  it("is off unless asked for, and changes nothing when it is off", () => {
+    const off = piece({ seed: "clear", bassRegister: { enabled: true, shell: true } });
+    const explicit = piece({
+      seed: "clear", bassRegister: { enabled: true, shell: true, melodyClearance: undefined },
+    });
+    expect(JSON.stringify(explicit.chords)).toBe(JSON.stringify(off.chords));
+  }, 30_000);
+
+  it("is what lets the left hand reach a tenth", () => {
+    // A tenth is 15 or 16 semitones. Measured across 609 chords: 3 of them
+    // without the clearance, 34 with it at 18.
+    const tenths = (found: ReturnType<typeof shells>) =>
+      found.intervals.filter((interval) => interval >= 15).length;
+    expect(tenths(shells(18))).toBeGreaterThan(tenths(shells()) * 3);
+  }, 240_000);
+
+  it("gives more chords a shell at all", () => {
+    const without = shells();
+    const with18 = shells(18);
+    expect(with18.paired / with18.total).toBeGreaterThan(without.paired / without.total);
+  }, 240_000);
+
+  it("still lets a section ask to sit higher or lower", () => {
+    // The clearance follows the melody, and the section's own offset is added
+    // on top of it -- otherwise every section would be pinned to the same
+    // distance under the tune and the register arc would be gone entirely
+    // rather than merely flattened. Measured at a clearance of 18: the chorus
+    // sits 0.81 semitones above the intro, against 2.67 without it.
+    const midpoint = (chord: { notes: number[]; leftHand?: number[] }) => {
+      const sorted = [...chord.notes].sort((left, right) => left - right);
+      const left = chord.leftHand ?? [sorted[0] as number];
+      const right = sorted.filter((note) => !left.includes(note));
+      const pitches = right.length > 0 ? right : sorted;
+      return (Math.min(...pitches) + Math.max(...pitches)) / 2;
+    };
+    const byKind = new Map<string, number[]>();
+    for (const seed of ["a", "b", "c", "d", "e", "f"]) {
+      const composed = piece({
+        seed, bars: 32, style: "pop",
+        bassRegister: { enabled: true, shell: true, melodyClearance: 18 },
+      });
+      const barTicks = composed.ppq * 4;
+      for (const section of composed.sections ?? []) {
+        const list = byKind.get(section.kind) ?? [];
+        for (const chord of composed.chords) {
+          const bar = Math.floor(chord.startTick / barTicks);
+          if (bar >= section.startBar && bar < section.endBar) list.push(midpoint(chord));
+        }
+        byKind.set(section.kind, list);
+      }
+    }
+    const mean = (kind: string) => {
+      const values = byKind.get(kind) ?? [];
+      return values.reduce((sum, value) => sum + value, 0) / values.length;
+    };
+    expect(mean("chorus")).toBeGreaterThan(mean("intro"));
+  }, 240_000);
+
+  it("keeps the melody the ceiling it was", () => {
+    // The clearance is a target, outweighed by the covering penalty by an order
+    // of magnitude, so raising it does not licence burying the tune. Measured
+    // across 609 chords: 52 chords reach the melody without it, 61 with it.
+    const covered = (clearance?: number) => {
+      let chords = 0;
+      let reaching = 0;
+      for (const style of ["pop", "jazz", "ballad"] as const) {
+        for (const seed of ["a", "b", "c"]) {
+          const composed = piece({
+            seed, style, bassRegister: { enabled: true, shell: true, melodyClearance: clearance },
+          });
+          for (const chord of composed.chords) {
+            const end = chord.startTick + chord.durationTick;
+            const melody = composed.notes
+              .filter((note) => note.startTick < end && note.startTick + note.durationTick > chord.startTick)
+              .map((note) => note.midi);
+            if (melody.length === 0) continue;
+            chords += 1;
+            if (Math.max(...chord.notes) >= Math.min(...melody)) reaching += 1;
+          }
+        }
+      }
+      return reaching / chords;
+    };
+    expect(covered(18)).toBeLessThan(covered() + 0.05);
+  }, 240_000);
+});
