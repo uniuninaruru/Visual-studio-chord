@@ -21,7 +21,11 @@ import { repairUnpreparedMelodyDissonance } from "./melodicQuality";
 import { phraseForBar, type PhrasePlanEntry } from "./phrases";
 import { sectionForBar } from "./sections";
 import { createSeededRandom, deriveSeed, hashSeed, type Seed } from "./random";
-import { generateRhythmBar, type RhythmSlot } from "./rhythmGenerator";
+import {
+  generateNoteValueBar,
+  generateRhythmBar,
+  type RhythmSlot,
+} from "./rhythmGenerator";
 import {
   getMelodyScaleMidiNotes,
   midiToNoteName,
@@ -228,6 +232,26 @@ export function generateMelodyBar(
   const seed = options.seed ?? options.settings.seed;
   const barDuration = ticksPerBar(options.settings.timeSignature, ppq);
   const rhythmSettings = adjustedRhythmSettings(options.settings, options.resolvedStyle);
+
+  // Hoisted above the rhythm, because the rhythm needs to know.
+  //
+  // A phrase end is the last note of a phrase-boundary bar -- not every bar end.
+  // Measured before the rhythm was told: every phrase in every piece landed on a
+  // sixteenth or an eighth, because those were the only two lengths there were.
+  const totalBars = options.settings.bars;
+  const phraseLengthBars = normalizePhraseLength(options.phraseLengthBars, totalBars);
+  const isFinalBar = barIndex === totalBars - 1;
+  const barSection = sectionForBar(options.sections, barIndex);
+  // A section boundary is a phrase boundary: the line should land before the
+  // music moves to a new key or a new progression.
+  const isSectionEnd = barSection !== undefined && barIndex === barSection.endBar - 1;
+  const phrase = phraseForBar(options.phrases, barIndex);
+  const isPhraseBoundaryBar = phrase
+    ? barIndex === phrase.endBar - 1 || isFinalBar
+    : (barIndex + 1) % phraseLengthBars === 0 || isFinalBar || isSectionEnd;
+  // How firmly this phrase closes. Without a plan every boundary closed equally,
+  // which is why an eight-bar line used to read as two interchangeable halves.
+  const cadenceStrength = phrase?.cadenceStrength ?? 1;
   // A Euclidean pattern replaces the partition wholesale rather than filtering
   // it: the point is the spacing between hits, and a rest rate applied on top
   // would take out exactly the hits that make the pattern recognisable.
@@ -239,17 +263,19 @@ export function generateMelodyBar(
         barIndex,
         ppq,
       })
-    : generateRhythmBar({
+    : (options.settings.melody.variedNoteValues ? generateNoteValueBar : generateRhythmBar)({
         timeSignature: options.settings.timeSignature,
         ...rhythmSettings,
         seed,
         barIndex,
         ppq,
+        closesPhrase: isPhraseBoundaryBar,
+        cadenceStrength,
       });
   // A section overrides the piece's key/mode for its own bars. `melodyMode`
   // lets the melody run in a different mode than the harmony (polytonality),
   // and `melodyScale` narrows it to a pentatonic.
-  const section = sectionForBar(options.sections, barIndex);
+  const section = barSection;
   const barKey = section?.key ?? options.settings.key;
   const barMode = section?.melodyMode ?? section?.mode ?? options.settings.mode;
   const barScale = section?.melodyScale ?? "diatonic";
@@ -283,20 +309,6 @@ export function generateMelodyBar(
   const notes: NoteEvent[] = [];
   const soundedSlots = rhythm.filter((slot) => !slot.isRest);
 
-  // A phrase end is the last note of a phrase-boundary bar — not every bar end.
-  const totalBars = options.settings.bars;
-  const phraseLengthBars = normalizePhraseLength(options.phraseLengthBars, totalBars);
-  const isFinalBar = barIndex === totalBars - 1;
-  // A section boundary is a phrase boundary: the line should land before the
-  // music moves to a new key or a new progression.
-  const isSectionEnd = section !== undefined && barIndex === section.endBar - 1;
-  const phrase = phraseForBar(options.phrases, barIndex);
-  const isPhraseBoundaryBar = phrase
-    ? barIndex === phrase.endBar - 1 || isFinalBar
-    : (barIndex + 1) % phraseLengthBars === 0 || isFinalBar || isSectionEnd;
-  // How firmly this phrase closes. Without a plan every boundary closed equally,
-  // which is why an eight-bar line used to read as two interchangeable halves.
-  const cadenceStrength = phrase?.cadenceStrength ?? 1;
   const resolvesToTonic =
     options.cadence === undefined ||
     options.cadence === "authentic" ||

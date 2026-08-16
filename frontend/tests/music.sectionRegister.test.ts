@@ -189,16 +189,25 @@ describe("the register a section asks for", () => {
     expect(violations / chords).toBeLessThan(0.005);
   });
 
-  it("costs some melody cover, and states how much", () => {
-    // Not free, and not hidden. Raising the accompaniment moves it toward the
-    // melody because the melody is above it -- arithmetic rather than a tuning
-    // failure, and a sweep of the offsets found no setting that bought the arc
-    // for nothing. Measured in pop: 10.2% of chords reach the melody before,
-    // 13.3% after. The bound here is what the trade may not exceed.
+  it("does not buy the arc by burying the melody", () => {
+    // This asserted that the arc COSTS melody cover, and stated the price:
+    // raising the accompaniment moves it toward a melody that is above it, so
+    // 10.2% of chords reached the melody before and 13.3% after.
+    //
+    // The price is gone. Once the melody carried note values from the metre
+    // rather than two lengths per bar, the same measurement in pop came out at
+    // 8.78% with the arc off and 7.56% with it on -- the sign reversed. Fewer,
+    // longer melody notes mean fewer distinct pitches sounding over any one
+    // chord, and the register the arc pulls toward collides with them less
+    // often than the register it pulls away from.
+    //
+    // So what is held here is the bound rather than the cost. A test that fails
+    // when a cost disappears is testing for the cost rather than for the thing
+    // the cost was tolerated for.
     const before = audit(false, "pop");
     const after = audit(true, "pop");
-    expect(after.coveredShare).toBeGreaterThan(before.coveredShare);
     expect(after.coveredShare).toBeLessThan(0.2);
+    expect(after.coveredShare).toBeLessThan(before.coveredShare + 0.05);
   });
 
   it("asks for a register the voicer can actually reach", () => {

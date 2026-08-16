@@ -629,6 +629,17 @@ export interface MelodySettings {
   syncopation: number;
   /** 0..1. Probability weight for intervals larger than a third. */
   leapProbability: number;
+  /**
+   * Draw note values from the meter instead of dividing the bar into equal
+   * slots.
+   *
+   * Off, a bar is partitioned into k near-equal slots, which can only ever
+   * produce floor(units/k) and floor(units/k)+1 -- two durations, by
+   * arithmetic, in every bar of every piece. Measured across 24 seeds: 3349
+   * notes in two lengths, 59% eighths and 41% sixteenths, no quarter and
+   * nothing longer.
+   */
+  variedNoteValues?: boolean;
 }
 
 export interface GeneratorSettings {
