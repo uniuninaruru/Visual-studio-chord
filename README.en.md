@@ -305,6 +305,10 @@ without starting the backend. Only two things become unavailable:
 - no section shorter than a four-bar period wherever the piece can afford one;
 - four-part/piano voicing with cadence, applied-chord, voice-leading, and
   all-track validation;
+- a left hand that holds a shell — root with a fifth, seventh, octave or tenth —
+  with the interval read off the bass against the low interval limits, so the
+  lower it sits the wider it has to be; the hands may overlap in pitch and may
+  not swap;
 - melodic skeletons, contextual non-chord tones, countermelody, canon,
   polyrhythm, and groove;
 - Bass / Left Hand, Chords / Right Hand, Melody, and additional DAW-style
