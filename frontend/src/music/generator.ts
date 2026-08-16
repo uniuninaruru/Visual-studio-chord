@@ -25,9 +25,10 @@ import { planPhrases, type PhrasePlanEntry } from "./phrases";
 import { planSections } from "./sections";
 import { revoiceInFourParts } from "./voiceLeading";
 import { registerTargetFor, revoiceForMelody } from "./voicingSelection";
-import { assignHands } from "./hands";
+import { withHands } from "./hands";
 import { bassRegisterPitch } from "./compositionTracks";
 import { applySectionTransitions } from "./sectionTransitions";
+import type { BassRegisterSettings } from "../types/music";
 import type { ConcreteStylePresetId } from "./styles";
 import { deriveSeed, hashSeed, seedToString } from "./random";
 import { getScalePitchClasses, midiToNoteName, pitchClassToSemitone } from "./scales";
@@ -614,19 +615,10 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
   // export and the piano roll all read the same thing instead of each
   // re-deriving it, and the shell's notes are part of the chord that gets
   // validated rather than appearing only in a rendered view of it.
-  if (copiedSettings.bassRegister?.shell) {
-    progression.chords = progression.chords.map((chord) => {
-      const sorted = [...chord.notes].sort((left, right) => left - right);
-      const bass = bassRegisterPitch(sorted[0] as number, copiedSettings.bassRegister);
-      const hands = assignHands(sorted, { shell: true, bass });
-      const notesWithShell = [...hands.left, ...hands.right];
-      return {
-        ...chord,
-        notes: notesWithShell,
-        leftHand: [...hands.left],
-      };
-    });
-  }
+  progression.chords = progression.chords.map((chord) => withHands(chord, {
+    shell: copiedSettings.bassRegister?.shell ?? false,
+    bassFor: (lowest) => bassRegisterPitch(lowest, copiedSettings.bassRegister),
+  }));
 
   const durationTick = ticksPerBar(copiedSettings.timeSignature, PPQ);
   const fingerprint = compositionFingerprint(copiedSettings);
@@ -771,6 +763,7 @@ function revoiceBars(
   durationTick: number,
   seedOffset: number,
   voiceLeadingStrength: number,
+  bassRegister: BassRegisterSettings | undefined,
 ): ChordEvent[] {
   let previousNotes: readonly number[] | undefined;
   return chords.map((chord) => {
@@ -791,7 +784,15 @@ function revoiceBars(
       voiceLeadingStrength,
     );
     previousNotes = voicing.notes;
-    return { ...chord, notes: voicing.notes, inversion: voicing.inversion };
+    // Through withHands rather than a spread: the chord being returned has new
+    // notes, and the hand assignment it is carrying describes the old ones.
+    return withHands(
+      { ...chord, notes: voicing.notes, inversion: voicing.inversion },
+      {
+        shell: bassRegister?.shell ?? false,
+        bassFor: (lowest) => bassRegisterPitch(lowest, bassRegister),
+      },
+    );
   });
 }
 
@@ -892,6 +893,7 @@ export function regenerateRange(
       composition.ticksPerBar,
       seedOffset,
       settings.harmony?.voiceLeadingStrength ?? DEFAULT_HARMONY_SETTINGS.voiceLeadingStrength,
+      settings.bassRegister,
     );
   }
 
