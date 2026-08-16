@@ -64,31 +64,92 @@ export function analyzeArrangementQuality(
 
   const bass = tracks.find((track) => track.id === "track-bass");
   const chords = tracks.find((track) => track.id === "track-chords");
+  /*
+   * The hands may overlap; they may not swap.
+   *
+   * This compared every left-hand note against the lowest right-hand note and
+   * called anything at or above it a crossing. With a one-note left hand the two
+   * rules are indistinguishable, and while the left hand was one note that is
+   * what this was: a test that the bass is the bass.
+   *
+   * They are not the same rule, and a left hand holding a shell shows the
+   * difference. A tenth in the left hand sits above the bottom of the right
+   * hand -- that is what reaching a tenth means -- and the corpus study behind
+   * this app's own hand-span bound lets the two hands overlap in pitch without
+   * restriction. Applying the old rule to a shell produced 73 crossing errors in
+   * nine pieces, every one of them a left hand doing what a left hand does.
+   *
+   * What actually has to hold is two things: the lowest note of the texture is
+   * the left hand's (the bass is the bass), and the left hand does not end up
+   * over the top of the right (the hands have not swapped roles). Everything
+   * between those is a hand position, not a fault.
+   */
   if (bass && chords) {
-    for (const bassNote of bass.notes) {
-      const right = chords.notes
-        .filter((note) => note.startTick === bassNote.startTick)
-        .sort((left, rightNote) => left.midi - rightNote.midi);
-      const lowestRight = right[0];
-      if (!lowestRight) continue;
-      const gap = lowestRight.midi - bassNote.midi;
-      if (gap <= 0) {
+    const byTick = new Map<number, { left: NoteEvent[]; right: NoteEvent[] }>();
+    for (const note of bass.notes) {
+      const entry = byTick.get(note.startTick) ?? { left: [], right: [] };
+      entry.left.push(note);
+      byTick.set(note.startTick, entry);
+    }
+    for (const note of chords.notes) {
+      const entry = byTick.get(note.startTick);
+      if (entry) entry.right.push(note);
+    }
+    for (const [tick, entry] of byTick) {
+      if (entry.left.length === 0 || entry.right.length === 0) continue;
+      const leftPitches = entry.left.map((note) => note.midi);
+      const rightPitches = entry.right.map((note) => note.midi);
+      const lowestLeft = Math.min(...leftPitches);
+      const highestLeft = Math.max(...leftPitches);
+      const lowestRight = Math.min(...rightPitches);
+
+      if (lowestRight <= lowestLeft) {
         issues.push({
           type: "handCrossing",
           severity: "error",
           trackId: chords.id,
-          tick: bassNote.startTick,
-          message: "Right-hand chord crossed below the left-hand bass.",
+          tick,
+          message: "Right-hand chord reaches below the left-hand bass.",
         });
-      } else if (lowestRight.midi < 52 && gap < 7) {
+      } else if (lowestRight < 52 && lowestRight - highestLeft < 7 && entry.left.length === 1) {
+        // Only judged where the left hand is a single note. A shell already
+        // fills this register on purpose, and the interval it fills it with was
+        // chosen against the low interval limits.
         issues.push({
           type: "lowRegisterCluster",
           severity: "warning",
           trackId: chords.id,
-          tick: bassNote.startTick,
+          tick,
           message: "Low-register chord tones are tightly spaced and may sound muddy.",
         });
       }
+    }
+  }
+
+  /*
+   * Whether the hands have swapped is a property of the voicing, not of the
+   * instant.
+   *
+   * Checked on the rendered tracks it fired 24 times in nine pieces, every one
+   * of them a moment where the comping figure happened to be striking only the
+   * lower part of the right hand -- so the highest note SOUNDING was the left
+   * hand's, while the hand was still positioned underneath. The figure choosing
+   * which voices land on which beat is a rhythm decision; it does not move
+   * anybody's hand.
+   */
+  for (const chord of composition.chords) {
+    const left = chord.leftHand;
+    if (!left || left.length === 0) continue;
+    const right = chord.notes.filter((note) => !left.includes(note));
+    if (right.length === 0) continue;
+    if (Math.max(...left) >= Math.max(...right)) {
+      issues.push({
+        type: "handCrossing",
+        severity: "error",
+        trackId: "track-chords",
+        tick: chord.startTick,
+        message: "Left hand sits over the top of the right-hand chord.",
+      });
     }
   }
 

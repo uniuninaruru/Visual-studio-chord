@@ -76,8 +76,24 @@ export function lowIntervalViolation(notes: readonly number[]): number {
  * Returns the total inversion of that order, in semitones, so zero means the
  * gaps never widen going up.
  */
-export function spacingInversion(notes: readonly number[]): number {
+export function spacingInversion(
+  notes: readonly number[],
+  /**
+   * Where the hands divide, when the caller knows.
+   *
+   * The search below infers a division from a hole of an octave or more, which
+   * is the only evidence available from pitches alone. A caller holding the
+   * shape knows better: twoHandClose is a left hand and a right hand with a
+   * nine-semitone hole between them, and inferring from the pitches finds no
+   * hole at all and charges the shape four semitones of inversion for being
+   * shaped the way it is.
+   */
+  handSplit?: number,
+): number {
   if (notes.length < 3) return 0;
+  if (handSplit !== undefined && handSplit >= 2 && notes.length - handSplit >= 2) {
+    return spacingInversion(notes.slice(0, handSplit)) + spacingInversion(notes.slice(handSplit));
+  }
 
   // A two-handed voicing is not one stack, it is two, with a deliberate hole
   // between them. The rule that gaps should shrink going up is a rule about

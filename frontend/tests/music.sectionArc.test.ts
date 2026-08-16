@@ -34,6 +34,24 @@ function loudnessOf(piece: GeneratedComposition, kind: SectionKind): number {
   return notes.reduce((sum, note) => sum + note.velocity, 0) / notes.length;
 }
 
+/**
+ * The midpoint of the RIGHT hand.
+ *
+ * The register a section asks for is a pull on the voicing the cost model
+ * chooses; the left hand's bass sits an octave or more below it by a separate
+ * rule, and the shell that joins it was picked against the low interval limits
+ * rather than against any section's wish. Including them in the midpoint drags
+ * every section's figure down by the same amount and flattens the difference
+ * this is measuring -- the chorus-verse gap went to -0.17 that way, which is a
+ * fact about where the bass lives and not about the arc.
+ */
+function rightHandMidpoint(chord: { notes: number[]; leftHand?: number[] }): number {
+  const left = chord.leftHand ?? [];
+  const right = chord.notes.filter((note) => !left.includes(note));
+  const pitches = right.length > 0 ? right : chord.notes;
+  return (Math.min(...pitches) + Math.max(...pitches)) / 2;
+}
+
 describe("the shape of a piece", () => {
   it("plays a chorus harder than the verse that set it up", () => {
     // Most of what "arrival" is, and no amount of voicing supplies it.
@@ -164,18 +182,204 @@ describe("the shape of a piece", () => {
   }, 30_000);
 });
 
+/**
+ * 落ちサビ and 大サビ: the same sabi, set twice more.
+ *
+ * A section kind that only renames things is not a feature. These two share
+ * their progression with the chorus by construction, so everything that makes
+ * them what they are has to come from the tables the rest of this file tests --
+ * dynamics, register, energy. If those do not separate them, the form is a
+ * label on a chorus.
+ */
+describe("the last two settings of the sabi", () => {
+  /**
+   * Across seeds, not one piece.
+   *
+   * A single forty-eight bar piece has one 落ちサビ and one 大サビ in it, so a
+   * claim from one piece is a claim from one section -- and measured that way
+   * the register table could be replaced with any other number and the test
+   * would still pass. Six pieces, pooled per kind.
+   */
+  const SABI_SEEDS = ["sabi", "a", "b", "c", "d", "e"];
+
+  function pooled(read: (composed: GeneratedComposition, kind: SectionKind) => number[]) {
+    const collected = new Map<SectionKind, number[]>();
+    for (const seed of SABI_SEEDS) {
+      const composed = generateComposition(settings({ bars: 48, seed }));
+      // Once per kind, not once per section: read() already gathers every
+      // section of the kind it is given, so walking the sections would count a
+      // verse twice for having two of them.
+      for (const kind of new Set((composed.sections ?? []).map((section) => section.kind))) {
+        const list = collected.get(kind) ?? [];
+        list.push(...read(composed, kind));
+        collected.set(kind, list);
+      }
+    }
+    return new Map([...collected].map(([kind, values]) => [
+      kind, values.reduce((sum, value) => sum + value, 0) / values.length,
+    ] as const));
+  }
+
+  const barsOf = (composed: GeneratedComposition, kind: SectionKind) =>
+    (composed.sections ?? []).filter((section) => section.kind === kind);
+
+  const velocities = () => pooled((composed, kind) => {
+    const barTicks = composed.ppq * 4;
+    const notes = buildCompositionTracks(composed).flatMap((track) => track.notes);
+    return barsOf(composed, kind).flatMap((section) => notes
+      .filter((note) => {
+        const bar = Math.floor(note.startTick / barTicks);
+        return bar >= section.startBar && bar < section.endBar;
+      })
+      .map((note) => note.velocity));
+  });
+
+  const centres = () => pooled((composed, kind) => {
+    const barTicks = composed.ppq * 4;
+    return barsOf(composed, kind).flatMap((section) => composed.chords
+      .filter((chord) => {
+        const bar = Math.floor(chord.startTick / barTicks);
+        return bar >= section.startBar && bar < section.endBar;
+      })
+      .map(rightHandMidpoint));
+  });
+
+  it("plays the 落ちサビ quieter than anything else in the piece", () => {
+    // Quieter than the intro, not merely quieter than the chorus. A drop that
+    // only goes as far as "a bit softer" reads as a chorus played badly.
+    const loudness = velocities();
+    const quiet = loudness.get("quietChorus")!;
+    for (const [kind, level] of loudness) {
+      if (kind === "quietChorus") continue;
+      expect(quiet, kind).toBeLessThan(level);
+    }
+  });
+
+  it("plays the 大サビ louder than anything else in the piece", () => {
+    const loudness = velocities();
+    const loud = loudness.get("finalChorus")!;
+    for (const [kind, level] of loudness) {
+      if (kind === "finalChorus") continue;
+      expect(loud, kind).toBeGreaterThan(level);
+    }
+  });
+
+  it("puts the 大サビ above the 落ちサビ, so the return is a return", () => {
+    // Both sing the same chords, so the arrival is entirely in how they are
+    // set. Measured across the six on the right hand alone: 56.70 against
+    // 58.11, and the 大サビ is the highest thing in the piece. It is the
+    // register table that carries it -- neutralising that one entry turns the
+    // gap into -0.48.
+    //
+    // This asserted that the 落ちサビ also sits below the verse, and dropped
+    // that claim rather than weaken it, because it was never true of the hand
+    // it describes. It passed on a margin of 0.02 semitones, and only because
+    // the midpoint then included the bass: the 落ちサビ's bass is lower, its
+    // right hand is not. Its register entry is -2 against the verse's 0 and the
+    // pull does not reach the right hand -- the same weakness measured when the
+    // arc was built, where the register takes about three bars to establish.
+    // What separates the two sections is dynamics, 46 velocity against 66,
+    // which the loudness cases above hold to.
+    const centre = centres();
+    expect(centre.get("finalChorus")! - centre.get("quietChorus")!).toBeGreaterThan(1.2);
+    // And the highest thing in the piece, which is what makes it the last word.
+    for (const [kind, height] of centre) {
+      if (kind === "finalChorus") continue;
+      expect(centre.get("finalChorus")!, kind).toBeGreaterThan(height);
+    }
+  });
+});
+
 describe("how long each section is", () => {
-  it("gives a chorus more room than an intro", () => {
+  it("gives a chorus more room than an intro, once the floor is paid", () => {
     // An even split gave every section the same length, so a chorus arrived and
     // left in the same breath as the intro. Measured: a sixteen-bar piece was
     // eight two-bar sections.
+    //
+    // Two claims rather than one, because the four-bar floor outranks the
+    // weighting and sometimes spends the whole budget. At thirty-two bars the
+    // eight sections are four bars each with nothing left over, and a chorus
+    // that cannot be longer without pushing a pre-chorus under a period is not
+    // a chorus that should be longer. Where bars remain, the weighting spends
+    // them, and the chorus is strictly the longer.
     for (const bars of [16, 24, 32, 48] as const) {
       const piece = generateComposition(settings({ bars, seed: "len" }));
-      const of = (kind: SectionKind) => (piece.sections ?? [])
+      const sections = piece.sections ?? [];
+      const of = (kind: SectionKind) => sections
         .filter((section) => section.kind === kind)
         .map((section) => section.endBar - section.startBar);
-      expect(Math.min(...of("chorus")), `${bars}`).toBeGreaterThan(Math.max(...of("intro")));
-      expect(Math.min(...of("verse")), `${bars}`).toBeGreaterThan(Math.max(...of("preChorus")));
+      const compare = (heavy: SectionKind, light: SectionKind, strict: boolean) => {
+        if (of(heavy).length === 0 || of(light).length === 0) return;
+        expect(Math.min(...of(heavy)), `${bars}: ${heavy} vs ${light}`)
+          .toBeGreaterThanOrEqual(Math.max(...of(light)));
+        // Strictly, only where the spare above the floor is enough to buy it.
+        // Forty-eight bars over the eleven-section layout leaves four spare for
+        // eleven sections: the widest weight gap in the table is the only one
+        // that gap can pay for, and a verse one bar longer than its pre-chorus
+        // would cost two -- one for each verse -- which is not there to spend.
+        if (strict && bars > 4 * sections.length) {
+          expect(Math.min(...of(heavy)), `${bars}: ${heavy} vs ${light}`)
+            .toBeGreaterThan(Math.max(...of(light)));
+        }
+      };
+      compare("chorus", "intro", true);
+      compare("verse", "preChorus", false);
+    }
+  });
+
+  it("gives no section fewer than four bars once the piece can afford it", () => {
+    // A section is not a slice of the bar count; it is a length a listener can
+    // hear as a phrase, and phrases.ts puts that at four bars -- an antecedent
+    // and a consequent -- with eight the full sentence. Measured before this,
+    // sixteen bars gave intro(1) verse(3) preChorus(1) chorus(3) verse(3)
+    // preChorus(1) chorus(3) outro(1): three of the eight were a single bar.
+    //
+    // Sixteen is where the claim starts rather than an arbitrary size: every
+    // form's smallest layout is four sections, so sixteen bars is the shortest
+    // piece for which a four-bar floor is reachable at all.
+    for (const form of ["verseChorus", "aaba", "throughComposed"] as const) {
+      for (const bars of [16, 24, 32, 48] as const) {
+        const piece = generateComposition(settings({ bars, seed: "floor", songForm: { form } }));
+        for (const section of piece.sections ?? []) {
+          expect(section.endBar - section.startBar, `${form}/${bars}: ${section.kind}`)
+            .toBeGreaterThanOrEqual(4);
+        }
+      }
+    }
+  });
+
+  it("never makes a lighter section longer than a heavier one", () => {
+    // The weight order, not the numbers behind it: asserting the table against
+    // itself would prove nothing. Stated across every form and length, because
+    // the floor and the weighting are applied in that order and the bug this
+    // replaced was the floor surviving while the weighting did not.
+    const heavier: ReadonlyArray<readonly [SectionKind, SectionKind]> = [
+      ["chorus", "intro"], ["chorus", "outro"], ["chorus", "preChorus"],
+      ["verse", "intro"], ["verse", "outro"], ["verse", "preChorus"],
+      ["bridge", "intro"], ["bridge", "outro"],
+    ];
+    for (const form of ["verseChorus", "aaba", "throughComposed"] as const) {
+      for (const bars of [4, 8, 16, 24, 32, 48] as const) {
+        const piece = generateComposition(settings({ bars, seed: "order", songForm: { form } }));
+        const lengths = new Map((piece.sections ?? [])
+          .map((section) => [section.kind, section.endBar - section.startBar] as const));
+        for (const [heavy, light] of heavier) {
+          const long = lengths.get(heavy);
+          const short = lengths.get(light);
+          if (long === undefined || short === undefined) continue;
+          expect(long, `${form}/${bars}: ${heavy} vs ${light}`).toBeGreaterThanOrEqual(short);
+        }
+      }
+    }
+  });
+
+  it("divides a piece too short for the floor evenly instead of demanding bars", () => {
+    // Four bars cannot give four sections four bars each. Asking for the floor
+    // anyway would overshoot the piece it is dividing.
+    for (const form of ["verseChorus", "aaba", "throughComposed"] as const) {
+      const lengths = (generateComposition(settings({ bars: 4, seed: "tiny", songForm: { form } }))
+        .sections ?? []).map((section) => section.endBar - section.startBar);
+      expect(Math.max(...lengths) - Math.min(...lengths), form).toBeLessThanOrEqual(1);
     }
   });
 

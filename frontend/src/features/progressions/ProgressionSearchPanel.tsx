@@ -41,6 +41,8 @@ export interface ProgressionSearchPanelProps {
   onApply?: (result: ProgressionSearchResult) => void;
   /** Sounds it without changing the piece. */
   onAudition?: (result: ProgressionSearchResult) => void;
+  /** What onApply would overwrite, named so the button can say it. */
+  target?: string;
 }
 
 const PAGE = 40;
@@ -49,6 +51,7 @@ export function ProgressionSearchPanel({
   mode,
   onApply,
   onAudition,
+  target,
 }: ProgressionSearchPanelProps) {
   const [query, setQuery] = useState("");
   const [usage, setUsage] = useState("");
@@ -159,7 +162,16 @@ export function ProgressionSearchPanel({
                   <button type="button" onClick={() => onAudition(result)}>試聴</button>
                 )}
                 {onApply && (
-                  <button type="button" onClick={() => onApply(result)}>使う</button>
+                  <button
+                    type="button"
+                    onClick={() => onApply(result)}
+                    // The destination in the label rather than in a tooltip: it
+                    // rewrites bars that are already there, and which bars is
+                    // the one thing worth knowing before pressing it.
+                    title={target ? `${target}のコードをこの進行に置き換えます` : undefined}
+                  >
+                    {target ? `${target}に使う` : "使う"}
+                  </button>
                 )}
               </div>
             )}

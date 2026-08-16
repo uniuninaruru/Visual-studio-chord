@@ -841,5 +841,11 @@ export function replaceChordSymbol(
     explanation: classification.explanation,
     targetDegree: undefined,
     borrowedFromMode: undefined,
+    // The hands belonged to the voicing this replaces. Keeping them would name
+    // pitches the new chord does not contain -- measured, [43, 55] left on a
+    // chord whose notes had become [57, 60, 64, 65]. This function has no
+    // access to the bass register settings and so cannot re-decide them; the
+    // chord falls back to the one-note split, which is always valid.
+    leftHand: undefined,
   };
 }

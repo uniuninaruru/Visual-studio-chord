@@ -25,7 +25,10 @@ import { planPhrases, type PhrasePlanEntry } from "./phrases";
 import { planSections } from "./sections";
 import { revoiceInFourParts } from "./voiceLeading";
 import { registerTargetFor, revoiceForMelody } from "./voicingSelection";
+import { withHands } from "./hands";
+import { bassRegisterPitch } from "./compositionTracks";
 import { applySectionTransitions } from "./sectionTransitions";
+import type { BassRegisterSettings } from "../types/music";
 import type { ConcreteStylePresetId } from "./styles";
 import { deriveSeed, hashSeed, seedToString } from "./random";
 import { getScalePitchClasses, midiToNoteName, pitchClassToSemitone } from "./scales";
@@ -105,7 +108,25 @@ export const DEFAULT_GENERATOR_SETTINGS: Readonly<GeneratorSettings> = Object.fr
   tensions: Object.freeze({ enabled: true, rate: 0.35 }),
   voiceLeading: Object.freeze({ enabled: true, optimizeSequence: true }),
   melodyVoicing: Object.freeze({ enabled: true, sectionRegister: true }),
-  bassRegister: Object.freeze({ enabled: true }),
+  // The left hand as a shell rather than a single pitch. Measured before it:
+  // zero polyphonic left-hand onsets out of 102 per style, in a band eleven
+  // semitones wide, because a split by lowest note has nothing else to give.
+  // The shell, but not the melody clearance that would let it reach a tenth.
+  //
+  // Aiming the accompaniment a fixed distance under the melody instead of at a
+  // fixed pitch does deliver: measured at a clearance of 18, tenths in the left
+  // hand go from 3 to 34 in 609 chords, the texture widens by 1.5 semitones and
+  // more chords get a shell at all. It also costs the section register arc.
+  // The clearance puts a ceiling under the melody that every section is pushed
+  // up against, and the arc is the distance between sections: the intro's
+  // accompaniment rose from 53.93 to 56.14 against a chorus at 56.95, so a
+  // contrast of 2.67 semitones became 0.81, and the chorus-verse gap went from
+  // 1.16 to 0.73.
+  //
+  // Both are measured features and they want the same register. Shipping one at
+  // the other's expense is a judgement about how this app should sound, not a
+  // defect to fix, so the clearance stays available and off.
+  bassRegister: Object.freeze({ enabled: true, shell: true }),
   dynamics: Object.freeze({ enabled: true }),
   harmonicRhythm: Object.freeze({ cadentialAcceleration: true }),
   functionalHarmony: Object.freeze({ enabled: true }),
@@ -283,6 +304,10 @@ function compositionFingerprint(settings: GeneratorSettings): string {
         "bass-register",
         settings.bassRegister.ceiling ?? "default",
         settings.bassRegister.floor ?? "default",
+        ...(settings.bassRegister.shell ? ["shell"] : []),
+        ...(settings.bassRegister.melodyClearance !== undefined
+          ? ["clearance", settings.bassRegister.melodyClearance]
+          : []),
       ]
       : []),
     ...(settings.voiceLeading?.enabled
@@ -597,8 +622,22 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
     progression.chords = revoiceForMelody(progression.chords, notes, {
       style: copiedSettings.style,
       registerFor,
+      melodyClearance: copiedSettings.bassRegister?.melodyClearance,
     });
   }
+
+  // The hands, decided here rather than derived downstream.
+  //
+  // The track builder used to split by pitch -- lowest note to the bass, the
+  // rest to the chords -- which can only ever hand the left one note. Deciding
+  // it here means the chord itself carries the answer, so the tracks, the MIDI
+  // export and the piano roll all read the same thing instead of each
+  // re-deriving it, and the shell's notes are part of the chord that gets
+  // validated rather than appearing only in a rendered view of it.
+  progression.chords = progression.chords.map((chord) => withHands(chord, {
+    shell: copiedSettings.bassRegister?.shell ?? false,
+    bassFor: (lowest) => bassRegisterPitch(lowest, copiedSettings.bassRegister),
+  }));
 
   const durationTick = ticksPerBar(copiedSettings.timeSignature, PPQ);
   const fingerprint = compositionFingerprint(copiedSettings);
@@ -743,6 +782,7 @@ function revoiceBars(
   durationTick: number,
   seedOffset: number,
   voiceLeadingStrength: number,
+  bassRegister: BassRegisterSettings | undefined,
 ): ChordEvent[] {
   let previousNotes: readonly number[] | undefined;
   return chords.map((chord) => {
@@ -763,7 +803,15 @@ function revoiceBars(
       voiceLeadingStrength,
     );
     previousNotes = voicing.notes;
-    return { ...chord, notes: voicing.notes, inversion: voicing.inversion };
+    // Through withHands rather than a spread: the chord being returned has new
+    // notes, and the hand assignment it is carrying describes the old ones.
+    return withHands(
+      { ...chord, notes: voicing.notes, inversion: voicing.inversion },
+      {
+        shell: bassRegister?.shell ?? false,
+        bassFor: (lowest) => bassRegisterPitch(lowest, bassRegister),
+      },
+    );
   });
 }
 
@@ -864,6 +912,7 @@ export function regenerateRange(
       composition.ticksPerBar,
       seedOffset,
       settings.harmony?.voiceLeadingStrength ?? DEFAULT_HARMONY_SETTINGS.voiceLeadingStrength,
+      settings.bassRegister,
     );
   }
 

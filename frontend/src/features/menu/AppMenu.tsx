@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { MixerSettings } from "../../audio/transport";
 import { DEFAULT_MIXER } from "../../audio/transport";
+import type { ThemeChoice } from "../../hooks/useTheme";
 import {
   BUILD_CREDITS,
   GUIDE,
@@ -40,7 +41,21 @@ export interface AppMenuProps {
   onOpenTutorial: () => void;
   onOpenDiagnostics: () => void;
   appVersion: string;
+  theme: ThemeChoice;
+  onThemeChange: (choice: ThemeChoice) => void;
+  /**
+   * What the machine says right now, for the "follow the machine" option to
+   * report. Deliberately not what is on screen: after the user picks light on a
+   * dark machine, this still says dark, because that is what the option offers.
+   */
+  resolvedTheme: "light" | "dark";
 }
+
+const THEME_OPTIONS: ReadonlyArray<{ value: ThemeChoice; label: string }> = [
+  { value: "system", label: "端末に合わせる" },
+  { value: "light", label: "ライト" },
+  { value: "dark", label: "ダーク" },
+];
 
 function CreditList({ title, credits }: { title: string; credits: readonly Credit[] }) {
   return (
@@ -99,6 +114,9 @@ export function AppMenu({
   onOpenTutorial,
   onOpenDiagnostics,
   appVersion,
+  theme,
+  onThemeChange,
+  resolvedTheme,
 }: AppMenuProps) {
   const [tab, setTab] = useState<MenuTab>("guide");
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -199,6 +217,31 @@ export function AppMenu({
 
           {tab === "settings" ? (
             <>
+              {/*
+                * Beside the mixer, for the reason the mixer is here: something
+                * set once and then left alone, which would cost the transport
+                * bar space it needs for the controls used every minute.
+                */}
+              <section className="menu-guide-section">
+                <h3>外観</h3>
+                <div className="menu-theme-choice" role="radiogroup" aria-label="外観">
+                  {THEME_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={theme === option.value}
+                      className={theme === option.value ? "menu-theme-option selected" : "menu-theme-option"}
+                      onClick={() => onThemeChange(option.value)}
+                    >
+                      {option.label}
+                      {option.value === "system" && (
+                        <span>{resolvedTheme === "dark" ? "いまはダーク" : "いまはライト"}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </section>
               <section className="menu-guide-section">
                 <h3>音量</h3>
                 <p className="menu-guide-intro">

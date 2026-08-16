@@ -93,33 +93,112 @@ describe("song form at the longer lengths", () => {
     // Falling back to the eight-bar layout gave a forty-eight bar song four
     // twelve-bar sections with no intro or outro, and a twelve-bar pre-chorus
     // is not a pre-chorus.
-    for (const bars of LONG_COUNTS) {
+    //
+    // Thirty-two and forty-eight, not twenty-four: eight sections of a
+    // twenty-four bar piece are three bars each, and a three-bar section is
+    // below the four bars a period needs. That length now takes the four-section
+    // layout instead, which the case below states on its own.
+    for (const bars of [32, 48] as const) {
       const sections = planSections({
         key: "C", mode: "major", bars, seed: "f", form: "verseChorus",
       })!;
-      expect(sections.map((section) => section.kind), `${bars}`).toEqual([
-        "intro", "verse", "preChorus", "chorus",
-        "verse", "preChorus", "chorus", "outro",
-      ]);
+      // Opens and closes the piece, and states the cycle twice. The exact list
+      // differs by length -- forty-eight bars reaches the eleven-section entry
+      // with its 落ちサビ and 大サビ, which has its own case below -- so what is
+      // claimed here is what both must have.
+      const kinds = sections.map((section) => section.kind);
+      expect(kinds.length, `${bars}`).toBeGreaterThanOrEqual(8);
+      expect(kinds[0], `${bars}`).toBe("intro");
+      expect(kinds[kinds.length - 1], `${bars}`).toBe("outro");
+      expect(kinds.filter((kind) => kind === "verse").length, `${bars}`).toBe(2);
+      expect(kinds.filter((kind) => kind === "preChorus").length, `${bars}`).toBe(2);
       // Weighted by role, not divided evenly. An even split gave every
       // section the same length, so a chorus arrived and left in the same
       // breath as the intro before it -- measured, a sixteen-bar piece was
       // eight two-bar sections, which is a slideshow rather than a structure.
       const lengths = sections.map((section) => section.endBar - section.startBar);
       expect(lengths.reduce((sum, length) => sum + length, 0), `${bars}`).toBe(bars);
-      expect(lengths.every((length) => length >= 1), `${bars}`).toBe(true);
+      expect(lengths.every((length) => length >= 4), `${bars}`).toBe(true);
 
       const of = (kind: string) => sections
         .filter((section) => section.kind === kind)
         .map((section) => section.endBar - section.startBar);
-      // A chorus is longer than the intro that opens the piece.
-      expect(Math.min(...of("chorus")), `${bars}`).toBeGreaterThan(Math.max(...of("intro")));
-      expect(Math.min(...of("verse")), `${bars}`).toBeGreaterThan(Math.max(...of("preChorus")));
+      // A chorus is never shorter than the intro that opens the piece, and is
+      // longer wherever the piece has bars left after the four-bar floor. At
+      // thirty-two bars it has none: eight sections of four bars is the whole
+      // budget, and the floor outranks the weighting by design.
+      expect(Math.min(...of("chorus")), `${bars}`)
+        .toBeGreaterThanOrEqual(Math.max(...of("intro")));
+      expect(Math.min(...of("verse")), `${bars}`)
+        .toBeGreaterThanOrEqual(Math.max(...of("preChorus")));
+      if (bars > 4 * sections.length) {
+        expect(Math.min(...of("chorus")), `${bars}`).toBeGreaterThan(Math.max(...of("intro")));
+      }
       // And two choruses are the same length as each other, or the second is
       // not a repeat of the first.
       expect(new Set(of("chorus")).size, `${bars}`).toBe(1);
       expect(new Set(of("verse")).size, `${bars}`).toBe(1);
     }
+  });
+
+  it("drops to fewer sections rather than write a three-bar pre-chorus", () => {
+    // The trade the length rule makes, stated where it is paid. Twenty-four
+    // bars can hold eight sections only by making each of them three bars, so
+    // it holds four instead and every one of them clears the floor.
+    const sections = planSections({
+      key: "C", mode: "major", bars: 24, seed: "f", form: "verseChorus",
+    })!;
+    expect(sections.map((section) => section.kind)).toEqual([
+      "verse", "preChorus", "chorus", "chorus",
+    ]);
+    expect(sections.map((section) => section.endBar - section.startBar)).toEqual([7, 5, 6, 6]);
+  });
+
+  it("gives the longest piece a 落ちサビ and a 大サビ, in that order", () => {
+    // The shape the form is named for and could not previously reach: two
+    // verse-chorus cycles, a bridge, then the sabi twice more -- once with the
+    // band gone, once at full height.
+    const sections = planSections({
+      key: "C", mode: "major", bars: 48, seed: "f", form: "verseChorus",
+    })!;
+    expect(sections.map((section) => section.kind)).toEqual([
+      "intro", "verse", "preChorus", "chorus",
+      "verse", "preChorus", "chorus",
+      "bridge", "quietChorus", "finalChorus", "outro",
+    ]);
+    // Eleven sections and every one of them a period.
+    for (const section of sections) {
+      expect(section.endBar - section.startBar, section.kind).toBeGreaterThanOrEqual(4);
+    }
+    expect(sections[sections.length - 1]!.endBar).toBe(48);
+  });
+
+  it("sings the same sabi three times rather than writing three choruses", () => {
+    // What makes them a 落ちサビ and a 大サビ rather than two more choruses.
+    // Three progressions where the form calls for one heard three ways would be
+    // three pieces of material, and none of them would read as a return.
+    const sections = planSections({
+      key: "C", mode: "major", bars: 48, seed: "f", form: "verseChorus",
+    })!;
+    const sabi = sections.filter((section) =>
+      section.kind === "chorus" || section.kind === "quietChorus"
+      || section.kind === "finalChorus");
+    expect(sabi).toHaveLength(4);
+    expect(new Set(sabi.map((section) => section.progressionId)).size).toBe(1);
+    // And it is still a chorus progression, not whatever the verse had.
+    const verse = sections.find((section) => section.kind === "verse")!;
+    expect(sabi[0]!.progressionId).not.toBe(verse.progressionId);
+  });
+
+  it("does not reach for the long form at a length that cannot hold it", () => {
+    // Eleven sections need forty-four bars to clear the four-bar floor. Thirty
+    // two would give each of them two, which is the crowding the floor exists
+    // to prevent -- so that length keeps the eight-section layout.
+    const sections = planSections({
+      key: "C", mode: "major", bars: 32, seed: "f", form: "verseChorus",
+    })!;
+    expect(sections.map((section) => section.kind)).not.toContain("finalChorus");
+    expect(sections).toHaveLength(8);
   });
 
   it("leaves AABA as four sections, which is what AABA is", () => {
@@ -135,17 +214,23 @@ describe("song form at the longer lengths", () => {
     // 4, 8 and 16 have their own table entries, so the fallback never runs --
     // but the bars inside them are still shared out by role rather than split
     // evenly.
+    //
+    // Sixteen bars used to take the eight-section entry and produce intro:1
+    // verse:3 preChorus:1 chorus:3 verse:3 preChorus:1 chorus:3 outro:1. A
+    // one-bar pre-chorus is not a pre-chorus, and three of the eight were one
+    // bar: that is a division of the bar count, not a form. It takes the
+    // four-section entry now, where every section is a four-bar period.
     expect(
       planSections({ key: "C", mode: "major", bars: 16, seed: "s", form: "verseChorus" })!
         .map((section) => `${section.kind}:${section.endBar - section.startBar}`),
-    ).toEqual([
-      "intro:1", "verse:3", "preChorus:1", "chorus:3",
-      "verse:3", "preChorus:1", "chorus:3", "outro:1",
-    ]);
+    ).toEqual(["verse:4", "preChorus:4", "chorus:4", "chorus:4"]);
+    // Eight bars is two periods, so it is two sections: a verse and a chorus.
+    // Four sections of two bars each is what it gave before, and a two-bar
+    // verse is a phrase fragment rather than a verse.
     expect(
       planSections({ key: "C", mode: "major", bars: 8, seed: "s", form: "verseChorus" })!
-        .map((section) => section.kind),
-    ).toEqual(["verse", "preChorus", "chorus", "chorus"]);
+        .map((section) => `${section.kind}:${section.endBar - section.startBar}`),
+    ).toEqual(["verse:4", "chorus:4"]);
   });
 
   it("stays valid with a form, a lift and the theory settings on", () => {

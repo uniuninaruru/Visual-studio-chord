@@ -446,3 +446,31 @@ export function shapesFor(request: ShapeRequest): Array<{ shape: VoicingShape; i
   }
   return result;
 }
+
+
+/**
+ * Shapes that are two hands by construction, and where the hands divide.
+ *
+ * spacingInversion has to guess at the division from the pitches alone, and it
+ * guesses by looking for a hole of an octave or more. That finds
+ * twoHandFifth's twenty-one semitone gap and misses twoHandClose's nine, so
+ * the shape added specifically to supply the missing two-octave width is
+ * judged as a single stack and charged four semitones of inversion for the
+ * hole that makes it what it is -- ten, in pop, which is most of the gap
+ * between it and the voicing that beats it.
+ *
+ * Declared rather than inferred, because the catalogue knows. A shape built as
+ * a left hand and a right hand can say so, and nothing that is not built that
+ * way is affected by saying it.
+ */
+export const TWO_HAND_SHAPES: Readonly<Partial<Record<VoicingShape, number>>> = {
+  // The left hand is the root and one other tone in each of these.
+  twoHandFifth: 2,
+  twoHandSeventh: 2,
+  twoHandClose: 2,
+};
+
+/** Where a shape's hands divide, or undefined where it is played with one. */
+export function handSplitFor(shape: VoicingShape): number | undefined {
+  return TWO_HAND_SHAPES[shape];
+}

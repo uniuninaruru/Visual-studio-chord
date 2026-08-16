@@ -1,5 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GENERATOR_SETTINGS } from "../src/music";
+import {
+  DEFAULT_GENERATOR_SETTINGS,
+  generateComposition,
+  validateComposition,
+} from "../src/music";
+import {
+  createPreferenceModel,
+  extractPreferenceFeatures,
+  updatePreferenceModel,
+} from "../src/preference";
+import type { GeneratorSettings } from "../src/types/music";
 import { useComposerStore } from "../src/state";
 import { EDITOR_STORAGE_KEY } from "../src/storage";
 
@@ -303,4 +313,224 @@ describe("useComposerStore", () => {
     );
     expect(snapshot).not.toHaveProperty("playback.status");
   });
+});
+
+/**
+ * Using a progression the search found.
+ *
+ * The search could list fifteen hundred progressions and do nothing with any of
+ * them: 試聴 sounded the first chord and there was no way to put one into the
+ * piece. What "use" has to mean is the question this answers -- a progression
+ * is a sequence of degrees, not of durations, so the bars keep their harmonic
+ * rhythm and only what they spell changes.
+ */
+describe("applying a progression to the piece", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useComposerStore.getState().reset({ seed: "apply-tests" });
+    useComposerStore.getState().generateComposition({ seed: "apply", bars: 16 });
+  });
+
+  const STEPS = [
+    { degree: 1 as const }, { degree: 5 as const },
+    { degree: 6 as const }, { degree: 4 as const },
+  ];
+
+  it("rewrites the degrees of the range it was given and nothing else", () => {
+    const before = useComposerStore.getState().draftComposition;
+    const outside = before.chords
+      .filter((chord) => chord.startTick >= 4 * before.ticksPerBar)
+      .map((chord) => chord.symbol);
+
+    expect(useComposerStore.getState()
+      .applyProgression(STEPS, { startBar: 0, endBar: 4 })).toBe(true);
+
+    const after = useComposerStore.getState().draftComposition;
+    const inside = after.chords
+      .filter((chord) => chord.startTick < 4 * before.ticksPerBar);
+    expect(inside.map((chord) => chord.degree)).toEqual(
+      inside.map((_, index) => STEPS[index % STEPS.length]!.degree),
+    );
+    expect(
+      after.chords
+        .filter((chord) => chord.startTick >= 4 * before.ticksPerBar)
+        .map((chord) => chord.symbol),
+    ).toEqual(outside);
+  });
+
+  it("keeps the bars' own harmonic rhythm rather than imposing the progression's", () => {
+    // Four steps do not mean four bars. A progression says which degrees and in
+    // what order; how long each is held is the piece's business, and a two
+    // chord bar stays a two chord bar.
+    const before = useComposerStore.getState().draftComposition;
+    const timing = before.chords.map((chord) => ({
+      id: chord.id, startTick: chord.startTick, durationTick: chord.durationTick,
+    }));
+    useComposerStore.getState().applyProgression(STEPS, null);
+    const after = useComposerStore.getState().draftComposition;
+    expect(after.chords.map((chord) => ({
+      id: chord.id, startTick: chord.startTick, durationTick: chord.durationTick,
+    }))).toEqual(timing);
+  });
+
+  it("cycles a progression shorter than the stretch it is used over", () => {
+    useComposerStore.getState().applyProgression([{ degree: 2 }, { degree: 5 }], null);
+    const degrees = useComposerStore.getState().draftComposition.chords
+      .map((chord) => chord.degree);
+    expect(degrees.length).toBeGreaterThan(4);
+    expect(degrees).toEqual(degrees.map((_, index) => (index % 2 === 0 ? 2 : 5)));
+  });
+
+  it("leaves a piece the app still accepts", () => {
+    useComposerStore.getState().applyProgression(STEPS, null);
+    const outcome = validateComposition(useComposerStore.getState().draftComposition);
+    expect(outcome.errors.map((issue) => issue.code)).toEqual([]);
+  });
+
+  it("is one undo, not one per chord", () => {
+    const before = useComposerStore.getState().draftComposition.chords.map((c) => c.symbol);
+    useComposerStore.getState().applyProgression(STEPS, null);
+    expect(useComposerStore.getState().draftComposition.chords.map((c) => c.symbol))
+      .not.toEqual(before);
+    expect(useComposerStore.getState().undo()).toBe(true);
+    expect(useComposerStore.getState().draftComposition.chords.map((c) => c.symbol))
+      .toEqual(before);
+  });
+
+  it("stops a rewritten section claiming the progression it no longer plays", () => {
+    // The explanation panel reads the section's progressionId to say "this
+    // section is the royal road". Leaving it after replacing the chords makes
+    // the app state something false about itself, in the one place a reader
+    // goes to find out what it did.
+    const before = useComposerStore.getState().draftComposition;
+    const section = (before.sections ?? [])[0]!;
+    expect(section.progressionId, "no progression to lose").toBeDefined();
+
+    useComposerStore.getState().applyProgression(STEPS, {
+      startBar: section.startBar, endBar: section.endBar,
+    });
+    const rewritten = (useComposerStore.getState().draftComposition.sections ?? [])[0]!;
+    expect(rewritten.progressionId).toBeUndefined();
+
+    // And takes the new name when the caller has one.
+    useComposerStore.getState().applyProgression(STEPS, {
+      startBar: section.startBar, endBar: section.endBar,
+    }, "royal-road");
+    expect((useComposerStore.getState().draftComposition.sections ?? [])[0]!.progressionId)
+      .toBe("royal-road");
+  });
+
+  it("does not name a section the rewrite only partly covers", () => {
+    // Half a section rewritten is not that progression either way.
+    const before = useComposerStore.getState().draftComposition;
+    const section = (before.sections ?? [])[0]!;
+    useComposerStore.getState().applyProgression(STEPS, {
+      startBar: section.startBar, endBar: section.startBar + 1,
+    }, "royal-road");
+    expect((useComposerStore.getState().draftComposition.sections ?? [])[0]!.progressionId)
+      .toBeUndefined();
+  });
+
+  it("leaves the sections it never touched alone", () => {
+    const before = useComposerStore.getState().draftComposition;
+    const sections = before.sections ?? [];
+    expect(sections.length, "needs more than one section").toBeGreaterThan(1);
+    const last = sections[sections.length - 1]!;
+    useComposerStore.getState().applyProgression(STEPS, { startBar: 0, endBar: 1 });
+    const after = useComposerStore.getState().draftComposition.sections ?? [];
+    expect(after[after.length - 1]!.progressionId).toBe(last.progressionId);
+  });
+
+  it("refuses an empty progression rather than emptying the bars", () => {
+    const before = useComposerStore.getState().draftComposition.chords.map((c) => c.symbol);
+    expect(useComposerStore.getState().applyProgression([], null)).toBe(false);
+    expect(useComposerStore.getState().draftComposition.chords.map((c) => c.symbol))
+      .toEqual(before);
+  });
+
+  it("spells a modulated section against the key it modulated to", () => {
+    // A final lift moves a section to another key and says so on the section.
+    // Rebuilding its chords against the composition key would transpose it back
+    // without anything in the piece recording that it had.
+    useComposerStore.getState().generateComposition({
+      seed: "lift", bars: 16, songForm: { form: "verseChorus", finalLift: 2 },
+    });
+    const composition = useComposerStore.getState().draftComposition;
+    const lifted = (composition.sections ?? []).find((section) => section.transpose !== 0);
+    expect(lifted, "no section modulated").toBeDefined();
+    useComposerStore.getState().applyProgression([{ degree: 1 }], {
+      startBar: lifted!.startBar, endBar: lifted!.endBar,
+    });
+    const after = useComposerStore.getState().draftComposition;
+    const tonic = after.chords.find((chord) =>
+      chord.startTick >= lifted!.startBar * after.ticksPerBar)!;
+    expect(tonic.root).toBe(lifted!.key);
+  });
+});
+
+
+/**
+ * The generate button consulting what the A/B panel learned.
+ *
+ * The store's job stays generation: whose taste picked the draw is the
+ * caller's business, so the model is passed in rather than held here.
+ */
+describe("generating with preference guidance", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useComposerStore.getState().reset({ seed: "guide-tests" });
+  });
+
+  const seventhRate = (composition: { chords: ReadonlyArray<{ quality: string }> }) =>
+    composition.chords.filter((chord) => chord.quality.endsWith("7")).length
+      / composition.chords.length;
+
+  function trained() {
+    let model = createPreferenceModel();
+    for (let index = 0; index + 1 < 20; index += 2) {
+      const left = generateComposition({
+        ...DEFAULT_GENERATOR_SETTINGS, bars: 16, seed: `t-${index}`,
+      } as GeneratorSettings);
+      const right = generateComposition({
+        ...DEFAULT_GENERATOR_SETTINGS, bars: 16, seed: `t-${index + 1}`,
+      } as GeneratorSettings);
+      const winner = seventhRate(left) >= seventhRate(right) ? left : right;
+      const loser = winner === left ? right : left;
+      model = updatePreferenceModel(model, {
+        type: "ab",
+        winner: extractPreferenceFeatures(winner),
+        loser: extractPreferenceFeatures(loser),
+      });
+    }
+    return model;
+  }
+
+  it("records the winning draw in the piece's own seed", () => {
+    // Which is what keeps the promise: the piece is reproducible from its seed
+    // with no model, however much is learned afterwards.
+    useComposerStore.getState().generateComposition(
+      { seed: "chosen", bars: 16 },
+      { model: trained(), candidates: 8 },
+    );
+    const seed = String(useComposerStore.getState().draftComposition.seed);
+    expect(seed).toMatch(/^chosen(#\d+)?$/);
+    const settings = useComposerStore.getState().draftComposition.settings;
+    expect(JSON.stringify(useComposerStore.getState().draftComposition))
+      .toBe(JSON.stringify(generateComposition({ ...settings, seed })));
+  }, 60_000);
+
+  it("leaves the seed alone when it was not asked to choose", () => {
+    useComposerStore.getState().generateComposition({ seed: "plain", bars: 16 });
+    expect(useComposerStore.getState().draftComposition.seed).toBe("plain");
+  });
+
+  it("generates what it always did when nothing has been learned", () => {
+    useComposerStore.getState().generateComposition({ seed: "same", bars: 16 });
+    const without = JSON.stringify(useComposerStore.getState().draftComposition);
+    useComposerStore.getState().generateComposition(
+      { seed: "same", bars: 16 },
+      { model: createPreferenceModel(), candidates: 8 },
+    );
+    expect(JSON.stringify(useComposerStore.getState().draftComposition)).toBe(without);
+  }, 30_000);
 });
