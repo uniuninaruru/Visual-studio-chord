@@ -199,3 +199,58 @@ export function handSpan(hand: readonly number[]): number {
  * register the right hand is using.
  */
 export const MAX_HAND_SPAN = 19;
+
+/**
+ * Re-decides the hands for a chord whose notes have changed.
+ *
+ * Every path that rewrites `notes` has to go through this or drop `leftHand`,
+ * because a hand assignment is a set of pitches and a stale one names pitches
+ * that are no longer in the chord. Measured before this existed: changing a
+ * chord's symbol left `leftHand: [43, 55]` on a chord whose notes had become
+ * [57, 60, 64, 65] -- an assignment with nothing in common with the chord it
+ * belonged to, which the track builder would then fail to remove from the right
+ * hand while also sounding it in the left.
+ *
+ * Returns the chord unchanged when no shell was asked for, so a caller that
+ * does not know the settings can pass `shell: false` and get the old split.
+ */
+export function withHands<T extends { notes: number[]; leftHand?: number[] }>(
+  chord: T,
+  options: { shell: boolean; bassFor: (lowest: number) => number },
+): T {
+  if (!options.shell) {
+    if (chord.leftHand === undefined) return chord;
+    // Rebuilt without the field rather than set to undefined, so a chord with
+    // no hand assignment does not serialise one.
+    const rest = { ...chord };
+    delete rest.leftHand;
+    return rest;
+  }
+  const sorted = [...chord.notes].sort((left, right) => left - right);
+  const lowest = sorted[0];
+  if (lowest === undefined) return chord;
+  const hands = assignHands(sorted, { shell: true, bass: options.bassFor(lowest) });
+  return { ...chord, notes: [...hands.left, ...hands.right], leftHand: [...hands.left] };
+}
+
+/**
+ * Whether a chord's hand assignment still describes its notes.
+ *
+ * Used by the JSON importer, which otherwise accepts a file whose `leftHand`
+ * names pitches the chord does not contain -- and by the tests that hold every
+ * path that rewrites a chord to going through `withHands`.
+ */
+export function handsAreConsistent(
+  chord: { notes: readonly number[]; leftHand?: readonly number[] },
+): boolean {
+  if (chord.leftHand === undefined) return true;
+  if (chord.leftHand.length === 0) return false;
+  const notes = [...chord.notes];
+  for (const pitch of chord.leftHand) {
+    const index = notes.indexOf(pitch);
+    if (index < 0) return false;
+    notes.splice(index, 1);
+  }
+  // The bass is the bass: nothing the right hand holds may sit under it.
+  return notes.every((note) => note > Math.min(...chord.leftHand as readonly number[]));
+}

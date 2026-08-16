@@ -3,6 +3,7 @@ import type {
   GeneratorSettings,
   ValidationResult,
 } from "../../types/music";
+import { handsAreConsistent } from "../../music/hands";
 import { validateComposition } from "../../music";
 
 export const COMPOSITION_JSON_FORMAT = "music-theory-composer";
@@ -397,6 +398,17 @@ export function isGeneratedComposition(value: unknown): value is GeneratedCompos
       Number.isInteger(item.inversion) &&
       (item.inversion as number) >= 0 &&
       (item.inversion as number) < item.notes.length &&
+      // A hand assignment is a set of the chord's own pitches. A file naming
+      // pitches the chord does not contain would put a note in the bass that
+      // the harmony never sounds, and fail to take it out of the right hand.
+      (item.leftHand === undefined || (
+        Array.isArray(item.leftHand) &&
+        item.leftHand.every((note) => Number.isInteger(note)) &&
+        handsAreConsistent({
+          notes: item.notes as number[],
+          leftHand: item.leftHand as number[],
+        })
+      )) &&
       typeof item.source === "string" &&
       sources.includes(item.source) &&
       (item.specialKind === undefined || (

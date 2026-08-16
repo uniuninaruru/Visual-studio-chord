@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { assignHands, intervalFitsRegister, MAX_HAND_SPAN } from "../src/music/hands";
+import {
+  assignHands,
+  handsAreConsistent,
+  intervalFitsRegister,
+  MAX_HAND_SPAN,
+} from "../src/music/hands";
 import { LOW_INTERVAL_LIMITS, lowIntervalViolation } from "../src/music/voicingRegister";
-import { DEFAULT_GENERATOR_SETTINGS, generateComposition, validateComposition } from "../src/music";
+import {
+  DEFAULT_GENERATOR_SETTINGS,
+  generateComposition,
+  regenerateRange,
+  replaceChordSymbol,
+  validateComposition,
+} from "../src/music";
+import { exportCompositionJson, importCompositionJson } from "../src/features/export/json";
 import { buildCompositionTracks } from "../src/music/compositionTracks";
 import type { GeneratorSettings } from "../src/types/music";
 
@@ -217,5 +229,81 @@ describe("assignHands on its own", () => {
   it("gives up rather than force a partner in", () => {
     // A two-note chord with nothing above the bass but the note itself.
     expect(assignHands([60], { shell: true, bass: 48 }).left).toEqual([48]);
+  });
+});
+
+/**
+ * Nothing may leave a chord describing hands it no longer has.
+ *
+ * A hand assignment is a set of pitches, not an index, so it goes stale the
+ * moment the notes change under it. Measured before the paths were closed:
+ * changing a chord's symbol left `leftHand: [43, 55]` on a chord whose notes
+ * had become [57, 60, 64, 65] -- an assignment with nothing in common with the
+ * chord it belonged to. The track builder removes the left hand's pitches from
+ * the right by value, so a stale one sounds in the bass AND stays in the chord.
+ */
+describe("keeping the hands and the notes in step", () => {
+  const consistent = (composition: { chords: ReadonlyArray<{ notes: number[]; leftHand?: number[] }> }) =>
+    composition.chords.every((chord) => handsAreConsistent(chord));
+
+  it("is consistent as generated", () => {
+    for (const style of STYLES) {
+      for (const seed of SEEDS) {
+        const composed = piece({ seed, style, bassRegister: { enabled: true, shell: true } });
+        expect(consistent(composed), `${style}/${seed}`).toBe(true);
+      }
+    }
+  }, 120_000);
+
+  it("drops the assignment when a chord's symbol is replaced", () => {
+    // replaceChordSymbol builds a new voicing and has no access to the bass
+    // register settings, so it cannot re-decide the hands. Dropping them is
+    // always valid -- the chord falls back to the one-note split -- and
+    // carrying them is never valid.
+    const composed = piece({ seed: "replace", bassRegister: { enabled: true, shell: true } });
+    const shelled = composed.chords.find((chord) => (chord.leftHand?.length ?? 1) > 1)!;
+    expect(shelled, "no shell to replace").toBeDefined();
+    const replaced = replaceChordSymbol(
+      shelled, "Fmaj7", composed.settings.key, composed.settings.mode,
+    );
+    expect(replaced.leftHand).toBeUndefined();
+    expect(handsAreConsistent(replaced)).toBe(true);
+  }, 30_000);
+
+  it("re-decides the assignment when a range is regenerated", () => {
+    const composed = piece({ seed: "regen", bars: 16, bassRegister: { enabled: true, shell: true } });
+    const again = regenerateRange(
+      { ...composed, lockedBars: [] }, composed.settings,
+      { startBar: 0, endBar: 8 }, { seedOffset: 3, target: "voicing" },
+    );
+    expect(consistent(again)).toBe(true);
+  }, 60_000);
+
+  it("survives a round trip through the project file", () => {
+    const composed = piece({ seed: "json", bassRegister: { enabled: true, shell: true } });
+    const back = importCompositionJson(exportCompositionJson(composed));
+    expect(back.chords.map((chord) => chord.leftHand))
+      .toEqual(composed.chords.map((chord) => chord.leftHand));
+  }, 30_000);
+
+  it("refuses a file whose hands name pitches the chord does not have", () => {
+    // The importer is the boundary. A hand-edited file could put a note in the
+    // bass that the harmony never sounds.
+    const composed = piece({ seed: "tamper", bassRegister: { enabled: true, shell: true } });
+    const document = JSON.parse(exportCompositionJson(composed));
+    const index = document.composition.chords
+      .findIndex((chord: { leftHand?: number[] }) => (chord.leftHand?.length ?? 0) > 1);
+    expect(index, "no shell to tamper with").toBeGreaterThanOrEqual(0);
+    document.composition.chords[index].leftHand = [3, 4];
+    expect(() => importCompositionJson(JSON.stringify(document))).toThrow();
+  }, 30_000);
+
+  it("rejects a left hand that is not the lowest thing in the chord", () => {
+    // The bass is the bass. An assignment naming only the chord's top note
+    // would leave the right hand sounding underneath it.
+    expect(handsAreConsistent({ notes: [40, 52, 55], leftHand: [55] })).toBe(false);
+    expect(handsAreConsistent({ notes: [40, 52, 55], leftHand: [40, 52] })).toBe(true);
+    expect(handsAreConsistent({ notes: [40, 52, 55], leftHand: [] })).toBe(false);
+    expect(handsAreConsistent({ notes: [40, 52, 55] })).toBe(true);
   });
 });
