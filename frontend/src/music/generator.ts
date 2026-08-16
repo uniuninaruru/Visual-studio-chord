@@ -25,6 +25,8 @@ import { planPhrases, type PhrasePlanEntry } from "./phrases";
 import { planSections } from "./sections";
 import { revoiceInFourParts } from "./voiceLeading";
 import { registerTargetFor, revoiceForMelody } from "./voicingSelection";
+import { assignHands } from "./hands";
+import { bassRegisterPitch } from "./compositionTracks";
 import { applySectionTransitions } from "./sectionTransitions";
 import type { ConcreteStylePresetId } from "./styles";
 import { deriveSeed, hashSeed, seedToString } from "./random";
@@ -105,7 +107,10 @@ export const DEFAULT_GENERATOR_SETTINGS: Readonly<GeneratorSettings> = Object.fr
   tensions: Object.freeze({ enabled: true, rate: 0.35 }),
   voiceLeading: Object.freeze({ enabled: true, optimizeSequence: true }),
   melodyVoicing: Object.freeze({ enabled: true, sectionRegister: true }),
-  bassRegister: Object.freeze({ enabled: true }),
+  // The left hand as a shell rather than a single pitch. Measured before it:
+  // zero polyphonic left-hand onsets out of 102 per style, in a band eleven
+  // semitones wide, because a split by lowest note has nothing else to give.
+  bassRegister: Object.freeze({ enabled: true, shell: true }),
   dynamics: Object.freeze({ enabled: true }),
   harmonicRhythm: Object.freeze({ cadentialAcceleration: true }),
   functionalHarmony: Object.freeze({ enabled: true }),
@@ -283,6 +288,7 @@ function compositionFingerprint(settings: GeneratorSettings): string {
         "bass-register",
         settings.bassRegister.ceiling ?? "default",
         settings.bassRegister.floor ?? "default",
+        ...(settings.bassRegister.shell ? ["shell"] : []),
       ]
       : []),
     ...(settings.voiceLeading?.enabled
@@ -597,6 +603,28 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
     progression.chords = revoiceForMelody(progression.chords, notes, {
       style: copiedSettings.style,
       registerFor,
+    });
+  }
+
+  // The hands, decided here rather than derived downstream.
+  //
+  // The track builder used to split by pitch -- lowest note to the bass, the
+  // rest to the chords -- which can only ever hand the left one note. Deciding
+  // it here means the chord itself carries the answer, so the tracks, the MIDI
+  // export and the piano roll all read the same thing instead of each
+  // re-deriving it, and the shell's notes are part of the chord that gets
+  // validated rather than appearing only in a rendered view of it.
+  if (copiedSettings.bassRegister?.shell) {
+    progression.chords = progression.chords.map((chord) => {
+      const sorted = [...chord.notes].sort((left, right) => left - right);
+      const bass = bassRegisterPitch(sorted[0] as number, copiedSettings.bassRegister);
+      const hands = assignHands(sorted, { shell: true, bass });
+      const notesWithShell = [...hands.left, ...hands.right];
+      return {
+        ...chord,
+        notes: notesWithShell,
+        leftHand: [...hands.left],
+      };
     });
   }
 

@@ -393,6 +393,16 @@ export interface DynamicsSettings {
 export interface BassRegisterSettings {
   enabled: boolean;
   /**
+   * Give the left hand a shell rather than a single note.
+   *
+   * Off, the left hand is the voicing's lowest pitch and nothing else, which is
+   * what a split-by-lowest can produce and what this app did: measured across
+   * eight styles, zero polyphonic left-hand onsets out of 102 each. On, a
+   * partner is added above it -- a fifth, seventh, octave or tenth, whichever
+   * is the widest the register allows -- from the chord's own tones.
+   */
+  shell?: boolean;
+  /**
    * Highest MIDI note the bass may sound. Defaults to 48 (C3), the top of a
    * comfortable electric-bass register.
    */
@@ -771,6 +781,19 @@ export interface ChordEvent {
   startTick: number;
   durationTick: number;
   notes: number[];
+  /**
+   * Which of `notes` the left hand plays.
+   *
+   * Absent means the old rule: lowest note left, the rest right. Present, it is
+   * the voicer's own decision rather than a split applied afterwards, and the
+   * tracks, the MIDI export and the piano roll read it instead of each
+   * re-deriving one.
+   *
+   * Pitches rather than a count, because there is no count that says it: a left
+   * hand reaching a tenth sits above some of the right hand's notes, so the two
+   * hands are not separable by a line drawn through the sorted voicing.
+   */
+  leftHand?: number[];
   inversion: number;
   source: ChordSource;
   /** Colour tones above the base quality (9th/11th/13th/6th and alterations). */

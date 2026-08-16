@@ -301,21 +301,36 @@ export function buildCompositionTracks(
     : null;
   for (const chord of composition.chords) {
     const pitches = [...chord.notes].sort((left, right) => left - right);
-    const bass = pitches[0];
-    if (bass !== undefined) {
+    // The chord's own answer when it has one.
+    //
+    // `slice(1)` is what this did for every chord, and a split by lowest note
+    // can only ever give the left hand a single pitch. Where the voicer decided
+    // the hands, its decision is read rather than re-derived -- and the bass
+    // register has already been applied to those notes, so applying it again
+    // here would drop a shell partner an octave and destroy the interval that
+    // made it playable low.
+    const assigned = chord.leftHand;
+    const decided = assigned !== undefined && assigned.length > 0;
+    const left = decided ? [...assigned] : [pitches[0] as number];
+    for (const pitch of left) {
       bassNotes.push(
         chordNote(
           composition,
           chord.id,
           chord.startTick,
           chord.durationTick,
-          bassRegisterPitch(bass, composition.settings.bassRegister),
+          decided ? pitch : bassRegisterPitch(pitch, composition.settings.bassRegister),
           "left",
           "bass",
         ),
       );
     }
-    const upper = pitches.slice(1);
+    const remaining = [...pitches];
+    for (const pitch of left) {
+      const index = remaining.indexOf(pitch);
+      if (index >= 0) remaining.splice(index, 1);
+    }
+    const upper = decided ? remaining : pitches.slice(1);
     const top = upper[upper.length - 1];
     // The bass is deliberately left sustained under the figure: a bass line
     // that arpeggiates along with the right hand leaves the harmony with no
