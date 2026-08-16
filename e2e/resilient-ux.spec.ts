@@ -26,7 +26,10 @@ test("first-use path generates, plays, previews, adopts, and undoes without a se
   await expect(status).toContainText(/Paused · Bar \d+/);
 
   await page.locator(".chord-content").first().click();
-  await expect(status).toContainText("1–1 小節ループ");
+  // The loop reads from the transport bar, not the status strip. It used to be
+  // in both -- App passed the same string to each, forty pixels apart -- and
+  // the duplicate was dropped rather than the readout.
+  await expect(page.locator(".loop-readout")).toContainText("1–1 小節ループ");
   await page.getByRole("button", { name: "選択範囲を再生成" }).click();
   await expect(page.locator("article[data-candidate='A']")).toBeVisible();
   await expect(page.locator("article[data-candidate='C']")).toBeVisible();
@@ -76,7 +79,7 @@ test("pending structural edits keep the audible meter, tempo, and loop visible",
   // so the seventh chord button and the seventh bar stopped being the same
   // thing, and this test was quietly asserting one chord per bar.
   await page.locator('.chord-cell[data-bar="6"] .chord-content').first().click();
-  await expect(status).toContainText("7–7 小節ループ");
+  await expect(page.locator(".loop-readout")).toContainText("7–7 小節ループ");
   await page.getByLabel("編集反映タイミング").selectOption("nextLoop");
   await page.getByRole("button", { name: "再生", exact: true }).click();
 
@@ -87,7 +90,9 @@ test("pending structural edits keep the audible meter, tempo, and loop visible",
 
   await expect(page.locator(".readout-meta")).toHaveText("120 BPM");
   await expect(status).toContainText("Edited · Apply at next loop");
-  await expect(status).toContainText("Loop7–7 小節ループ");
+  // The committed loop from the transport bar, the pending one from the strip:
+  // they are two different values, which is why only the duplicate went.
+  await expect(page.locator(".loop-readout")).toContainText("7–7 小節ループ");
   await expect(status).toContainText("Pending loop: 全体ループ");
   await expect(page.locator(".workspace-header")).toContainText("3/4 · 4 bars");
 });
