@@ -111,6 +111,21 @@ export const DEFAULT_GENERATOR_SETTINGS: Readonly<GeneratorSettings> = Object.fr
   // The left hand as a shell rather than a single pitch. Measured before it:
   // zero polyphonic left-hand onsets out of 102 per style, in a band eleven
   // semitones wide, because a split by lowest note has nothing else to give.
+  // The shell, but not the melody clearance that would let it reach a tenth.
+  //
+  // Aiming the accompaniment a fixed distance under the melody instead of at a
+  // fixed pitch does deliver: measured at a clearance of 18, tenths in the left
+  // hand go from 3 to 34 in 609 chords, the texture widens by 1.5 semitones and
+  // more chords get a shell at all. It also costs the section register arc.
+  // The clearance puts a ceiling under the melody that every section is pushed
+  // up against, and the arc is the distance between sections: the intro's
+  // accompaniment rose from 53.93 to 56.14 against a chorus at 56.95, so a
+  // contrast of 2.67 semitones became 0.81, and the chorus-verse gap went from
+  // 1.16 to 0.73.
+  //
+  // Both are measured features and they want the same register. Shipping one at
+  // the other's expense is a judgement about how this app should sound, not a
+  // defect to fix, so the clearance stays available and off.
   bassRegister: Object.freeze({ enabled: true, shell: true }),
   dynamics: Object.freeze({ enabled: true }),
   harmonicRhythm: Object.freeze({ cadentialAcceleration: true }),
@@ -290,6 +305,9 @@ function compositionFingerprint(settings: GeneratorSettings): string {
         settings.bassRegister.ceiling ?? "default",
         settings.bassRegister.floor ?? "default",
         ...(settings.bassRegister.shell ? ["shell"] : []),
+        ...(settings.bassRegister.melodyClearance !== undefined
+          ? ["clearance", settings.bassRegister.melodyClearance]
+          : []),
       ]
       : []),
     ...(settings.voiceLeading?.enabled
@@ -604,6 +622,7 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
     progression.chords = revoiceForMelody(progression.chords, notes, {
       style: copiedSettings.style,
       registerFor,
+      melodyClearance: copiedSettings.bassRegister?.melodyClearance,
     });
   }
 

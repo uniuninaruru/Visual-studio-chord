@@ -493,6 +493,24 @@ export interface RevoiceOptions {
    * chord leaves the register exactly where the other terms put it.
    */
   registerFor?: (chordId: string) => number | undefined;
+  /**
+   * Aim the accompaniment a stated distance under the melody rather than at a
+   * fixed pitch.
+   *
+   * REGISTER_ANCHOR is one number for the whole piece, and it parks the
+   * accompaniment where the melody is not. Measured, the gap between the top of
+   * the accompaniment and the bottom of the melody sounding over it had a median
+   * of twelve semitones -- a whole octave of register that nothing uses, on
+   * every chord, because the melody sounds during all of them.
+   *
+   * That octave is what a left hand needs to reach a tenth: the partner lands
+   * between 52 and 64 while the right hand's top sits at 53 to 58, so there is
+   * nowhere for it to go. Following the melody down instead of standing still
+   * gives the room back without going near it -- this is a target, outweighed
+   * by the covering penalty by an order of magnitude, so the melody remains the
+   * ceiling it was.
+   */
+  melodyClearance?: number;
 }
 
 interface RevoiceableChord {
@@ -554,7 +572,15 @@ export function revoiceForMelody<TChord extends RevoiceableChord>(
       ? reduceStack(chord.quality, tensions, false)
       : undefined;
 
-    const registerTarget = options.registerFor?.(chord.id);
+    const sectionTarget = options.registerFor?.(chord.id);
+    // Under the lowest note the melody is actually sounding here, not under the
+    // melody's overall floor: a phrase that has climbed leaves more room than
+    // its lowest note all piece suggests.
+    const melodyFloor = sounding.length > 0 ? Math.min(...sounding) : undefined;
+    const registerTarget = options.melodyClearance !== undefined && melodyFloor !== undefined
+      ? melodyFloor - options.melodyClearance
+        + (sectionTarget === undefined ? 0 : sectionTarget - REGISTER_ANCHOR)
+      : sectionTarget;
 
     // Voice leading is measured from where the previous section left off, moved
     // by the register change, rather than from the notes themselves.
