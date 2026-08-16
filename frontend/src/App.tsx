@@ -411,9 +411,13 @@ export default function App() {
   );
   const startPlayback = useCallback(() => void handlePlay(), [handlePlay]);
 
+  const closeMobilePanel = useCallback(() => setMobilePanel(null), []);
+
   useEditorKeyboardShortcuts({
     diagnosticsOpen,
     closeDiagnostics,
+    mobilePanelOpen: mobilePanel !== null,
+    closeMobilePanel,
     hasSelectedNotes: selectedNoteIds.length > 0,
     play: startPlayback,
     pause: handlePause,
