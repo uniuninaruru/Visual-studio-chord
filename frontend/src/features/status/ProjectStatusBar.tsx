@@ -37,7 +37,6 @@ interface ProjectStatusBarProps {
   playback: "stopped" | "playing" | "paused";
   currentTick: number;
   ticksPerBar: number;
-  loopLabel: string;
   pendingLoopLabel?: string | null;
   pendingCommit: boolean;
   updateTiming: UpdateTiming;
@@ -97,7 +96,6 @@ export function ProjectStatusBar({
   playback,
   currentTick,
   ticksPerBar,
-  loopLabel,
   pendingLoopLabel,
   pendingCommit,
   updateTiming,
@@ -154,10 +152,17 @@ export function ProjectStatusBar({
         <strong>Playback</strong>
         <span>{PLAYBACK_LABELS[playback]} · Bar {currentBar}</span>
       </div>
-      <div className="status-item" title="現在のループ範囲">
-        <strong>Loop</strong>
-        <span>{loopLabel}</span>
-      </div>
+      {/*
+        * No Loop item here.
+        *
+        * App renders the same `loopLabel` string into the transport bar forty
+        * pixels above this row, from the same variable. Two readouts of one
+        * value, both on screen at once, is not redundancy that protects
+        * anything -- it is a column of this strip spent saying what the row
+        * above already said. The prop goes with it: the pending-loop note below
+        * compares against the committed label, and that comparison already
+        * happens in App, which is where both labels are computed.
+        */}
       <div className="status-item" title="編集内容を音へ反映するタイミング" aria-live="polite">
         <strong>Changes</strong>
         <span>
@@ -229,10 +234,6 @@ export function ProjectStatusBar({
           </span>
         </div>
       </div>
-      <div className="status-item" title={`推論バックエンド: ${aiJob.backend || engineLabel}`}>
-        <strong>Engine</strong>
-        <span>{engineLabel}</span>
-      </div>
       <div
         className={`status-item save-status is-${saveStatus}`}
         title={[
@@ -251,9 +252,26 @@ export function ProjectStatusBar({
           )}
         </span>
       </div>
-      <div className="status-item" title="ネットワークとローカル推論サーバーの状態" aria-live="polite">
-        <strong>Connection</strong>
-        <span>{online ? "Online" : "Offline"} · {connectionLabel}</span>
+      {/*
+        * Engine and Connection were two items describing one subsystem: where
+        * inference runs, and whether the thing it would run on is reachable.
+        * Read separately they invite the question of how they differ; read
+        * together they are one sentence. Both strings are kept, because
+        * "offline" and "no server" are genuinely different states.
+        */}
+      <div
+        className="status-item engine-status"
+        title={[
+          `推論バックエンド: ${aiJob.backend || engineLabel}`,
+          "ネットワークとローカル推論サーバーの状態",
+        ].join("\n")}
+        aria-live="polite"
+      >
+        <strong>Engine</strong>
+        <span>{engineLabel}</span>
+        <span className="engine-connection">
+          {online ? "Online" : "Offline"} · {connectionLabel}
+        </span>
       </div>
       <button className="status-diagnostics-button" type="button" onClick={onOpenDiagnostics}>
         Diagnostics
