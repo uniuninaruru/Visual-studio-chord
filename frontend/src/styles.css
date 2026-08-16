@@ -4034,18 +4034,11 @@ ul.theory-explanation em {
   color: var(--color-text-secondary);
 }
 
-/* A disclosure is only as discoverable as its own label, so this one carries
-   what is inside it and where it would land. */
-.progression-search-shell > summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-2) var(--space-5);
-}
+/* What the catalogue holds and where a result would land, above the search. */
 .progression-search-teaser {
+  margin: 0 0 var(--space-4);
   color: var(--color-text-muted);
   font-size: var(--text-xs);
-  font-weight: 400;
 }
 
 /* What the next action will affect, said in one line and always present. */
@@ -4072,4 +4065,64 @@ ul.theory-explanation em {
 .engine-connection {
   color: var(--color-text-muted);
   font-size: var(--text-2xs);
+}
+
+/* The tools, as one region with tabs rather than five stacked panels. */
+.workspace-tools {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-large);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-hairline);
+}
+.workspace-tools-tablist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-1);
+  border-radius: var(--radius-medium);
+  background: var(--color-surface-subtle);
+}
+.workspace-tool-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--control-height);
+  padding: 0 var(--space-5);
+  border: 1px solid transparent;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 650;
+  cursor: pointer;
+}
+.workspace-tool-tab:hover {
+  color: var(--color-text-primary);
+}
+.workspace-tool-tab.selected {
+  border-color: var(--color-accent-border);
+  background: var(--color-surface);
+  color: var(--color-accent);
+  box-shadow: var(--shadow-hairline);
+}
+/* This tool has something in it. Never colour alone: it is also a shape the
+   unselected tabs do not otherwise carry. */
+.workspace-tool-marker {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+}
+.workspace-tools > [role="tabpanel"] > * {
+  /* The panels kept their own card treatment while they were siblings in the
+     column; inside this one they would be a card in a card. */
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
 }

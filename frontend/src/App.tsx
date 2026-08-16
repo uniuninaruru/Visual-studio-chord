@@ -4,6 +4,7 @@ import { AutoFixPanel } from "./features/autoFix/AutoFixPanel";
 import { DiagnosticsPanel } from "./features/diagnostics";
 import { InspectorPanel } from "./features/editor/InspectorPanel";
 import { describeSelection } from "./features/editor/selectionSummary";
+import { WorkspaceTools } from "./features/editor/WorkspaceTools";
 import { ReharmonizationPanel } from "./features/editor/ReharmonizationPanel";
 import { ProgressionSearchPanel } from "./features/progressions/ProgressionSearchPanel";
 import { createStepChordEvent } from "./music/chords";
@@ -727,134 +728,193 @@ export default function App() {
               * the chords, where it reads as an offer about them rather than
               * as the subject of the page.
               */}
-            <AutoFixPanel
-              result={autoFix?.result ?? null}
-              stale={autoFix !== null && autoFix.historyIndex !== store.historyIndex}
-              onAnalyze={() => {
-                try {
-                  const result = createAutoFixPreview(composition);
-                  setAutoFix({ result, historyIndex: store.historyIndex });
-                  setToast("修正案を作りました。確認するまで曲は変更されません。");
-                } catch {
-                  setToast("Auto Fixの診断に失敗しました。現在の曲は変更されていません。");
-                }
-              }}
-              onApply={() => {
-                if (!autoFix || autoFix.historyIndex !== store.historyIndex) return;
-                if (store.adoptAutoFixPreview(autoFix.result.preview)) {
-                  setSelectedNoteIds([]);
-                  setSelectedChordId(null);
-                  setAutoFix(null);
-                  setToast("Auto Fixを適用しました。Undoで元に戻せます。");
-                } else {
-                  setToast("修正版を適用できませんでした。現在の曲は変更されていません。");
-                }
-              }}
-              onDismiss={() => setAutoFix(null)}
-            />
             {/*
-              * The summary says what is behind it.
+              * The tools, as one region rather than five stacked panels.
               *
-              * "コード進行を探す" alone gave no reason to open a closed panel that
-              * holds fifteen hundred progressions and the one control that puts
-              * one into the piece. A collapsed disclosure is only as
-              * discoverable as its own label.
+              * Below the two views of the piece the column ran on for another
+              * two thousand pixels: a repair offer, a search box, a
+              * reharmoniser, a variation list and the profile, every one of
+              * them permanently expanded and never more than one in use. They
+              * are modes, so they are tabs -- and nothing is more than one
+              * press away.
               */}
-            <details className="progression-search-shell">
-              <summary>
-                <span>コード進行を探す</span>
-                <span className="progression-search-teaser">
-                  約1500件から、{progressionTarget.label}に使えます
-                </span>
-              </summary>
-              <ProgressionSearchPanel
-                mode={composition.settings.mode}
-                onAudition={(result) => {
-                  // The progression's first chord, voiced in the current key.
-                  // Enough to hear whether it is the colour being looked for,
-                  // without committing anything to the piece.
-                  const step = result.variant.steps[0];
-                  if (!step) return;
-                  auditionChord(createStepChordEvent({
-                    step,
-                    key: composition.settings.key,
-                    mode: composition.settings.mode,
-                    startTick: 0,
-                    durationTick: composition.ticksPerBar,
-                    id: `audition-${result.variant.id}`,
-                  }).notes);
-                }}
-                target={progressionTarget.label}
-                onApply={(result) => {
-                  // A derived variant has no catalogue entry, so it hands over
-                  // no name: the section then says what it is chord by chord
-                  // rather than claiming a progression that was never written
-                  // down under that name.
-                  store.applyProgression(
-                    result.variant.steps,
-                    progressionTarget.range,
-                    result.variant.devices.length === 0 ? result.variant.id : undefined,
-                  );
-                }}
-              />
-            </details>
-            <ReharmonizationPanel
-              chord={selectedChord}
-              candidates={reharmonization.candidates}
-              unavailableReason={reharmonization.unavailableReason}
-              auditioningSymbol={reharmonization.auditioningSymbol}
-              onAudition={reharmonization.audition}
-              onApply={reharmonization.apply}
+            <WorkspaceTools
+              tools={[
+                {
+                  id: "fix",
+                  label: "直す",
+                  hasContent: autoFix !== null,
+                  render: () => (
+                    <AutoFixPanel
+                      result={autoFix?.result ?? null}
+                      stale={autoFix !== null && autoFix.historyIndex !== store.historyIndex}
+                      onAnalyze={() => {
+                        try {
+                          const result = createAutoFixPreview(composition);
+                          setAutoFix({ result, historyIndex: store.historyIndex });
+                          setToast("修正案を作りました。確認するまで曲は変更されません。");
+                        } catch {
+                          setToast("Auto Fixの診断に失敗しました。現在の曲は変更されていません。");
+                        }
+                      }}
+                      onApply={() => {
+                        if (!autoFix || autoFix.historyIndex !== store.historyIndex) return;
+                        if (store.adoptAutoFixPreview(autoFix.result.preview)) {
+                          setSelectedNoteIds([]);
+                          setSelectedChordId(null);
+                          setAutoFix(null);
+                          setToast("Auto Fixを適用しました。Undoで元に戻せます。");
+                        } else {
+                          setToast("修正版を適用できませんでした。現在の曲は変更されていません。");
+                        }
+                      }}
+                      onDismiss={() => setAutoFix(null)}
+                    />
+                  ),
+                },
+                {
+                  id: "find",
+                  label: "探す",
+                  render: () => (
+                    <>
+                      {/*
+                        * The summary says what is behind it.
+                        *
+                        * "コード進行を探す" alone gave no reason to open a closed panel that
+                        * holds fifteen hundred progressions and the one control that puts
+                        * one into the piece. A collapsed disclosure is only as
+                        * discoverable as its own label.
+                        */}
+                      {/*
+                        * No disclosure inside the tab.
+                        *
+                        * The search lived in a collapsed <details>, and once the
+                        * tab became the way it is reached that made two things
+                        * to open before anything was on screen. The tab is the
+                        * disclosure; the line the summary carried, which names
+                        * the size of the catalogue and where a result would
+                        * land, is a lead paragraph now.
+                        */}
+                      <p className="progression-search-teaser">
+                        約1500件から、{progressionTarget.label}に使えます
+                      </p>
+                      <ProgressionSearchPanel
+                          mode={composition.settings.mode}
+                          onAudition={(result) => {
+                            // The progression's first chord, voiced in the current key.
+                            // Enough to hear whether it is the colour being looked for,
+                            // without committing anything to the piece.
+                            const step = result.variant.steps[0];
+                            if (!step) return;
+                            auditionChord(createStepChordEvent({
+                              step,
+                              key: composition.settings.key,
+                              mode: composition.settings.mode,
+                              startTick: 0,
+                              durationTick: composition.ticksPerBar,
+                              id: `audition-${result.variant.id}`,
+                            }).notes);
+                          }}
+                          target={progressionTarget.label}
+                          onApply={(result) => {
+                            // A derived variant has no catalogue entry, so it hands over
+                            // no name: the section then says what it is chord by chord
+                            // rather than claiming a progression that was never written
+                            // down under that name.
+                            store.applyProgression(
+                              result.variant.steps,
+                              progressionTarget.range,
+                              result.variant.devices.length === 0 ? result.variant.id : undefined,
+                            );
+                          }}
+                        />
+                    </>
+                  ),
+                },
+                {
+                  id: "replace",
+                  label: "置き換える",
+                  hasContent: reharmonization.candidates.length > 0,
+                  render: () => (
+                    <ReharmonizationPanel
+                      chord={selectedChord}
+                      candidates={reharmonization.candidates}
+                      unavailableReason={reharmonization.unavailableReason}
+                      auditioningSymbol={reharmonization.auditioningSymbol}
+                      onAudition={reharmonization.audition}
+                      onApply={reharmonization.apply}
+                    />
+                  ),
+                },
+                {
+                  // Filled from the regeneration dock at the bottom of the
+                  // screen, which is outside this region: generating
+                  // candidates and seeing nothing happen would be worse than
+                  // the scroll this replaces.
+                  id: "compare",
+                  label: "比べる",
+                  hasContent: variationCandidates.length > 0,
+                  claimsFocus: variationCandidates.length > 0,
+                  render: () => (
+                    <VariationPanel
+                      candidates={variationCandidates}
+                      activeAuditionIndex={store.auditionedVariationIndex}
+                      onAudition={handleAuditionVariation}
+                      onAdopt={handleAdoptVariation}
+                      onFeedback={handleCandidateFeedback}
+                    />
+                  ),
+                },
+                {
+                  id: "record",
+                  label: "記録",
+                  render: () => (
+                    <div className="phase-two-panel-grid">
+                      <PreferencePanel
+                        explanation={preferenceExplanation}
+                        guidanceCandidates={guidance.candidates}
+                        onGuidanceCandidatesChange={guidance.setCandidates}
+                        maxGuidanceCandidates={MAX_GUIDANCE_CANDIDATES}
+                        lastChoice={lastGuidedChoice}
+                        category={preferenceCategory}
+                        onCategoryChange={(category) => {
+                          setPreferenceCategory(category);
+                          // Scores returned for the previous feature namespace cannot
+                          // be reused for another preference category.
+                          setServerScores({});
+                          setRankingRuntime("browser-linear");
+                        }}
+                        onExport={handlePreferenceExport}
+                        onImport={() => preferenceImportInputRef.current?.click()}
+                        onReset={() => {
+                          if (!window.confirm("好み学習データを完全に削除します。書き出していないデータは復元できません。続けますか？")) return;
+                          void preferenceProfile.reset().then(() => {
+                            setServerScores({});
+                            setToast("好み学習をリセットしました。");
+                          });
+                        }}
+                      />
+                      <HistoryPanel
+                        entries={store.history}
+                        currentHistoryId={store.history[store.historyIndex]?.id ?? null}
+                        compareIds={historyCompareIds}
+                        onCompareChange={setHistoryCompareIds}
+                        onRename={(historyId, name) => {
+                          if (store.renameHistoryEntry(historyId, name)) setToast("履歴名を保存しました。");
+                        }}
+                        onRestore={(historyId) => {
+                          if (store.restoreHistoryEntry(historyId)) {
+                            setSelectedNoteIds([]);
+                            setSelectedChordId(null);
+                            setToast("選択したバージョンを復元しました。復元操作も履歴に保存されています。");
+                          }
+                        }}
+                      />
+                    </div>
+                  ),
+                },
+              ]}
             />
-            <VariationPanel
-              candidates={variationCandidates}
-              activeAuditionIndex={store.auditionedVariationIndex}
-              onAudition={handleAuditionVariation}
-              onAdopt={handleAdoptVariation}
-              onFeedback={handleCandidateFeedback}
-            />
-            <div className="phase-two-panel-grid">
-              <PreferencePanel
-                explanation={preferenceExplanation}
-                guidanceCandidates={guidance.candidates}
-                onGuidanceCandidatesChange={guidance.setCandidates}
-                maxGuidanceCandidates={MAX_GUIDANCE_CANDIDATES}
-                lastChoice={lastGuidedChoice}
-                category={preferenceCategory}
-                onCategoryChange={(category) => {
-                  setPreferenceCategory(category);
-                  // Scores returned for the previous feature namespace cannot
-                  // be reused for another preference category.
-                  setServerScores({});
-                  setRankingRuntime("browser-linear");
-                }}
-                onExport={handlePreferenceExport}
-                onImport={() => preferenceImportInputRef.current?.click()}
-                onReset={() => {
-                  if (!window.confirm("好み学習データを完全に削除します。書き出していないデータは復元できません。続けますか？")) return;
-                  void preferenceProfile.reset().then(() => {
-                    setServerScores({});
-                    setToast("好み学習をリセットしました。");
-                  });
-                }}
-              />
-              <HistoryPanel
-                entries={store.history}
-                currentHistoryId={store.history[store.historyIndex]?.id ?? null}
-                compareIds={historyCompareIds}
-                onCompareChange={setHistoryCompareIds}
-                onRename={(historyId, name) => {
-                  if (store.renameHistoryEntry(historyId, name)) setToast("履歴名を保存しました。");
-                }}
-                onRestore={(historyId) => {
-                  if (store.restoreHistoryEntry(historyId)) {
-                    setSelectedNoteIds([]);
-                    setSelectedChordId(null);
-                    setToast("選択したバージョンを復元しました。復元操作も履歴に保存されています。");
-                  }
-                }}
-              />
-            </div>
           </div>
 
           <RegenerationDock
