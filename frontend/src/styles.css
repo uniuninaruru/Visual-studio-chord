@@ -3310,6 +3310,15 @@ button:active,
 /*
  * The panels that appear rather than change: a dialog, a toast, the mobile
  * sheets. These may move, because they are arriving from somewhere.
+ *
+ * Position only. Fading them in put every word inside them below its contrast
+ * ratio for the length of the fade, which is not a technicality -- the app's own
+ * automated accessibility pass reported 56 serious violations across one dialog,
+ * and it was right: for those 220ms the text really is that faint. A reader who
+ * needs the contrast is exactly the reader who cannot wait it out.
+ *
+ * Sliding from 6px below reads as an arrival just as well and never touches the
+ * ink.
  */
 .menu-panel,
 .diagnostics-dialog,
@@ -3320,7 +3329,6 @@ button:active,
 
 @keyframes surface-in {
   from {
-    opacity: 0;
     transform: translateY(6px);
   }
 }
