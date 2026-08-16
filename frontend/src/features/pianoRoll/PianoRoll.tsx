@@ -45,6 +45,28 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value));
 }
 
+/**
+ * Whether a note is wide enough to hold its own name.
+ *
+ * The label used to be set at 7px, where it fitted and could not be read. At a
+ * legible size it no longer fits inside a short note, and a clipped "C" where
+ * "C5" was meant is worse than nothing: it names a different note.
+ *
+ * Estimated from the canvas's own minimum width rather than measured, so it
+ * errs toward hiding -- the canvas is never narrower than this, so a note this
+ * says is too narrow really is. Twenty-eight pixels is two bold characters at
+ * --text-2xs plus the note's 4px padding either side.
+ */
+const LABEL_MIN_PX = 28;
+const CANVAS_MIN_PX = 740;
+const BAR_MIN_PX = 154;
+
+function labelFits(durationTick: number, totalTicks: number, barCount: number): boolean {
+  if (totalTicks <= 0) return false;
+  const canvas = Math.max(CANVAS_MIN_PX, barCount * BAR_MIN_PX);
+  return (durationTick / totalTicks) * canvas >= LABEL_MIN_PX;
+}
+
 export function PianoRoll({
   composition,
   currentTick,
@@ -394,6 +416,11 @@ export function PianoRoll({
                 type="button"
                 data-note-id={note.id}
                 className={`piano-note ${note.role} ${selected ? "selected" : ""} ${melodyMuted ? "muted" : ""}`}
+                data-label={
+                  labelFits(note.durationTick, composition.totalTicks, composition.bars.length)
+                    ? undefined
+                    : "hidden"
+                }
                 style={{
                   left: `${(displayStartTick / composition.totalTicks) * 100}%`,
                   width: `${Math.max(0.8, (note.durationTick / composition.totalTicks) * 100)}%`,
@@ -430,13 +457,18 @@ export function PianoRoll({
                 <span
                   key={`${track.id}:${note.id}`}
                   className={`piano-note secondary-voice-note ${trackMuted ? "muted" : ""}`}
+                  data-label={
+                    labelFits(note.durationTick, composition.totalTicks, composition.bars.length)
+                      ? undefined
+                      : "hidden"
+                  }
                   style={{
                     left: `${(note.startTick / composition.totalTicks) * 100}%`,
                     width: `${Math.max(0.8, (note.durationTick / composition.totalTicks) * 100)}%`,
                     top: `${top}%`,
                     height: `${height}%`,
                     borderColor: track.color,
-                    backgroundColor: `${track.color}99`,
+                    backgroundColor: track.fill ?? track.color,
                   }}
                   aria-label={`${track.name}、${note.noteName}、${note.barIndex + 1}小節目`}
                   title={`${track.name} · ${note.noteName}`}

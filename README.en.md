@@ -299,19 +299,42 @@ without starting the backend. Only two things become unavailable:
   harmony;
 - variable harmonic rhythm, sections, modulation, phrase grammar, tension, and
   advanced chord vocabulary;
+- the full J-pop shape at the longest length: two verse-chorus cycles, a
+  bridge, then the sabi twice more as a 落ちサビ and a 大サビ — the same
+  progression, set quietly and then at full height;
+- no section shorter than a four-bar period wherever the piece can afford one;
 - four-part/piano voicing with cadence, applied-chord, voice-leading, and
   all-track validation;
+- a left hand that holds a shell — root with a fifth, seventh, octave or tenth —
+  with the interval read off the bass against the low interval limits, so the
+  lower it sits the wider it has to be; the hands may overlap in pitch and may
+  not swap;
 - melodic skeletons, contextual non-chord tones, countermelody, canon,
   polyrhythm, and groove;
 - Bass / Left Hand, Chords / Right Hand, Melody, and additional DAW-style
   tracks with visibility, mute, solo, playback, and MIDI export;
 - range regeneration, candidate audition, Like/Dislike preference ranking,
   Auto Fix preview, Apply, and Undo;
+- light / dark / follow-the-system themes (menu → settings → 外観), with every
+  colour tokenised so the chord lane and piano roll are designed for both rather
+  than inverted into one;
+- harmonic-function colours chosen to stay distinguishable under protanopia and
+  deuteranopia — the tonic/predominant separation goes from a simulated 9.3 to
+  25.8;
+- preference-guided generation, off by default: the generate button draws
+  several pieces and keeps the one the A/B judgements prefer, and the piece
+  carries the seed of the draw that won, so it stays reproducible from that
+  seed alone with no model involved;
+- progression search across ~1500 catalogued and derived progressions, with
+  any result applicable to the selected section — the bars keep their harmonic
+  rhythm and only what each chord spells changes;
 - voicing chosen by cost rather than named in a setting: a catalogue of shapes,
   low interval limits held as a rule, the melody kept audible above the
   accompaniment, and a register that moves with the section;
 - melody MIDI import, with the key estimated from the melody and chords written
   to fit it;
+- an explanation of what it wrote and why, per chord and for the whole piece,
+  each statement naming the body of theory it comes from;
 - local JSON persistence, offline operation after setup, diagnostics, and
   safe browser/theory fallbacks;
 - a menu behind the three lines: usage guide, release notes, dependency

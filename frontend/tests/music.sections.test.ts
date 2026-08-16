@@ -338,3 +338,4 @@ describe("backward compatibility", () => {
     expect(() => importCompositionJson(JSON.stringify(document))).toThrow();
   });
 });
+

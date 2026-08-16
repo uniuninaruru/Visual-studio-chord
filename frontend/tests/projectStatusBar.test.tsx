@@ -41,7 +41,6 @@ describe("ProjectStatusBar", () => {
           playback="playing"
           currentTick={1_440}
           ticksPerBar={1_920}
-          loopLabel="全体ループ"
           pendingLoopLabel="1–1 小節ループ"
           pendingCommit
           updateTiming="nextBar"
@@ -58,7 +57,11 @@ describe("ProjectStatusBar", () => {
     });
 
     expect(host.textContent).toContain("Playing · Bar 1");
-    expect(host.textContent).toContain("Loop全体ループ");
+    // No Loop item: App renders the same string into the transport bar forty
+    // pixels above this row, from the same variable, and two readouts of one
+    // value both on screen is a column spent repeating the row above. The
+    // PENDING loop is a different value and stays.
+    expect(host.textContent).not.toContain("Loop全体ループ");
     expect(host.textContent).toContain(
       "Edited · Apply at next bar · Pending loop: 1–1 小節ループ",
     );
@@ -72,7 +75,6 @@ describe("ProjectStatusBar", () => {
           playback="playing"
           currentTick={0}
           ticksPerBar={1_920}
-          loopLabel="全体ループ"
           pendingCommit={false}
           updateTiming="nextBar"
           aiJob={{
@@ -119,7 +121,6 @@ describe("ProjectStatusBar", () => {
           playback="stopped"
           currentTick={0}
           ticksPerBar={1_920}
-          loopLabel="全体ループ"
           pendingCommit={false}
           updateTiming="nextBar"
           aiJob={{

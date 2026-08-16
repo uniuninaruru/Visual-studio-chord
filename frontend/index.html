@@ -7,7 +7,21 @@
       name="description"
       content="音楽理論に基づくコード進行とメロディを生成・編集できる作曲支援アプリ"
     />
-    <meta name="theme-color" content="#f6f7f9" />
+    <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f1116" media="(prefers-color-scheme: dark)" />
+    <!--
+      The stored theme, applied before the first paint.
+
+      Without it a user who chose dark gets a white flash on every load, which
+      is worse than having no choice at all. Inline and tiny on purpose: a
+      module script runs after paint, so this cannot wait for the bundle.
+    -->
+    <script>
+      try {
+        var t = localStorage.getItem("vsc.theme");
+        if (t === "dark" || t === "light") document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
     <title>Visual studio chord</title>
   </head>
   <body>

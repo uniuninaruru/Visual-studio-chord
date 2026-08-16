@@ -169,7 +169,8 @@ export function buildArrangementVoices(
         name: "Countermelody",
         role: "countermelody",
         instrument: "softLead",
-        color: "#58c7d9",
+        color: "var(--track-countermelody)",
+        fill: "var(--track-countermelody-fill)",
         midiChannel: 2,
         notes,
       });
@@ -196,7 +197,8 @@ export function buildArrangementVoices(
         name: "Canon",
         role: "canon",
         instrument: "pluck",
-        color: "#c58cff",
+        color: "var(--track-canon)",
+        fill: "var(--track-canon-fill)",
         midiChannel: 3,
         notes,
       });
@@ -210,7 +212,8 @@ export function buildArrangementVoices(
       name: "Pulse layer",
       role: "pulse",
       instrument: "bass",
-      color: "#f4aa62",
+      color: "var(--track-pulse)",
+      fill: "var(--track-pulse-fill)",
       midiChannel: 4,
       notes: pulseNotes,
     });

@@ -3,6 +3,7 @@ import type {
   GeneratorSettings,
   ValidationResult,
 } from "../../types/music";
+import { handsAreConsistent } from "../../music/hands";
 import { validateComposition } from "../../music";
 
 export const COMPOSITION_JSON_FORMAT = "music-theory-composer";
@@ -60,6 +61,19 @@ export async function importCompositionFile(
   }
   const json = await file.text();
   return { json, composition: importCompositionJson(json) };
+}
+
+/**
+ * A colour a voice may carry into an inline style.
+ *
+ * Either a six-digit hex, which is what every project saved before the theme
+ * work holds, or a reference to one of this app's own track tokens. Kept to a
+ * closed pattern rather than "any string": the value is written straight into a
+ * style attribute by the piano roll, so an imported file must not be able to
+ * put arbitrary CSS there.
+ */
+function isTrackColour(value: string): boolean {
+  return /^#[0-9a-f]{6}$/i.test(value) || /^var\(--track-[a-z]+(-fill)?\)$/.test(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -286,7 +300,10 @@ export function isGeneratedComposition(value: unknown): value is GeneratedCompos
   // When present they must tile the bar grid exactly, which is the invariant
   // the rest of the engine relies on to resolve a chord's key.
   if (value.sections !== undefined) {
-    const sectionKinds = ["intro", "verse", "preChorus", "chorus", "bridge", "outro"];
+    const sectionKinds = [
+      "intro", "verse", "preChorus", "chorus", "bridge",
+      "quietChorus", "finalChorus", "outro",
+    ];
     const sectionModes = ["major", "naturalMinor", "harmonicMinor", "dorian", "mixolydian"];
     const melodyScales = ["diatonic", "yonaNuki", "niroNuki"];
     const pitchClasses = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -381,6 +398,17 @@ export function isGeneratedComposition(value: unknown): value is GeneratedCompos
       Number.isInteger(item.inversion) &&
       (item.inversion as number) >= 0 &&
       (item.inversion as number) < item.notes.length &&
+      // A hand assignment is a set of the chord's own pitches. A file naming
+      // pitches the chord does not contain would put a note in the bass that
+      // the harmony never sounds, and fail to take it out of the right hand.
+      (item.leftHand === undefined || (
+        Array.isArray(item.leftHand) &&
+        item.leftHand.every((note) => Number.isInteger(note)) &&
+        handsAreConsistent({
+          notes: item.notes as number[],
+          leftHand: item.leftHand as number[],
+        })
+      )) &&
       typeof item.source === "string" &&
       sources.includes(item.source) &&
       (item.specialKind === undefined || (
@@ -468,7 +496,9 @@ export function isGeneratedComposition(value: unknown): value is GeneratedCompos
       && typeof voice.instrument === "string"
       && voiceInstruments.includes(voice.instrument)
       && typeof voice.color === "string"
-      && /^#[0-9a-f]{6}$/i.test(voice.color)
+      && isTrackColour(voice.color)
+      && (voice.fill === undefined
+        || (typeof voice.fill === "string" && isTrackColour(voice.fill)))
       && Number.isInteger(voice.midiChannel)
       && (voice.midiChannel as number) >= 0
       && (voice.midiChannel as number) <= 15

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { MINIMAL_GENERATOR_SETTINGS, generateComposition } from "../src/music";
+import {
+  DEFAULT_GENERATOR_SETTINGS,
+  MINIMAL_GENERATOR_SETTINGS,
+  generateComposition,
+} from "../src/music";
+import { getScaleSemitones } from "../src/music/scales";
 import {
   candidatesFor,
   findKey,
@@ -51,6 +56,42 @@ describe("finding the key", () => {
       }
     }
     expect(correct / total).toBeGreaterThan(0.85);
+  });
+
+  it("never names a key that cannot spell what the melody plays", () => {
+    // Correlation alone does not check this. Each profile is twelve numbers, so
+    // a degree outside the scale scores low but never zero and weight landing
+    // there costs a little rather than ruling the key out -- the neighbouring
+    // key confusion the method is known for.
+    //
+    // Measured on this app's own output before the ranking was added: two
+    // melodies in ten were named a key that excludes a note they sound. One was
+    // a C major tune with no accidentals anywhere, called E natural minor -- a
+    // scale with no F in it, over an F sounding seventeen times.
+    //
+    // Only claimed where a key that spells the melody exists, which is what the
+    // generated melodies here are: a chromatic tune leaves every key short, and
+    // then the correlation decides as it always did.
+    // The whole engine on, which is where it was measured: MINIMAL settings
+    // give a plainer melody that the correlation happens to get right, and a
+    // test that only exercises the easy case would have passed before the fix
+    // as well as after it.
+    for (const mode of ["major", "naturalMinor"] as const) {
+      for (const seed of SEEDS) {
+        const melody = melodyOf(generateComposition({
+          ...DEFAULT_GENERATOR_SETTINGS, bars: 16, key: "C", seed, mode,
+        } as GeneratorSettings));
+        const sounded = new Set(melody.map((note) => ((note.midi % 12) + 12) % 12));
+        const trueScale = new Set(getScaleSemitones("C", mode));
+        if ([...sounded].some((pitchClass) => !trueScale.has(pitchClass))) continue;
+        const found = findKey(melody)!;
+        const scale = new Set(getScaleSemitones(found.key, found.mode));
+        for (const pitchClass of sounded) {
+          expect([...scale], `${mode}/${seed} named ${found.key} ${found.mode}`)
+            .toContain(pitchClass);
+        }
+      }
+    }
   });
 
   it("weights a held note above a passing one", () => {

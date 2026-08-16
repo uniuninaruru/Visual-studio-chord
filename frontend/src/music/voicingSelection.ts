@@ -1,7 +1,7 @@
 import type { ChordQuality, PitchClassName, Tension } from "../types/music";
 import { intervalsForQuality, reduceStack, resolveAvoidNotes } from "./chords";
 import { pitchClassToSemitone } from "./scales";
-import { shapesFor, type VoicingShape } from "./voicingShapes";
+import { handSplitFor, shapesFor, type VoicingShape } from "./voicingShapes";
 import {
   lowIntervalViolation,
   melodyConflict,
@@ -246,7 +246,7 @@ export function scoreVoicingCandidate(
   const clarity = violation === 0 ? 0 : (25 + violation * 4) * profile.clarity;
   // Weighted like a rule rather than a preference, now that the metric no
   // longer condemns a two-handed voicing for the hole it is supposed to have.
-  const spacing = spacingInversion(notes) * profile.spacing * 2.5;
+  const spacing = spacingInversion(notes, handSplitFor(shape)) * profile.spacing * 2.5;
   // Covering the melody is the fault that makes a written line disappear, so it
   // is weighted above every other consideration in every style.
   const cluster = clusterCount(notes) * profile.cluster;
@@ -455,6 +455,11 @@ export const SECTION_REGISTER: Readonly<Record<string, number>> = {
   preChorus: 2,
   chorus: 5,
   bridge: -4,
+  // Below the verse, not merely below the chorus: the hands come down with the
+  // texture, which is what makes the 大サビ after it an arrival rather than a
+  // repeat.
+  quietChorus: -2,
+  finalChorus: 7,
   outro: -3,
 };
 
@@ -488,6 +493,24 @@ export interface RevoiceOptions {
    * chord leaves the register exactly where the other terms put it.
    */
   registerFor?: (chordId: string) => number | undefined;
+  /**
+   * Aim the accompaniment a stated distance under the melody rather than at a
+   * fixed pitch.
+   *
+   * REGISTER_ANCHOR is one number for the whole piece, and it parks the
+   * accompaniment where the melody is not. Measured, the gap between the top of
+   * the accompaniment and the bottom of the melody sounding over it had a median
+   * of twelve semitones -- a whole octave of register that nothing uses, on
+   * every chord, because the melody sounds during all of them.
+   *
+   * That octave is what a left hand needs to reach a tenth: the partner lands
+   * between 52 and 64 while the right hand's top sits at 53 to 58, so there is
+   * nowhere for it to go. Following the melody down instead of standing still
+   * gives the room back without going near it -- this is a target, outweighed
+   * by the covering penalty by an order of magnitude, so the melody remains the
+   * ceiling it was.
+   */
+  melodyClearance?: number;
 }
 
 interface RevoiceableChord {
@@ -532,6 +555,7 @@ export function revoiceForMelody<TChord extends RevoiceableChord>(
   const result: TChord[] = [];
   let previousNotes: readonly number[] | undefined;
   let previousShape: VoicingShape | undefined;
+  let previousTarget: number | undefined;
 
   for (const chord of chords) {
     const end = chord.startTick + chord.durationTick;
@@ -548,13 +572,50 @@ export function revoiceForMelody<TChord extends RevoiceableChord>(
       ? reduceStack(chord.quality, tensions, false)
       : undefined;
 
+    const sectionTarget = options.registerFor?.(chord.id);
+    // Under the lowest note the melody is actually sounding here, not under the
+    // melody's overall floor: a phrase that has climbed leaves more room than
+    // its lowest note all piece suggests.
+    const melodyFloor = sounding.length > 0 ? Math.min(...sounding) : undefined;
+    const registerTarget = options.melodyClearance !== undefined && melodyFloor !== undefined
+      ? melodyFloor - options.melodyClearance
+        + (sectionTarget === undefined ? 0 : sectionTarget - REGISTER_ANCHOR)
+      : sectionTarget;
+
+    // Voice leading is measured from where the previous section left off, moved
+    // by the register change, rather than from the notes themselves.
+    //
+    // The two terms were pulling against each other at exactly the moment the
+    // arc exists for. The register wish is a pull, deliberately outweighed by
+    // voice leading, so a chorus did not arrive in its new register -- it
+    // climbed into it. Measured across eight pop pieces at thirty-two bars, the
+    // midpoint of a chorus by bar of its own section: 50.3, 51.4, 53.8, 54.7.
+    // The first two bars of the chorus sat BELOW the verse that set it up, and
+    // the section was half over before the lift landed. It was invisible while
+    // sections were weighted, because a longer chorus had bars left after the
+    // climb to pull its average up; equal-length sections took those bars away
+    // and the whole effect went with them.
+    //
+    // Shifting the reference rather than discarding it is the point. Dropping
+    // previousNotes at a boundary would take voice leading, retention, density
+    // and shape coherence with it, and the arrival would be arbitrary instead
+    // of merely high. Shifted, "smooth" keeps its meaning and is simply
+    // measured at the new height -- which is what a player does at an arrival:
+    // the hands move, the shape does not.
+    const priorTarget = previousTarget;
+    const shifted = previousNotes !== undefined && priorTarget !== undefined
+      && registerTarget !== undefined && registerTarget !== priorTarget
+      ? previousNotes.map((note) => note + (registerTarget - priorTarget))
+      : previousNotes;
+
     const choice = selectVoicing(chord.root, chord.quality, chord.tensions, {
       style: options.style,
-      previousNotes,
+      previousNotes: shifted,
       previousShape,
       melody: sounding,
-      registerTarget: options.registerFor?.(chord.id),
+      registerTarget,
     }, stack);
+    previousTarget = registerTarget;
 
     // No candidate fitting the register is not a licence to invent one: the
     // chord keeps the voicing it already had.

@@ -12,6 +12,7 @@ import {
   voicingCandidates,
   voicingProfileFor,
 } from "../src/music/voicingSelection";
+import { handSplitFor } from "../src/music/voicingShapes";
 import type { ChordQuality, GeneratedComposition, GeneratorSettings, PitchClassName } from "../src/types/music";
 
 /**
@@ -528,6 +529,45 @@ describe("the register model", () => {
     // top-heavy, and the split does not rescue it because a lone high voice is
     // not a hand.
     expect(spacingInversion([36, 40, 44, 58])).toBeGreaterThan(5);
+  });
+
+  it("takes the hand division from the shape where the shape knows it", () => {
+    // Inference from pitches alone can only look for a hole, and the hole it
+    // looks for is an octave. twoHandClose's is nine semitones -- a left hand
+    // on the root and fifth, a right hand a fourth above the octave -- so the
+    // shape added specifically to supply the missing two-octave width was
+    // judged as a single stack and charged four semitones of inversion for the
+    // hole that makes it what it is.
+    const twoHandClose = [0, 7, 16, 19, 24];
+    expect(spacingInversion(twoHandClose)).toBe(4);
+    expect(spacingInversion(twoHandClose, handSplitFor("twoHandClose"))).toBe(2);
+    // Declared, not loosened: a shape that is not built as two hands is
+    // unaffected, and the inference still runs for it.
+    expect(handSplitFor("close")).toBeUndefined();
+    expect(handSplitFor("drop2")).toBeUndefined();
+    expect(spacingInversion([48, 52, 55, 67], handSplitFor("close"))).toBeGreaterThan(5);
+  });
+
+  it("charges the same pitches differently depending on the shape they are", () => {
+    // The wiring, not the metric. Fixing spacingInversion changes nothing
+    // unless the selector hands it the shape -- and a mutation removing that
+    // one argument left every other test in this file passing.
+    const notes = [48, 55, 64, 67, 72];
+    const profile = voicingProfileFor("pop");
+    const asTwoHands = scoreVoicingCandidate(
+      notes, "twoHandClose", { style: "pop" }, profile, new Set(),
+    ).spacing;
+    const asOneStack = scoreVoicingCandidate(
+      notes, "close", { style: "pop" }, profile, new Set(),
+    ).spacing;
+    expect(asOneStack).toBeGreaterThan(asTwoHands);
+  });
+
+  it("refuses a declared split that would leave a hand with one note", () => {
+    // The same guard the inference has. A division is only a division where
+    // both sides are a hand.
+    expect(spacingInversion([48, 52, 55, 67], 1)).toBe(spacingInversion([48, 52, 55, 67]));
+    expect(spacingInversion([48, 52, 55, 67], 3)).toBe(spacingInversion([48, 52, 55, 67]));
   });
 
   it("does not read a lone high note as a second hand", () => {

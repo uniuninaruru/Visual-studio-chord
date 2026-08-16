@@ -3,9 +3,12 @@ import { ChordLane } from "./features/editor/ChordLane";
 import { AutoFixPanel } from "./features/autoFix/AutoFixPanel";
 import { DiagnosticsPanel } from "./features/diagnostics";
 import { InspectorPanel } from "./features/editor/InspectorPanel";
+import { describeSelection } from "./features/editor/selectionSummary";
+import { WorkspaceTools } from "./features/editor/WorkspaceTools";
 import { ReharmonizationPanel } from "./features/editor/ReharmonizationPanel";
 import { ProgressionSearchPanel } from "./features/progressions/ProgressionSearchPanel";
 import { createStepChordEvent } from "./music/chords";
+import { SECTION_LABEL } from "./music/explanation";
 import { SettingsPanel } from "./features/generator/SettingsPanel";
 import { HistoryPanel } from "./features/history/HistoryPanel";
 import { AppMenu } from "./features/menu/AppMenu";
@@ -28,6 +31,12 @@ import { useReharmonization } from "./hooks/useReharmonization";
 import { usePreferenceLearning } from "./hooks/usePreferenceLearning";
 import { useProjectImportExport } from "./hooks/useProjectImportExport";
 import { usePreferenceProfile } from "./hooks/usePreferenceProfile";
+import { useTheme } from "./hooks/useTheme";
+import {
+  MAX_GUIDANCE_CANDIDATES,
+  usePreferenceGuidance,
+} from "./hooks/usePreferenceGuidance";
+import { PREFERRED_SEED_SEPARATOR } from "./preference/generation";
 import { useStorageCapacity } from "./hooks/useStorageCapacity";
 import { createAutoFixPreview, validateComposition, type AutoFixResult } from "./music";
 import {
@@ -88,6 +97,11 @@ const appStorage = getSafeStorage();
 export default function App() {
   const store = useComposerStore();
   const preferenceProfile = usePreferenceProfile();
+  const guidance = usePreferenceGuidance();
+  const theme = useTheme();
+  const [lastGuidedChoice, setLastGuidedChoice] = useState<
+    { index: number; considered: number } | null
+  >(null);
   // Cross-cutting: several hooks report through the toast, so it is declared
   // before them and passed down rather than owned by any single one.
   const [toast, setToast] = useState<string | null>(null);
@@ -151,6 +165,46 @@ export default function App() {
   const selectedNoteId = selectedNoteIds.at(-1) ?? null;
   const selectedNote = composition.notes.find((note) => note.id === selectedNoteId) ?? null;
   const selectedChord = composition.chords.find((chord) => chord.id === selectedChordId) ?? null;
+
+  const selectionSummary = useMemo(() => describeSelection({
+    noteCount: selectedNoteIds.length,
+    chord: selectedChord,
+    range: store.selectedBarRange,
+    ticksPerBar: composition.ticksPerBar,
+  }), [selectedNoteIds, selectedChord, store.selectedBarRange, composition.ticksPerBar]);
+
+  /**
+   * Where "使う" would put a progression, and what to call that place.
+   *
+   * The section the selection is in, if the piece has sections and something is
+   * selected -- a progression is a section's worth of harmony, and applying one
+   * to a bar and a half of a chorus is not what anyone means by using it.
+   * Failing that the selected bars, and failing that the whole piece. Named
+   * rather than implied, because replacing eight bars of chorus when the user
+   * expected one bar is not a mistake they can see coming.
+   */
+  const progressionTarget = useMemo(() => {
+    const range = store.selectedBarRange;
+    const anchorBar = range?.startBar
+      ?? (selectedChord
+        ? Math.floor(selectedChord.startTick / composition.ticksPerBar)
+        : undefined);
+    const section = anchorBar === undefined
+      ? undefined
+      : composition.sections?.find(
+        (entry) => anchorBar >= entry.startBar && anchorBar < entry.endBar,
+      );
+    if (section) {
+      return {
+        range: { startBar: section.startBar, endBar: section.endBar },
+        label: `${SECTION_LABEL[section.kind]}（${section.startBar + 1}〜${section.endBar}小節）`,
+      };
+    }
+    if (range) {
+      return { range, label: `${range.startBar + 1}〜${range.endBar}小節` };
+    }
+    return { range: null, label: "曲全体" };
+  }, [store.selectedBarRange, selectedChord, composition]);
   const validation = validateComposition(composition);
   const currentPreferenceFeatures = useMemo(
     () => extractPreferenceFeatures(composition),
@@ -194,9 +248,33 @@ export default function App() {
   }, [store.projectRecoveryReason, store.projectSaveStatus]);
 
   const handleGenerate = () => {
-    store.generateComposition();
+    // Only when asked for. One draw is the button as it always was, and passing
+    // guidance for a single draw would run the model for nothing.
+    const guided = guidance.candidates > 1;
+    store.generateComposition(undefined, guided
+      ? {
+        model: preferenceProfile.model,
+        category: preferenceCategory,
+        candidates: guidance.candidates,
+      }
+      : undefined);
     setSelectedNoteIds([]);
     setSelectedChordId(null);
+    if (guided) {
+      // Read back from the piece rather than returned by the action: the seed
+      // it carries is what makes the choice reproducible, so it is also the
+      // honest place to learn which draw won.
+      const seed = String(useComposerStore.getState().draftComposition.seed);
+      const suffix = seed.startsWith(`${store.settings.seed}${PREFERRED_SEED_SEPARATOR}`)
+        ? Number(seed.slice(String(store.settings.seed).length + 1))
+        : 0;
+      setLastGuidedChoice({ index: suffix, considered: guidance.candidates });
+      setToast(
+        `${guidance.candidates}案から学習した好みに近いものを選びました。シード ${seed} で再現できます。`,
+      );
+      return;
+    }
+    setLastGuidedChoice(null);
     setToast("同じシードで再現できる新しい曲を生成しました。");
   };
 
@@ -244,6 +322,20 @@ export default function App() {
   const clearSelection = useCallback(() => {
     setSelectedNoteIds([]);
     setSelectedChordId(null);
+  }, []);
+
+  /**
+   * All three, because the line above it names all three.
+   *
+   * clearSelection leaves the bar range alone -- it exists for the paths that
+   * replace the composition, where the range is normalised separately -- and a
+   * button beside "5〜8小節を選択中" that left the range selected would be a
+   * button that does not do what it says.
+   */
+  const clearEverySelection = useCallback(() => {
+    setSelectedNoteIds([]);
+    setSelectedChordId(null);
+    useComposerStore.getState().setSelectedRange(null);
   }, []);
 
   const {
@@ -342,9 +434,13 @@ export default function App() {
   );
   const startPlayback = useCallback(() => void handlePlay(), [handlePlay]);
 
+  const closeMobilePanel = useCallback(() => setMobilePanel(null), []);
+
   useEditorKeyboardShortcuts({
     diagnosticsOpen,
     closeDiagnostics,
+    mobilePanelOpen: mobilePanel !== null,
+    closeMobilePanel,
     hasSelectedNotes: selectedNoteIds.length > 0,
     play: startPlayback,
     pause: handlePause,
@@ -469,7 +565,6 @@ export default function App() {
         playback={store.playback.status}
         currentTick={store.playback.currentTick}
         ticksPerBar={playbackComposition.ticksPerBar}
-        loopLabel={loopLabel}
         pendingLoopLabel={pendingLoopLabel}
         pendingCommit={store.pendingCommit}
         updateTiming={store.playback.updateTiming}
@@ -517,6 +612,17 @@ export default function App() {
                 <span className="style-badge">{composition.resolvedStyle}</span>
               </div>
               <p>{composition.settings.timeSignature} · {composition.bars.length} bars · Seed {composition.seed}</p>
+              <p
+                className={selectionSummary.active ? "selection-summary is-active" : "selection-summary"}
+                role="status"
+              >
+                {selectionSummary.text}
+                {selectionSummary.active && (
+                  <button type="button" className="text-button" onClick={clearEverySelection}>
+                    解除
+                  </button>
+                )}
+              </p>
             </div>
             <div className="workspace-status">
               <span className={validation.valid ? "valid" : "invalid"}>
@@ -534,31 +640,16 @@ export default function App() {
           </div>
 
           <div className="workspace-scroll">
-            <AutoFixPanel
-              result={autoFix?.result ?? null}
-              stale={autoFix !== null && autoFix.historyIndex !== store.historyIndex}
-              onAnalyze={() => {
-                try {
-                  const result = createAutoFixPreview(composition);
-                  setAutoFix({ result, historyIndex: store.historyIndex });
-                  setToast("修正案を作りました。確認するまで曲は変更されません。");
-                } catch {
-                  setToast("Auto Fixの診断に失敗しました。現在の曲は変更されていません。");
-                }
-              }}
-              onApply={() => {
-                if (!autoFix || autoFix.historyIndex !== store.historyIndex) return;
-                if (store.adoptAutoFixPreview(autoFix.result.preview)) {
-                  setSelectedNoteIds([]);
-                  setSelectedChordId(null);
-                  setAutoFix(null);
-                  setToast("Auto Fixを適用しました。Undoで元に戻せます。");
-                } else {
-                  setToast("修正版を適用できませんでした。現在の曲は変更されていません。");
-                }
-              }}
-              onDismiss={() => setAutoFix(null)}
-            />
+            {/*
+              * The two views of the piece, together.
+              *
+              * They are the same music at two resolutions -- the lane is the
+              * harmony, the roll is the notes inside it -- and three panels sat
+              * between them: a repair offer, a search box and a reharmoniser.
+              * A reader scrolling from the chords to the notes passed all three
+              * on the way, so the thing being edited never appeared as one
+              * thing. The tools follow, in the order they are reached for.
+              */}
             <ChordLane
               composition={composition}
               selectedRange={store.selectedBarRange}
@@ -568,35 +659,6 @@ export default function App() {
               onBarSelect={handleBarSelect}
               onChordSelect={handleChordSelect}
               onToggleLock={store.toggleBarLock}
-            />
-            <details className="progression-search-shell">
-              <summary>コード進行を探す</summary>
-              <ProgressionSearchPanel
-                mode={composition.settings.mode}
-                onAudition={(result) => {
-                  // The progression's first chord, voiced in the current key.
-                  // Enough to hear whether it is the colour being looked for,
-                  // without committing anything to the piece.
-                  const step = result.variant.steps[0];
-                  if (!step) return;
-                  auditionChord(createStepChordEvent({
-                    step,
-                    key: composition.settings.key,
-                    mode: composition.settings.mode,
-                    startTick: 0,
-                    durationTick: composition.ticksPerBar,
-                    id: `audition-${result.variant.id}`,
-                  }).notes);
-                }}
-              />
-            </details>
-            <ReharmonizationPanel
-              chord={selectedChord}
-              candidates={reharmonization.candidates}
-              unavailableReason={reharmonization.unavailableReason}
-              auditioningSymbol={reharmonization.auditioningSymbol}
-              onAudition={reharmonization.audition}
-              onApply={reharmonization.apply}
             />
             <PianoRoll
               composition={composition}
@@ -656,51 +718,203 @@ export default function App() {
                 }
               }}
             />
-            <VariationPanel
-              candidates={variationCandidates}
-              activeAuditionIndex={store.auditionedVariationIndex}
-              onAudition={handleAuditionVariation}
-              onAdopt={handleAdoptVariation}
-              onFeedback={handleCandidateFeedback}
+            {/*
+              * The piece first.
+              *
+              * The Auto Fix card sat above it: the first thing in the column
+              * was an offer to repair the thing the reader had not been shown
+              * yet. It is a genuine entry point for someone who does not know
+              * what to change, which is why it stays on screen -- but under
+              * the chords, where it reads as an offer about them rather than
+              * as the subject of the page.
+              */}
+            {/*
+              * The tools, as one region rather than five stacked panels.
+              *
+              * Below the two views of the piece the column ran on for another
+              * two thousand pixels: a repair offer, a search box, a
+              * reharmoniser, a variation list and the profile, every one of
+              * them permanently expanded and never more than one in use. They
+              * are modes, so they are tabs -- and nothing is more than one
+              * press away.
+              */}
+            <WorkspaceTools
+              tools={[
+                {
+                  id: "fix",
+                  label: "直す",
+                  hasContent: autoFix !== null,
+                  render: () => (
+                    <AutoFixPanel
+                      result={autoFix?.result ?? null}
+                      stale={autoFix !== null && autoFix.historyIndex !== store.historyIndex}
+                      onAnalyze={() => {
+                        try {
+                          const result = createAutoFixPreview(composition);
+                          setAutoFix({ result, historyIndex: store.historyIndex });
+                          setToast("修正案を作りました。確認するまで曲は変更されません。");
+                        } catch {
+                          setToast("Auto Fixの診断に失敗しました。現在の曲は変更されていません。");
+                        }
+                      }}
+                      onApply={() => {
+                        if (!autoFix || autoFix.historyIndex !== store.historyIndex) return;
+                        if (store.adoptAutoFixPreview(autoFix.result.preview)) {
+                          setSelectedNoteIds([]);
+                          setSelectedChordId(null);
+                          setAutoFix(null);
+                          setToast("Auto Fixを適用しました。Undoで元に戻せます。");
+                        } else {
+                          setToast("修正版を適用できませんでした。現在の曲は変更されていません。");
+                        }
+                      }}
+                      onDismiss={() => setAutoFix(null)}
+                    />
+                  ),
+                },
+                {
+                  id: "find",
+                  label: "探す",
+                  render: () => (
+                    <>
+                      {/*
+                        * The summary says what is behind it.
+                        *
+                        * "コード進行を探す" alone gave no reason to open a closed panel that
+                        * holds fifteen hundred progressions and the one control that puts
+                        * one into the piece. A collapsed disclosure is only as
+                        * discoverable as its own label.
+                        */}
+                      {/*
+                        * No disclosure inside the tab.
+                        *
+                        * The search lived in a collapsed <details>, and once the
+                        * tab became the way it is reached that made two things
+                        * to open before anything was on screen. The tab is the
+                        * disclosure; the line the summary carried, which names
+                        * the size of the catalogue and where a result would
+                        * land, is a lead paragraph now.
+                        */}
+                      <p className="progression-search-teaser">
+                        約1500件から、{progressionTarget.label}に使えます
+                      </p>
+                      <ProgressionSearchPanel
+                          mode={composition.settings.mode}
+                          onAudition={(result) => {
+                            // The progression's first chord, voiced in the current key.
+                            // Enough to hear whether it is the colour being looked for,
+                            // without committing anything to the piece.
+                            const step = result.variant.steps[0];
+                            if (!step) return;
+                            auditionChord(createStepChordEvent({
+                              step,
+                              key: composition.settings.key,
+                              mode: composition.settings.mode,
+                              startTick: 0,
+                              durationTick: composition.ticksPerBar,
+                              id: `audition-${result.variant.id}`,
+                            }).notes);
+                          }}
+                          target={progressionTarget.label}
+                          onApply={(result) => {
+                            // A derived variant has no catalogue entry, so it hands over
+                            // no name: the section then says what it is chord by chord
+                            // rather than claiming a progression that was never written
+                            // down under that name.
+                            store.applyProgression(
+                              result.variant.steps,
+                              progressionTarget.range,
+                              result.variant.devices.length === 0 ? result.variant.id : undefined,
+                            );
+                          }}
+                        />
+                    </>
+                  ),
+                },
+                {
+                  id: "replace",
+                  label: "置き換える",
+                  hasContent: reharmonization.candidates.length > 0,
+                  render: () => (
+                    <ReharmonizationPanel
+                      chord={selectedChord}
+                      candidates={reharmonization.candidates}
+                      unavailableReason={reharmonization.unavailableReason}
+                      auditioningSymbol={reharmonization.auditioningSymbol}
+                      onAudition={reharmonization.audition}
+                      onApply={reharmonization.apply}
+                    />
+                  ),
+                },
+                {
+                  // Filled from the regeneration dock at the bottom of the
+                  // screen, which is outside this region: generating
+                  // candidates and seeing nothing happen would be worse than
+                  // the scroll this replaces.
+                  id: "compare",
+                  label: "比べる",
+                  hasContent: variationCandidates.length > 0,
+                  claimsFocus: variationCandidates.length > 0,
+                  render: () => (
+                    <VariationPanel
+                      candidates={variationCandidates}
+                      activeAuditionIndex={store.auditionedVariationIndex}
+                      onAudition={handleAuditionVariation}
+                      onAdopt={handleAdoptVariation}
+                      onFeedback={handleCandidateFeedback}
+                    />
+                  ),
+                },
+                {
+                  id: "record",
+                  label: "記録",
+                  render: () => (
+                    <div className="phase-two-panel-grid">
+                      <PreferencePanel
+                        explanation={preferenceExplanation}
+                        guidanceCandidates={guidance.candidates}
+                        onGuidanceCandidatesChange={guidance.setCandidates}
+                        maxGuidanceCandidates={MAX_GUIDANCE_CANDIDATES}
+                        lastChoice={lastGuidedChoice}
+                        category={preferenceCategory}
+                        onCategoryChange={(category) => {
+                          setPreferenceCategory(category);
+                          // Scores returned for the previous feature namespace cannot
+                          // be reused for another preference category.
+                          setServerScores({});
+                          setRankingRuntime("browser-linear");
+                        }}
+                        onExport={handlePreferenceExport}
+                        onImport={() => preferenceImportInputRef.current?.click()}
+                        onReset={() => {
+                          if (!window.confirm("好み学習データを完全に削除します。書き出していないデータは復元できません。続けますか？")) return;
+                          void preferenceProfile.reset().then(() => {
+                            setServerScores({});
+                            setToast("好み学習をリセットしました。");
+                          });
+                        }}
+                      />
+                      <HistoryPanel
+                        entries={store.history}
+                        currentHistoryId={store.history[store.historyIndex]?.id ?? null}
+                        compareIds={historyCompareIds}
+                        onCompareChange={setHistoryCompareIds}
+                        onRename={(historyId, name) => {
+                          if (store.renameHistoryEntry(historyId, name)) setToast("履歴名を保存しました。");
+                        }}
+                        onRestore={(historyId) => {
+                          if (store.restoreHistoryEntry(historyId)) {
+                            setSelectedNoteIds([]);
+                            setSelectedChordId(null);
+                            setToast("選択したバージョンを復元しました。復元操作も履歴に保存されています。");
+                          }
+                        }}
+                      />
+                    </div>
+                  ),
+                },
+              ]}
             />
-            <div className="phase-two-panel-grid">
-              <PreferencePanel
-                explanation={preferenceExplanation}
-                category={preferenceCategory}
-                onCategoryChange={(category) => {
-                  setPreferenceCategory(category);
-                  // Scores returned for the previous feature namespace cannot
-                  // be reused for another preference category.
-                  setServerScores({});
-                  setRankingRuntime("browser-linear");
-                }}
-                onExport={handlePreferenceExport}
-                onImport={() => preferenceImportInputRef.current?.click()}
-                onReset={() => {
-                  if (!window.confirm("好み学習データを完全に削除します。書き出していないデータは復元できません。続けますか？")) return;
-                  void preferenceProfile.reset().then(() => {
-                    setServerScores({});
-                    setToast("好み学習をリセットしました。");
-                  });
-                }}
-              />
-              <HistoryPanel
-                entries={store.history}
-                currentHistoryId={store.history[store.historyIndex]?.id ?? null}
-                compareIds={historyCompareIds}
-                onCompareChange={setHistoryCompareIds}
-                onRename={(historyId, name) => {
-                  if (store.renameHistoryEntry(historyId, name)) setToast("履歴名を保存しました。");
-                }}
-                onRestore={(historyId) => {
-                  if (store.restoreHistoryEntry(historyId)) {
-                    setSelectedNoteIds([]);
-                    setSelectedChordId(null);
-                    setToast("選択したバージョンを復元しました。復元操作も履歴に保存されています。");
-                  }
-                }}
-              />
-            </div>
           </div>
 
           <RegenerationDock
@@ -795,6 +1009,9 @@ export default function App() {
       <AppMenu
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
+        theme={theme.theme}
+        onThemeChange={theme.setTheme}
+        resolvedTheme={theme.systemResolved}
         mixer={mixer}
         onMixerChange={setMixer}
         onOpenTutorial={() => setTutorialOpen(true)}

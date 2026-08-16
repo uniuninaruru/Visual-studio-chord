@@ -166,8 +166,12 @@ describe("section energy planning", () => {
   });
 
   it("puts the chorus above the verse and the intro below it", () => {
+    // Thirty-two bars rather than sixteen, because sixteen no longer has an
+    // intro to be below anything: eight sections of a sixteen-bar piece are two
+    // bars each, so that length takes the four-section layout, which starts on
+    // the verse.
     const sections = planSections({
-      key: "C", mode: "major", bars: 16, seed: "e", form: "verseChorus",
+      key: "C", mode: "major", bars: 32, seed: "e", form: "verseChorus",
     })!;
     const plans = planSectionEnergy(sections);
     const peakOf = (kind: string) =>

@@ -169,6 +169,11 @@ const SECTION_ENERGY: Readonly<Record<SectionKind, readonly [number, number, num
   preChorus: [0.45, 0.75, 0.75],
   chorus: [0.85, 0.95, 0.8],
   bridge: [0.35, 0.5, 0.45],
+  // The drop and the climb it exists to make possible: a 落ちサビ starts under
+  // the verse and hands over rising, and the 大サビ takes it from there to the
+  // highest point in the piece.
+  quietChorus: [0.25, 0.35, 0.5],
+  finalChorus: [0.9, 1, 0.85],
   outro: [0.5, 0.5, 0.15],
 };
 
