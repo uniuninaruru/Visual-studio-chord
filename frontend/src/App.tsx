@@ -3,6 +3,7 @@ import { ChordLane } from "./features/editor/ChordLane";
 import { AutoFixPanel } from "./features/autoFix/AutoFixPanel";
 import { DiagnosticsPanel } from "./features/diagnostics";
 import { InspectorPanel } from "./features/editor/InspectorPanel";
+import { describeSelection } from "./features/editor/selectionSummary";
 import { ReharmonizationPanel } from "./features/editor/ReharmonizationPanel";
 import { ProgressionSearchPanel } from "./features/progressions/ProgressionSearchPanel";
 import { createStepChordEvent } from "./music/chords";
@@ -164,6 +165,13 @@ export default function App() {
   const selectedNote = composition.notes.find((note) => note.id === selectedNoteId) ?? null;
   const selectedChord = composition.chords.find((chord) => chord.id === selectedChordId) ?? null;
 
+  const selectionSummary = useMemo(() => describeSelection({
+    noteCount: selectedNoteIds.length,
+    chord: selectedChord,
+    range: store.selectedBarRange,
+    ticksPerBar: composition.ticksPerBar,
+  }), [selectedNoteIds, selectedChord, store.selectedBarRange, composition.ticksPerBar]);
+
   /**
    * Where "使う" would put a progression, and what to call that place.
    *
@@ -313,6 +321,20 @@ export default function App() {
   const clearSelection = useCallback(() => {
     setSelectedNoteIds([]);
     setSelectedChordId(null);
+  }, []);
+
+  /**
+   * All three, because the line above it names all three.
+   *
+   * clearSelection leaves the bar range alone -- it exists for the paths that
+   * replace the composition, where the range is normalised separately -- and a
+   * button beside "5〜8小節を選択中" that left the range selected would be a
+   * button that does not do what it says.
+   */
+  const clearEverySelection = useCallback(() => {
+    setSelectedNoteIds([]);
+    setSelectedChordId(null);
+    useComposerStore.getState().setSelectedRange(null);
   }, []);
 
   const {
@@ -590,6 +612,17 @@ export default function App() {
                 <span className="style-badge">{composition.resolvedStyle}</span>
               </div>
               <p>{composition.settings.timeSignature} · {composition.bars.length} bars · Seed {composition.seed}</p>
+              <p
+                className={selectionSummary.active ? "selection-summary is-active" : "selection-summary"}
+                role="status"
+              >
+                {selectionSummary.text}
+                {selectionSummary.active && (
+                  <button type="button" className="text-button" onClick={clearEverySelection}>
+                    解除
+                  </button>
+                )}
+              </p>
             </div>
             <div className="workspace-status">
               <span className={validation.valid ? "valid" : "invalid"}>
@@ -607,6 +640,26 @@ export default function App() {
           </div>
 
           <div className="workspace-scroll">
+            <ChordLane
+              composition={composition}
+              selectedRange={store.selectedBarRange}
+              selectedChordId={selectedChordId}
+              currentTick={editorCurrentTick}
+              lockedBars={store.lockedBars}
+              onBarSelect={handleBarSelect}
+              onChordSelect={handleChordSelect}
+              onToggleLock={store.toggleBarLock}
+            />
+            {/*
+              * The piece first.
+              *
+              * The Auto Fix card sat above it: the first thing in the column
+              * was an offer to repair the thing the reader had not been shown
+              * yet. It is a genuine entry point for someone who does not know
+              * what to change, which is why it stays on screen -- but under
+              * the chords, where it reads as an offer about them rather than
+              * as the subject of the page.
+              */}
             <AutoFixPanel
               result={autoFix?.result ?? null}
               stale={autoFix !== null && autoFix.historyIndex !== store.historyIndex}
@@ -632,18 +685,21 @@ export default function App() {
               }}
               onDismiss={() => setAutoFix(null)}
             />
-            <ChordLane
-              composition={composition}
-              selectedRange={store.selectedBarRange}
-              selectedChordId={selectedChordId}
-              currentTick={editorCurrentTick}
-              lockedBars={store.lockedBars}
-              onBarSelect={handleBarSelect}
-              onChordSelect={handleChordSelect}
-              onToggleLock={store.toggleBarLock}
-            />
+            {/*
+              * The summary says what is behind it.
+              *
+              * "コード進行を探す" alone gave no reason to open a closed panel that
+              * holds fifteen hundred progressions and the one control that puts
+              * one into the piece. A collapsed disclosure is only as
+              * discoverable as its own label.
+              */}
             <details className="progression-search-shell">
-              <summary>コード進行を探す</summary>
+              <summary>
+                <span>コード進行を探す</span>
+                <span className="progression-search-teaser">
+                  約1500件から、{progressionTarget.label}に使えます
+                </span>
+              </summary>
               <ProgressionSearchPanel
                 mode={composition.settings.mode}
                 onAudition={(result) => {
