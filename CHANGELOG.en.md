@@ -7,6 +7,39 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Changed — the five tools become one region with tabs
+
+Below the two views of the piece the centre column ran on for another **two
+thousand pixels**: a repair offer, a search box, a reharmoniser, a variation
+list and the profile-and-history pair — **every one permanently expanded, and
+never more than one in use.** Someone looking for the history scrolled past four
+panels about something else to reach it. Measured after: the column is three
+blocks instead of seven, and the tools occupy 180px.
+
+They are modes, so they are tabs. Nothing is removed and nothing is more than
+one press away.
+
+**Hidden, not unmounted.** Every panel stays in the tree with `hidden`, which
+takes it out of the accessibility tree and out of tab order while leaving its
+state alone. A typed search query, a half-chosen comparison, a candidate
+part-way through auditioning: all of it survives a trip to another tab, and
+anything that queries the DOM still finds them. Unmounting would have been the
+cheaper implementation and the wrong one.
+
+**Content arriving from elsewhere takes the tab.** The variation list is filled
+by the regeneration dock at the bottom of the screen, outside this region —
+generating candidates and seeing nothing happen would be worse than the scroll
+this replaces. That is the only automatic switch, and it fires on the **rising
+edge only**, so a claim that is merely still true does not fight a deliberate
+move away. A tab that only HAS content shows a marker and waits.
+
+**The search lost its own disclosure.** It lived in a collapsed `<details>`, and
+once the tab became the way it is reached that made two things to open before
+anything was on screen.
+
+Arrow keys move between tabs and wrap; only the selected tab is in the page's
+tab order, because a tablist is one stop rather than one per tab.
+
 ### Changed — the two views of the piece side by side, and five readouts instead of seven
 
 **The chord lane and the piano roll are the same music at two resolutions** —
