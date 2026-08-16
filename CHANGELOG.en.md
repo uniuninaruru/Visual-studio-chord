@@ -7,6 +7,50 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Changed — the two views of the piece side by side, and five readouts instead of seven
+
+**The chord lane and the piano roll are the same music at two resolutions** —
+the lane is the harmony, the roll is the notes inside it — and three panels sat
+between them: a repair offer, a search box and a reharmoniser. A reader
+scrolling from the chords to the notes passed all three, so **the thing being
+edited never appeared on screen as one thing.** They are adjacent now and the
+tools follow in the order they are reached for. Nothing left the column and
+nothing was collapsed; this is the order changing, not the content.
+
+**Two of the strip's seven items were not independent facts.**
+
+Loop is gone: App rendered **the same string from the same variable** into the
+transport bar forty pixels above. The prop went with it — the pending-loop note
+compares against the committed label, and that comparison already happens in
+App. My first attempt kept the prop with a comment claiming the pending note
+needed it, which was not true.
+
+Engine and Connection are one item: they describe **one subsystem**, where
+inference runs and whether it is reachable. Both strings are kept, because
+"offline" and "no server" are different states.
+
+No information left the screen. At 375px the strip's scroll width goes from
+1294 to 1002. `tests/projectStatusBar.test.tsx` pinned the duplicate and now
+asserts its absence.
+
+### Investigated — the async paths and editing during playback are both sound
+
+Two areas left unverified, chased down. **Neither produced a code change.**
+
+**Races in candidate generation (652 lines).** It carries an AbortController per
+run, server-side cancellation, and **every await either passes the signal or is
+followed by an `aborted` check**. The `finally` is guarded by
+`controllerRef.current === controller`, so a stale run cannot clear the current
+controller. The theory fallback takes the signal too. **No demonstrable race, and
+no speculative "fix" written.**
+
+**Editing during playback.** `applyImmediately` is
+`status !== "playing" || timing === "immediate"`, so an edit made while stopped
+always commits at once — the failure I suspected, where "apply immediately"
+would wait for a tick that never comes, is already guarded. A deferred edit
+stranded by pressing stop is committed by the stop. The tick callback re-reads
+the committed composition imperatively and reschedules.
+
 ### Fixed — Space was taking every button press in the app
 
 The play/pause shortcut called `preventDefault` on Space unconditionally once
