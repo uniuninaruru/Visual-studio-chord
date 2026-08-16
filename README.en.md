@@ -311,6 +311,8 @@ without starting the backend. Only two things become unavailable:
   not swap;
 - melodic skeletons, contextual non-chord tones, countermelody, canon,
   polyrhythm, and groove;
+- melodic rhythm drawn from the note values the metre admits — eight of them,
+  dotted values included — with a landing note reserved wherever a phrase closes;
 - Bass / Left Hand, Chords / Right Hand, Melody, and additional DAW-style
   tracks with visibility, mute, solo, playback, and MIDI export;
 - range regeneration, candidate audition, Like/Dislike preference ranking,

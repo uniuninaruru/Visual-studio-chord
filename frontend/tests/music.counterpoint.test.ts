@@ -119,7 +119,11 @@ describe("writing a countermelody", () => {
         ).not.toContain(issue.type);
       }
     }
-    expect(checked).toBeGreaterThan(300);
+    // A floor on the sample, not a claim about the music. The melody carries
+    // note values from the metre now rather than two lengths per bar, so the
+    // same six pieces hold roughly half as many notes -- 190 where there were
+    // over 300 -- and every one of them is still checked.
+    expect(checked).toBeGreaterThan(150);
   });
 
   it("keeps first-species vertical intervals consonant throughout", () => {
@@ -131,7 +135,8 @@ describe("writing a countermelody", () => {
         .filter((issue) => issue.type === "dissonance").length;
       total += notes.length;
     }
-    expect(total).toBeGreaterThan(300);
+    // See above: fewer, longer notes, same coverage.
+    expect(total).toBeGreaterThan(150);
     expect(dissonances).toBe(0);
   });
 
