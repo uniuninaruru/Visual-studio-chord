@@ -5,6 +5,8 @@ import {
   createNeoRiemannianChordEvent,
   createStepChordEvent,
   generateComposition,
+  intervalsForQuality,
+  pitchClassToSemitone,
   validateComposition,
 } from "../src/music";
 import {
@@ -83,12 +85,165 @@ describe("useComposerStore", () => {
     expect(chord).toBeDefined();
     if (!chord) return;
 
+    const historyBefore = useComposerStore.getState().historyIndex;
+    expect(useComposerStore.getState().editChord(chord.id, chord.symbol)).toBe(false);
+    expect(useComposerStore.getState().historyIndex).toBe(historyBefore);
     expect(useComposerStore.getState().editChord(chord.id, "F#")).toBe(true);
     const edited = useComposerStore.getState().draftComposition.chords[0];
     expect(edited?.symbol).toBe("F#");
     expect(edited?.root).toBe("F#");
     expect(edited?.source).toBe("other");
     expect(edited?.notes).not.toEqual(chord.notes);
+  });
+
+  it("rebuilds structured quality and tension edits into the sounding voicing", () => {
+    const target = useComposerStore.getState().draftComposition.chords[0]!;
+    const quality = target.quality === "minor" ? "major7" : "minor";
+
+    expect(useComposerStore.getState().editChord(target.id, { quality })).toBe(true);
+    let edited = useComposerStore.getState().draftComposition.chords[0]!;
+    expect(edited.quality).toBe(quality);
+    expect(edited.symbol).toBe(`${edited.root}${quality === "minor" ? "m" : "maj7"}`);
+    expect(new Set(edited.notes.map((note) => note % 12))).toEqual(
+      new Set(intervalsForQuality(quality).map((interval) => (
+        pitchClassToSemitone(edited.root) + interval
+      ) % 12)),
+    );
+
+    expect(useComposerStore.getState().editChord(edited.id, { tensions: ["9"] })).toBe(true);
+    edited = useComposerStore.getState().draftComposition.chords[0]!;
+    expect(edited.symbol).toContain("(9)");
+    expect(edited.tensions).toEqual(["9"]);
+    expect(edited.notes.map((note) => note % 12)).toContain(
+      (pitchClassToSemitone(edited.root) + 14) % 12,
+    );
+    expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
+
+    expect(useComposerStore.getState().editChord(edited.id, { tensions: null })).toBe(true);
+    edited = useComposerStore.getState().draftComposition.chords[0]!;
+    expect(edited.tensions).toBeUndefined();
+    expect(edited.symbol).not.toContain("(");
+    expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
+  });
+
+  it("voices structured inversion and slash bass edits, including reharmonisation objects", () => {
+    const target = useComposerStore.getState().draftComposition.chords[0]!;
+    const inversion = target.inversion === 0 ? 1 : 0;
+    expect(useComposerStore.getState().editChord(target.id, { inversion })).toBe(true);
+    let edited = useComposerStore.getState().draftComposition.chords[0]!;
+    const intervals = intervalsForQuality(edited.quality);
+    expect(edited.notes[0]! % 12).toBe(
+      (pitchClassToSemitone(edited.root) + intervals[inversion]!) % 12,
+    );
+    expect(edited.inversion).toBe(inversion);
+
+    const bass = edited.root === "C" ? "F#" : "C";
+    expect(useComposerStore.getState().editChord(edited.id, { bass })).toBe(true);
+    edited = useComposerStore.getState().draftComposition.chords[0]!;
+    expect(edited.symbol).toContain(`/${bass}`);
+    expect(edited.bass).toBe(bass);
+    expect(edited.inversion).toBe(0);
+    expect(edited.notes[0]! % 12).toBe(pitchClassToSemitone(bass));
+    expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
+
+    expect(useComposerStore.getState().editChord(edited.id, { bass: null })).toBe(true);
+    edited = useComposerStore.getState().draftComposition.chords[0]!;
+    expect(edited.bass).toBeUndefined();
+    expect(edited.symbol).not.toContain("/");
+
+    // Reharmonisation supplies a slash symbol and a legacy source hint. The
+    // store rebuilds the actual bass and safely ignores the stale claim.
+    expect(useComposerStore.getState().editChord(edited.id, {
+      symbol: "D7/F",
+      source: "substitute",
+    })).toBe(true);
+    edited = useComposerStore.getState().draftComposition.chords[0]!;
+    expect(edited.symbol).toBe("D7/F");
+    expect(edited.root).toBe("D");
+    expect(edited.bass).toBe("F");
+    expect(edited.source).toBe("other");
+    expect(edited.notes[0]! % 12).toBe(pitchClassToSemitone("F"));
+    expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
+  });
+
+  it("rebuilds quality, tensions, and slash bass together", () => {
+    const target = useComposerStore.getState().draftComposition.chords[0]!;
+    const bass = target.root === "C" ? "F" : "C";
+    expect(useComposerStore.getState().editChord(target.id, {
+      quality: "dominant7",
+      tensions: ["#11", "9"],
+      bass,
+    })).toBe(true);
+    const edited = useComposerStore.getState().draftComposition.chords[0]!;
+    expect(edited.symbol).toBe(`${edited.root}7(9,#11)/${bass}`);
+    expect(edited.quality).toBe("dominant7");
+    expect(edited.tensions).toEqual(["9", "#11"]);
+    expect(edited.bass).toBe(bass);
+    expect(edited.notes[0]! % 12).toBe(pitchClassToSemitone(bass));
+    expect(edited.notes.map((note) => note % 12)).toEqual(
+      expect.arrayContaining([
+        (pitchClassToSemitone(edited.root) + 14) % 12,
+        (pitchClassToSemitone(edited.root) + 18) % 12,
+      ]),
+    );
+    expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
+  });
+
+  it("rejects invalid, locked, and same-value structured edits without history changes", () => {
+    const target = useComposerStore.getState().draftComposition.chords[0]!;
+    const before = {
+      draftComposition: structuredClone(useComposerStore.getState().draftComposition),
+      history: structuredClone(useComposerStore.getState().history),
+      historyIndex: useComposerStore.getState().historyIndex,
+    };
+    const invalidEdits = [
+      { root: "H" as never },
+      { quality: "not-a-quality" as never },
+      { tensions: ["wat"] as never },
+      { bass: "H" as never },
+      { inversion: Number.NaN },
+      { inversion: 99 },
+    ];
+    for (const edit of invalidEdits) {
+      expect(useComposerStore.getState().editChord(target.id, edit)).toBe(false);
+    }
+    expect(useComposerStore.getState().editChord(target.id, { quality: target.quality })).toBe(false);
+    expect(useComposerStore.getState().draftComposition).toEqual(before.draftComposition);
+    expect(useComposerStore.getState().history).toEqual(before.history);
+    expect(useComposerStore.getState().historyIndex).toBe(before.historyIndex);
+
+    useComposerStore.getState().toggleBarLock(0);
+    const lockedBefore = {
+      draftComposition: structuredClone(useComposerStore.getState().draftComposition),
+      history: structuredClone(useComposerStore.getState().history),
+      historyIndex: useComposerStore.getState().historyIndex,
+    };
+    expect(useComposerStore.getState().editChord(target.id, {
+      quality: target.quality === "minor" ? "major" : "minor",
+    })).toBe(false);
+    expect(useComposerStore.getState().draftComposition).toEqual(lockedBefore.draftComposition);
+    expect(useComposerStore.getState().history).toEqual(lockedBefore.history);
+    expect(useComposerStore.getState().historyIndex).toBe(lockedBefore.historyIndex);
+  });
+
+  it("keeps structured edits pending until the next bar and supports one-step undo/redo", () => {
+    const target = useComposerStore.getState().draftComposition.chords[0]!;
+    const original = structuredClone(target);
+    const nextQuality = target.quality === "minor" ? "major7" : "minor";
+    useComposerStore.getState().setPlaybackStatus("playing");
+    useComposerStore.getState().setUpdateTiming("nextBar");
+    expect(useComposerStore.getState().editChord(target.id, { quality: nextQuality })).toBe(true);
+    const state = useComposerStore.getState();
+    expect(state.pendingCommit).toBe(true);
+    expect(state.committedComposition.chords.find((chord) => chord.id === target.id)).toEqual(original);
+    expect(state.draftComposition.chords.find((chord) => chord.id === target.id)?.quality)
+      .toBe(nextQuality);
+    expect(state.undo()).toBe(true);
+    expect(useComposerStore.getState().draftComposition.chords.find((chord) => chord.id === target.id))
+      .toEqual(original);
+    expect(useComposerStore.getState().redo()).toBe(true);
+    expect(useComposerStore.getState().draftComposition.chords.find((chord) => chord.id === target.id)?.quality)
+      .toBe(nextQuality);
   });
 
   it("deletes notes non-destructively through history", () => {
@@ -436,6 +591,70 @@ describe("direct chord timeline edits", () => {
     expect(right).toMatchObject({ startTick: startTick + 480, durationTick: target.durationTick - 720 });
     expectExactChordCoverage();
     expect(validateComposition(after).errors).toEqual([]);
+  });
+
+  it("treats equal structured input as a no-op for special chord metadata", () => {
+    const { secondary } = secondaryDominantFixture();
+    let state = useComposerStore.getState();
+    const before = {
+      draftComposition: structuredClone(state.draftComposition),
+      history: structuredClone(state.history),
+      historyIndex: state.historyIndex,
+    };
+    expect(state.editChord(secondary.id, {
+      root: secondary.root,
+      quality: secondary.quality,
+      tensions: secondary.tensions ?? null,
+      bass: secondary.bass ?? null,
+      inversion: secondary.inversion,
+    })).toBe(false);
+    state = useComposerStore.getState();
+    expect(state.draftComposition).toEqual(before.draftComposition);
+    expect(state.history).toEqual(before.history);
+    expect(state.historyIndex).toBe(before.historyIndex);
+
+    const { transformed } = neoRiemannianFixture();
+    state = useComposerStore.getState();
+    const neoBefore = {
+      draftComposition: structuredClone(state.draftComposition),
+      history: structuredClone(state.history),
+      historyIndex: state.historyIndex,
+    };
+    expect(state.editChord(transformed.id, {
+      root: transformed.root,
+      quality: transformed.quality,
+      tensions: transformed.tensions ?? null,
+      bass: transformed.bass ?? null,
+      inversion: transformed.inversion,
+    })).toBe(false);
+    state = useComposerStore.getState();
+    expect(state.draftComposition).toEqual(neoBefore.draftComposition);
+    expect(state.history).toEqual(neoBefore.history);
+    expect(state.historyIndex).toBe(neoBefore.historyIndex);
+  });
+
+  it("rejects derived-only and timing object edits without a Partial escape hatch", () => {
+    const target = useComposerStore.getState().draftComposition.chords[0]!;
+    const before = {
+      draftComposition: structuredClone(useComposerStore.getState().draftComposition),
+      history: structuredClone(useComposerStore.getState().history),
+      historyIndex: useComposerStore.getState().historyIndex,
+    };
+    const forbiddenEdits = [
+      { notes: [0, 1, 2] },
+      { startTick: target.startTick + 1 },
+      { durationTick: target.durationTick + 1 },
+      { romanNumeral: "V" },
+      { source: "other" },
+    ];
+    for (const edit of forbiddenEdits) {
+      expect(useComposerStore.getState().editChord(target.id, edit as never)).toBe(false);
+    }
+    const after = useComposerStore.getState();
+    expect(after.draftComposition).toEqual(before.draftComposition);
+    expect(after.history).toEqual(before.history);
+    expect(after.historyIndex).toBe(before.historyIndex);
+    expect(validateComposition(after.draftComposition).errors).toEqual([]);
   });
 
   it("splits one chord while preserving its sounding metadata", () => {

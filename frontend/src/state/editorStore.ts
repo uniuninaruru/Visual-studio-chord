@@ -6,14 +6,23 @@ import {
   createStepChordEvent,
   regenerateRange,
   replaceChordSymbol,
+  formatChordSymbol,
+  intervalForTension,
+  intervalsForQuality,
+  parseChordSymbol,
+  resolveAvoidNotes,
   ticksPerBeat,
+  tensionSuffix,
   validateComposition,
+  voiceChord,
+  voiceExtendedChord,
   appliedDominantResolves,
   explainSpecialChord,
   getDiatonicChordDefinition,
   getDiatonicSeventhChordDefinition,
   getScalePitchClasses,
   harmonyFunctionForDegree,
+  normalizePitchClass,
   romanNumeralForChordQuality,
   scaleDegreeForPitchClass,
   transformTriad,
@@ -21,12 +30,16 @@ import {
 import type {
   BarRange,
   ChordEvent,
+  ChordQuality,
+  ChordSource,
   ProgressionStep,
   GeneratedComposition,
   GeneratorSettings,
   NoteEvent,
   RegenerationOptions,
   SectionEvent,
+  Tension,
+  PitchClassName,
 } from "../types/music";
 import {
   exportCompositionJson,
@@ -91,7 +104,23 @@ export type GeneratorSettingsPatch = Omit<
   harmony?: Partial<NonNullable<GeneratorSettings["harmony"]>>;
 };
 
-export type ChordEdit = string | Partial<Omit<ChordEvent, "id">>;
+/**
+ * The fields that define the sound are intentionally nullable where clearing
+ * is meaningful. `undefined` means "keep the current value"; `null` means
+ * remove the optional field (currently tensions and slash bass). `source` is a
+ * legacy reharmonisation hint and is ignored after the acoustic rebuild.
+ */
+export interface StructuredChordEdit {
+  symbol?: string;
+  root?: PitchClassName;
+  quality?: ChordQuality;
+  tensions?: readonly Tension[] | null;
+  bass?: PitchClassName | null;
+  inversion?: number;
+  source?: ChordSource;
+}
+
+export type ChordEdit = string | StructuredChordEdit;
 
 export interface NoteMove {
   /** Absolute MIDI pitch. */
@@ -404,6 +433,203 @@ function cleanReplacedChord(chord: ChordEvent): ChordEvent {
   delete next.transformation;
   delete next.targetDegree;
   delete next.borrowedFromMode;
+  return next;
+}
+
+const STRUCTURED_TENSIONS: readonly Tension[] = [
+  "6",
+  "9",
+  "b9",
+  "#9",
+  "11",
+  "#11",
+  "13",
+  "b13",
+];
+
+interface ParsedStructuredSymbol {
+  root: PitchClassName;
+  quality: ChordQuality;
+  tensions?: Tension[];
+  bass?: PitchClassName;
+}
+
+function hasOwn(object: object, key: PropertyKey): boolean {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function parseStructuredSymbol(symbol: unknown): ParsedStructuredSymbol {
+  if (typeof symbol !== "string" || symbol.trim().length === 0) {
+    throw new RangeError("Chord symbol must be a non-empty string.");
+  }
+  let body = symbol.trim();
+  let bass: PitchClassName | undefined;
+  const slash = body.indexOf("/");
+  if (slash >= 0) {
+    if (body.indexOf("/", slash + 1) >= 0) {
+      throw new RangeError("Chord symbol contains more than one slash bass.");
+    }
+    const bassText = body.slice(slash + 1).trim();
+    if (bassText.length === 0) throw new RangeError("Slash bass is empty.");
+    bass = normalizePitchClass(bassText as PitchClassName);
+    body = body.slice(0, slash).trim();
+  }
+
+  let tensions: Tension[] | undefined;
+  const tensionMatch = /^(.*)\(([^()]*)\)$/.exec(body);
+  if (tensionMatch) {
+    const tensionText = tensionMatch[2]!.split(",").map((value) => value.trim());
+    if (tensionText.length === 0 || tensionText.some((value) => value.length === 0)) {
+      throw new RangeError("Chord tension list is empty or malformed.");
+    }
+    tensions = parseStructuredTensions(tensionText);
+    body = tensionMatch[1]!.trim();
+  }
+  if (body.length === 0) throw new RangeError("Chord symbol has no base chord.");
+  const definition = parseChordSymbol(body);
+  return {
+    root: definition.root,
+    quality: definition.quality,
+    ...(tensions ? { tensions } : {}),
+    ...(bass ? { bass } : {}),
+  };
+}
+
+function parseStructuredTensions(value: unknown): Tension[] {
+  if (!Array.isArray(value)) throw new RangeError("Tensions must be an array.");
+  const seen = new Set<Tension>();
+  for (const tension of value) {
+    if (
+      typeof tension !== "string"
+      || !STRUCTURED_TENSIONS.includes(tension as Tension)
+      || !Number.isFinite(intervalForTension(tension as Tension))
+      || seen.has(tension as Tension)
+    ) {
+      throw new RangeError(`Unsupported or duplicate chord tension: ${String(tension)}`);
+    }
+    seen.add(tension as Tension);
+  }
+  return [...seen];
+}
+
+function canonicalStructuredTensions(
+  quality: ChordQuality,
+  tensions: readonly Tension[],
+): Tension[] {
+  const resolved = new Set(resolveAvoidNotes(quality, tensions));
+  // Stable spelling and order make equivalent input arrays produce the same
+  // symbol, voicing metadata, and history result.
+  return STRUCTURED_TENSIONS.filter((tension) => resolved.has(tension));
+}
+
+function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+/**
+ * Rebuilds a chord's acoustic and theory fields as one operation. Extended
+ * voicings deliberately use inversion zero: a slash bass is the explicit
+ * lowest note, and combining it with a second inversion request is ambiguous.
+ * Callers that request a non-zero inversion with tensions or bass are rejected
+ * before this function can produce a contradictory event.
+ */
+function rebuildStructuredChord(
+  chord: ChordEvent,
+  edit: StructuredChordEdit,
+  key: PitchClassName,
+  mode: SectionEvent["mode"],
+): ChordEvent | null {
+  if (edit === null || typeof edit !== "object" || Array.isArray(edit)) return null;
+  const hasSymbol = hasOwn(edit, "symbol");
+  const symbol = (edit as { symbol?: unknown }).symbol;
+  const parsed = hasSymbol ? parseStructuredSymbol(symbol) : undefined;
+
+  const root: ChordEvent["root"] = edit.root === undefined
+    ? normalizePitchClass(parsed?.root ?? chord.root)
+    : normalizePitchClass(edit.root);
+  const quality = edit.quality === undefined
+    ? parsed?.quality ?? chord.quality
+    : edit.quality;
+  const intervals = intervalsForQuality(quality);
+  if (!Array.isArray(intervals) || intervals.length === 0) return null;
+
+  const tensions = edit.tensions === undefined
+    ? parsed?.tensions ?? (hasSymbol ? [] : [...(chord.tensions ?? [])])
+    : edit.tensions === null
+      ? []
+      : parseStructuredTensions(edit.tensions);
+  const resolvedTensions = canonicalStructuredTensions(quality, tensions);
+  const bass: ChordEvent["bass"] = edit.bass === undefined
+    ? parsed?.bass
+      ? normalizePitchClass(parsed.bass)
+      : (hasSymbol ? undefined : chord.bass)
+    : edit.bass === null
+      ? undefined
+      : normalizePitchClass(edit.bass);
+  const extended = resolvedTensions.length > 0 || bass !== undefined;
+  const sameDefinition =
+    chord.root === root
+    && chord.quality === quality
+    && sameStringArray(
+      resolvedTensions,
+      canonicalStructuredTensions(quality, chord.tensions ?? []),
+    )
+    && chord.bass === bass;
+  const requestedInversion = edit.inversion === undefined
+    ? sameDefinition
+      ? chord.inversion
+      : 0
+    : edit.inversion;
+  if (
+    !Number.isInteger(requestedInversion)
+    || requestedInversion < 0
+    || requestedInversion >= intervals.length
+    || (extended && requestedInversion !== 0)
+  ) {
+    return null;
+  }
+  if (sameDefinition && requestedInversion === chord.inversion) {
+    // Equal acoustic input is a true no-op, even when the source event carries
+    // stale special metadata. Reclassifying an untouched special chord would
+    // unexpectedly change theory data and create history for nothing.
+    return null;
+  }
+
+  const baseSymbol = formatChordSymbol(root, quality);
+  const rebuiltBase = cleanReplacedChord(replaceChordSymbol(
+    chord,
+    baseSymbol,
+    key,
+    mode,
+    extended ? 0 : requestedInversion,
+  ));
+  const voicing = extended
+    ? voiceExtendedChord({ root, quality, tensions: resolvedTensions, bass })
+    : voiceChord(root, quality, undefined, requestedInversion);
+  const next: ChordEvent = {
+    ...rebuiltBase,
+    symbol: `${baseSymbol}${tensionSuffix(resolvedTensions)}${bass ? `/${bass}` : ""}`,
+    root,
+    quality,
+    notes: voicing.notes,
+    inversion: voicing.inversion,
+    leftHand: undefined,
+    ...(resolvedTensions.length > 0 ? { tensions: resolvedTensions } : {}),
+    ...(bass !== undefined ? { bass } : {}),
+  };
+
+  // A direct acoustic edit no longer proves that a secondary, borrowed,
+  // substitute, or Neo-Riemannian claim still holds. Plain sus/add9 quality
+  // classification remains honest when there is no extra slash/colour data;
+  // all other extended edits are explicitly non-diatonic and warning-only.
+  if (extended) {
+    next.source = "other";
+    delete next.specialKind;
+    delete next.targetDegree;
+    delete next.borrowedFromMode;
+    delete next.explanation;
+    delete next.transformation;
+  }
   return next;
 }
 
@@ -1599,31 +1825,39 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     const key = section?.key ?? composition.settings.key;
     const mode = section?.mode ?? composition.settings.mode;
     if (typeof edit === "string") {
+      // Parse first so malformed strings keep the existing throw contract. A
+      // canonical-equivalent base symbol is otherwise a needless history entry.
+      if (parseChordSymbol(edit).symbol === current.symbol) {
+        return false;
+      }
       composition.chords[index] = cleanReplacedChord(replaceChordSymbol(
         current, edit, key, mode,
       ));
-    } else if (
-      (edit.symbol !== undefined && edit.symbol !== current.symbol) ||
-      (edit.inversion !== undefined && edit.inversion !== current.inversion)
-    ) {
-      const {
-        symbol = current.symbol,
-        inversion = current.inversion,
-        ...changes
-      } = edit;
-      composition.chords[index] = {
-        ...cleanReplacedChord(replaceChordSymbol(
-          current,
-          symbol,
-          key,
-          mode,
-          inversion,
-        )),
-        ...changes,
-        id: current.id,
-      };
     } else {
-      composition.chords[index] = { ...current, ...edit, id: current.id };
+      if (edit === null || typeof edit !== "object" || Array.isArray(edit)) {
+        return false;
+      }
+      const acousticEdit = ["symbol", "root", "quality", "tensions", "bass", "inversion"]
+        .some((field) => hasOwn(edit, field));
+      if (acousticEdit) {
+        let rebuilt: ChordEvent | null;
+        try {
+          rebuilt = rebuildStructuredChord(current, edit, key, mode);
+        } catch {
+          // Structured edits are an editor boundary. Invalid user input is a
+          // rejected operation, not an exception that escapes to the UI.
+          return false;
+        }
+        if (!rebuilt || JSON.stringify(rebuilt) === JSON.stringify(current)) {
+          return false;
+        }
+        composition.chords[index] = { ...rebuilt, id: current.id };
+      } else {
+        // Timing, voicing, and theory fields have dedicated operations or are
+        // derived from the acoustic definition. Runtime callers that smuggle
+        // those keys through a cast must not get a Partial-merge escape hatch.
+        return false;
+      }
     }
     clearProgressionsForRanges(composition, [{
       startTick: current.startTick,
