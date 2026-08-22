@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { Icon } from "../../components/Icon";
+import { ChordEditor } from "./ChordEditor";
+import type { StructuredChordEdit } from "../../state";
 import type { BarRange, ChordEvent, GeneratedComposition, HarmonyFunction } from "../../types/music";
 import { formatBarBeat } from "../../utils/musicFormat";
 
@@ -24,6 +26,10 @@ interface ChordLaneProps {
   onSplitChord: (chordId: string, splitTick: number) => string | null;
   onMoveChord: (chordId: string, startTick: number) => boolean;
   onResizeChord: (chordId: string, durationTick: number) => boolean;
+  chordEditorOpen: boolean;
+  onOpenChordEditor: () => void;
+  onCloseChordEditor: () => void;
+  onEditChord: (chordId: string, edit: StructuredChordEdit) => boolean;
 }
 
 function overlapsLockedBar(
@@ -60,6 +66,10 @@ export function ChordLane({
   onSplitChord,
   onMoveChord,
   onResizeChord,
+  chordEditorOpen,
+  onOpenChordEditor,
+  onCloseChordEditor,
+  onEditChord,
 }: ChordLaneProps) {
   const [addSymbol, setAddSymbol] = useState("");
   const currentBar = Math.min(
@@ -201,6 +211,14 @@ export function ChordLane({
                 {actionState.selectedLocked ? "ロック中" : "編集可能"}
               </span>
             </div>
+            <button
+              type="button"
+              className="primary-button chord-editor-open-button"
+              onClick={onOpenChordEditor}
+              aria-haspopup="dialog"
+            >
+              響きを編集
+            </button>
             <form
               className="chord-add-control"
               onSubmit={(event) => {
@@ -405,9 +423,11 @@ export function ChordLane({
                         aria-pressed={selectedChordId === item.id}
                         title={heldOver ? `${item.symbol}（前の小節から継続）` : item.symbol}
                         onClick={(event) => {
+                          if (selectedChordId !== item.id) onCloseChordEditor();
                           onBarSelect(bar.index, event.shiftKey);
                           onChordSelect(item);
                         }}
+                        onDoubleClick={onOpenChordEditor}
                       >
                         <strong>{heldOver ? `(${item.symbol})` : item.symbol}</strong>
                         <span className="roman-numeral">{item.romanNumeral}</span>
@@ -424,6 +444,14 @@ export function ChordLane({
         })}
       </div>
       <p className="lane-tip">クリックで1小節、Shift＋クリックで範囲を選択。鍵は部分再生成から小節を保護します。</p>
+      {chordEditorOpen && selectedChord && (
+        <ChordEditor
+          chord={selectedChord}
+          locked={selectedLocked}
+          onApply={(edit) => onEditChord(selectedChord.id, edit)}
+          onClose={onCloseChordEditor}
+        />
+      )}
     </section>
   );
 }

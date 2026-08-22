@@ -44,7 +44,7 @@ import {
   extractPreferenceFeatures,
   type PreferenceCategory,
 } from "./preference";
-import { useComposerStore, type NoteMove, type TickRange } from "./state";
+import { useComposerStore, type NoteMove, type StructuredChordEdit, type TickRange } from "./state";
 import { getSafeStorage } from "./storage";
 import type {
   BarRange,
@@ -147,6 +147,9 @@ export default function App() {
   const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>([]);
   const [copiedNoteIds, setCopiedNoteIds] = useState<string[]>([]);
   const [selectedChordId, setSelectedChordId] = useState<string | null>(null);
+  const [chordEditorOpen, setChordEditorOpen] = useState(false);
+  const openChordEditor = useCallback(() => setChordEditorOpen(true), []);
+  const closeChordEditor = useCallback(() => setChordEditorOpen(false), []);
   const [historyCompareIds, setHistoryCompareIds] = useState<readonly string[]>([]);
   const [autoFix, setAutoFix] = useState<{
     result: AutoFixResult;
@@ -260,6 +263,7 @@ export default function App() {
       : undefined);
     setSelectedNoteIds([]);
     setSelectedChordId(null);
+    setChordEditorOpen(false);
     if (guided) {
       // Read back from the piece rather than returned by the action: the seed
       // it carries is what makes the choice reproducible, so it is also the
@@ -410,6 +414,7 @@ export default function App() {
         : [...current, note.id];
     });
     setSelectedChordId(null);
+    setChordEditorOpen(false);
     store.setSelectedRange({ startBar: note.barIndex, endBar: note.barIndex + 1 });
   };
 
@@ -428,6 +433,7 @@ export default function App() {
   const clearSelection = useCallback(() => {
     setSelectedNoteIds([]);
     setSelectedChordId(null);
+    setChordEditorOpen(false);
   }, []);
 
   /**
@@ -441,6 +447,7 @@ export default function App() {
   const clearEverySelection = useCallback(() => {
     setSelectedNoteIds([]);
     setSelectedChordId(null);
+    setChordEditorOpen(false);
     useComposerStore.getState().setSelectedRange(null);
   }, []);
 
@@ -549,6 +556,7 @@ export default function App() {
     closeMobilePanel,
     hasSelectedNotes: selectedNoteIds.length > 0,
     hasSelectedChord: selectedChordId !== null,
+    chordEditorOpen,
     play: startPlayback,
     pause: handlePause,
     deleteSelectedNotes: handleDeleteNote,
@@ -560,12 +568,29 @@ export default function App() {
 
   const handleEditChord = (symbol: string) => {
     if (!selectedChordId) return;
+    setChordEditorOpen(false);
     try {
       const edited = store.editChord(selectedChordId, symbol);
       setToast(edited ? `${symbol} に変更しました。` : "コードを変更できませんでした。");
     } catch {
       setToast("コード記号を解釈できません。C、Am、F#m、Bdim などを入力してください。");
     }
+  };
+
+  const handleStructuredChordEdit = (chordId: string, edit: StructuredChordEdit): boolean => {
+    const before = useComposerStore.getState();
+    const target = before.draftComposition.chords.find((chord) => chord.id === chordId);
+    const edited = before.editChord(chordId, edit);
+    if (edited) {
+      setSelectedChordId(chordId);
+      setSelectedNoteIds([]);
+      chordActionToast("コードの響きを更新しました。Undoで戻せます。");
+    } else {
+      setToast(chordIntersectsLockedBar(target, before)
+        ? "ロックされた小節のコードは変更できません。ロックを外して再試行してください。"
+        : "変更を適用できませんでした。値が同じか、入力の組み合わせを確認してください。");
+    }
+    return edited;
   };
 
 
@@ -708,6 +733,7 @@ export default function App() {
             store.reset();
             setSelectedNoteIds([]);
             setSelectedChordId(null);
+            setChordEditorOpen(false);
             setToast("初期状態へ戻しました。");
           }}
           onOpenDiagnostics={() => setDiagnosticsOpen(true)}
@@ -774,6 +800,10 @@ export default function App() {
               onSplitChord={handleSplitChord}
               onMoveChord={handleMoveChord}
               onResizeChord={handleResizeChord}
+              chordEditorOpen={chordEditorOpen}
+              onOpenChordEditor={openChordEditor}
+              onCloseChordEditor={closeChordEditor}
+              onEditChord={handleStructuredChordEdit}
             />
             <PianoRoll
               composition={composition}
@@ -877,6 +907,7 @@ export default function App() {
                         if (store.adoptAutoFixPreview(autoFix.result.preview)) {
                           setSelectedNoteIds([]);
                           setSelectedChordId(null);
+                          setChordEditorOpen(false);
                           setAutoFix(null);
                           setToast("Auto Fixを適用しました。Undoで元に戻せます。");
                         } else {
@@ -1021,6 +1052,7 @@ export default function App() {
                           if (store.restoreHistoryEntry(historyId)) {
                             setSelectedNoteIds([]);
                             setSelectedChordId(null);
+                            setChordEditorOpen(false);
                             setToast("選択したバージョンを復元しました。復元操作も履歴に保存されています。");
                           }
                         }}
@@ -1057,11 +1089,13 @@ export default function App() {
           validation={validation}
           backend={backend}
           onEditChord={handleEditChord}
+          onOpenChordEditor={openChordEditor}
           onMoveNote={handleMoveNote}
           onDeleteNote={handleDeleteNote}
           onClearSelection={() => {
             setSelectedNoteIds([]);
             setSelectedChordId(null);
+            setChordEditorOpen(false);
           }}
           onExportJson={handleExportJson}
           onExportMidi={handleExportMidi}

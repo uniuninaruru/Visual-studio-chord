@@ -51,6 +51,10 @@ describe("ChordLane direct editing toolbar", () => {
       onSplitChord: vi.fn(() => "right-chord"),
       onMoveChord: vi.fn(() => true),
       onResizeChord: vi.fn(() => true),
+      chordEditorOpen: false,
+      onOpenChordEditor: vi.fn(),
+      onCloseChordEditor: vi.fn(),
+      onEditChord: vi.fn(() => true),
       ...overrides,
     };
     act(() => root.render(<ChordLane {...props} />));
@@ -140,5 +144,42 @@ describe("ChordLane direct editing toolbar", () => {
     render(composition, null);
     expect(host.textContent).toContain("コードを選ぶと直接編集できます。");
     expect(host.querySelector("#chord-add-symbol")).toBeNull();
+  });
+
+  it("opens the shared sound editor from the toolbar and chord double-click", () => {
+    const composition = piece("chord-editor-entry-points");
+    const props = render(composition);
+    const open = props.onOpenChordEditor as ReturnType<typeof vi.fn>;
+
+    act(() => button("響きを編集").click());
+    expect(open).toHaveBeenCalledOnce();
+
+    const chordButton = host.querySelector<HTMLButtonElement>(".chord-content");
+    expect(chordButton).not.toBeNull();
+    if (!chordButton) return;
+    act(() => chordButton.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(open).toHaveBeenCalledTimes(2);
+  });
+
+  it("forwards one acoustic edit from the shared editor with the selected id", () => {
+    const composition = piece("chord-editor-wiring");
+    const target = composition.chords[0]!;
+    const edit = vi.fn(() => true);
+    const close = vi.fn();
+    render(composition, target.id, [], {
+      chordEditorOpen: true,
+      onEditChord: edit,
+      onCloseChordEditor: close,
+    });
+
+    const rootSelect = host.querySelector<HTMLSelectElement>(".chord-editor-dialog select")!;
+    const nextRoot = [...rootSelect.options].find((option) => option.value !== target.root)!.value;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(rootSelect, nextRoot);
+    act(() => rootSelect.dispatchEvent(new Event("change", { bubbles: true })));
+    act(() => host.querySelector<HTMLButtonElement>(".chord-editor-actions .primary-button")!.click());
+
+    expect(edit).toHaveBeenCalledOnce();
+    expect(edit).toHaveBeenCalledWith(target.id, expect.objectContaining({ root: nextRoot }));
+    expect(close).toHaveBeenCalledOnce();
   });
 });

@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { useEditorKeyboardShortcuts } from "../src/hooks/useEditorKeyboardShortcuts";
 import type { EditorKeyboardShortcutOptions } from "../src/hooks/useEditorKeyboardShortcuts";
+import { useComposerStore } from "../src/state";
 
 /**
  * The global shortcuts, and what they must not take.
@@ -193,5 +194,42 @@ describe("the global editor shortcuts", () => {
     press("Delete");
     expect(props.deleteSelectedNotes).toHaveBeenCalledOnce();
     expect(deleteSelectedChord).not.toHaveBeenCalled();
+  });
+
+  it("suppresses every global shortcut while the chord editor modal is open", () => {
+    const deleteSelectedChord = vi.fn();
+    const closeDiagnostics = vi.fn();
+    const closeMobilePanel = vi.fn();
+    const props = mount({
+      chordEditorOpen: true,
+      diagnosticsOpen: true,
+      mobilePanelOpen: true,
+      hasSelectedNotes: true,
+      hasSelectedChord: true,
+      deleteSelectedChord,
+      closeDiagnostics,
+      closeMobilePanel,
+    });
+    const focusTarget = document.createElement("div");
+    focusTarget.tabIndex = 0;
+    document.body.append(focusTarget);
+    focusTarget.focus();
+    const historyBefore = useComposerStore.getState().historyIndex;
+
+    press("Delete");
+    press("Backspace");
+    press(" ");
+    press("z", { metaKey: true });
+    press("Escape");
+
+    expect(props.deleteSelectedNotes).not.toHaveBeenCalled();
+    expect(deleteSelectedChord).not.toHaveBeenCalled();
+    expect(props.play).not.toHaveBeenCalled();
+    expect(props.pause).not.toHaveBeenCalled();
+    expect(props.onToast).not.toHaveBeenCalled();
+    expect(closeDiagnostics).not.toHaveBeenCalled();
+    expect(closeMobilePanel).not.toHaveBeenCalled();
+    expect(useComposerStore.getState().historyIndex).toBe(historyBefore);
+    focusTarget.remove();
   });
 });

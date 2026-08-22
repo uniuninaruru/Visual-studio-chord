@@ -8,6 +8,8 @@ export interface EditorKeyboardShortcutOptions {
   /** A mobile settings or inspector sheet, which Escape closes next. */
   mobilePanelOpen: boolean;
   closeMobilePanel: () => void;
+  /** A modal chord editor owns all keyboard input while it is open. */
+  chordEditorOpen?: boolean;
   hasSelectedNotes: boolean;
   hasSelectedChord?: boolean;
   play: () => void;
@@ -37,6 +39,7 @@ export function useEditorKeyboardShortcuts(
     closeDiagnostics,
     mobilePanelOpen,
     closeMobilePanel,
+    chordEditorOpen = false,
     hasSelectedNotes,
     hasSelectedChord = false,
     play,
@@ -49,6 +52,7 @@ export function useEditorKeyboardShortcuts(
   useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent) => {
       const target = event.target;
+      if (chordEditorOpen) return;
       const editingText = target instanceof HTMLInputElement
         || target instanceof HTMLTextAreaElement
         || target instanceof HTMLSelectElement
@@ -132,6 +136,7 @@ export function useEditorKeyboardShortcuts(
     closeDiagnostics,
     mobilePanelOpen,
     closeMobilePanel,
+    chordEditorOpen,
     hasSelectedNotes,
     hasSelectedChord,
     play,
