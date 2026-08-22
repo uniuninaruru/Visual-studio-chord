@@ -8,10 +8,14 @@ export interface EditorKeyboardShortcutOptions {
   /** A mobile settings or inspector sheet, which Escape closes next. */
   mobilePanelOpen: boolean;
   closeMobilePanel: () => void;
+  /** A modal chord editor owns all keyboard input while it is open. */
+  chordEditorOpen?: boolean;
   hasSelectedNotes: boolean;
+  hasSelectedChord?: boolean;
   play: () => void;
   pause: () => void;
   deleteSelectedNotes: () => void;
+  deleteSelectedChord?: () => void;
   onToast: (message: string) => void;
 }
 
@@ -35,16 +39,20 @@ export function useEditorKeyboardShortcuts(
     closeDiagnostics,
     mobilePanelOpen,
     closeMobilePanel,
+    chordEditorOpen = false,
     hasSelectedNotes,
+    hasSelectedChord = false,
     play,
     pause,
     deleteSelectedNotes,
+    deleteSelectedChord,
     onToast,
   } = options;
 
   useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent) => {
       const target = event.target;
+      if (chordEditorOpen) return;
       const editingText = target instanceof HTMLInputElement
         || target instanceof HTMLTextAreaElement
         || target instanceof HTMLSelectElement
@@ -109,6 +117,15 @@ export function useEditorKeyboardShortcuts(
       if ((event.key === "Delete" || event.key === "Backspace") && hasSelectedNotes) {
         event.preventDefault();
         deleteSelectedNotes();
+        return;
+      }
+      if (
+        (event.key === "Delete" || event.key === "Backspace")
+        && hasSelectedChord
+        && deleteSelectedChord
+      ) {
+        event.preventDefault();
+        deleteSelectedChord();
       }
     };
 
@@ -119,10 +136,13 @@ export function useEditorKeyboardShortcuts(
     closeDiagnostics,
     mobilePanelOpen,
     closeMobilePanel,
+    chordEditorOpen,
     hasSelectedNotes,
+    hasSelectedChord,
     play,
     pause,
     deleteSelectedNotes,
+    deleteSelectedChord,
     onToast,
   ]);
 }

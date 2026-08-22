@@ -65,6 +65,29 @@
 - メロディのMIDIを読み込み、それに合うコードを自動で付ける
 - 左上の**3本線**から、使い方ガイド・更新履歴・ライセンス・音量設定
 
+### コードを直接編集する
+
+コードの記号を打ち直さなくても、選択したコードの響きと長さを編集できます。
+
+1. **Chord Lane**でコードをクリックします。
+2. 操作バーの**響きを編集**を押します（コードボタンのダブルクリックでも開きます）。
+   Inspectorのコード欄にある**響きを編集**からも開けます。
+3. ダイアログで **root（根音）・quality（コードの種類）・tension（9thなどの色付け）・
+   slash bass・inversion（転回形）**を選びます。
+4. **適用**を押すまでは正式な曲データは変わりません。キャンセルまたはEscなら破棄できます。
+5. 操作バーから**コードを追加、削除、分割、1拍左／右へ移動、1拍短く／長く**も実行できます。
+   追加は選択中のコード内へ、置ける範囲で最大1拍を挿入します。
+6. ロックされた小節に触れる操作は無効になり、理由が表示されます。成功した編集はUndoで戻せます。
+   再生中に「次の小節」と表示された場合、音声側は境界まで旧コードを保ちます。
+7. 変更後の同じ響きは、再生、MIDI、JSON書き出しにも反映されます。
+
+**転回形**は、同じコードの音を並べる順番を変える指定です。**スラッシュベース**は、
+`C/E`のように「一番下で鳴らす音」を明示する指定です。テンションまたはスラッシュベースを
+含むコードは、Storeの契約上、転回形は基本形に固定されます。
+
+現在の直接操作はボタンとダイアログが中心です。ドラッグ＆ドロップや、ポインターで自由に
+長さを伸縮する操作は実装していません。長さ変更は1拍単位です。
+
 ## 2. 起動方法を選ぶ
 
 迷った場合は、この表だけで選べます。
@@ -803,6 +826,32 @@ exporterは完全なversion directoryをstageして全hashを再検証した後�
 6. 再生中の編集は状態バーの `Edited · Apply at next ...` で反映時刻を確認できます。
 7. JSON または MIDI を書き出します。保存に失敗した場合も、JSON書き出しによる退避を案内します。
 
+### 直接コード編集の技術契約
+
+データの流れは次の通りです。
+
+```text
+ChordLane / ChordEditor
+  → StructuredChordEdit または timeline action
+  → editorStore
+  → draft / committed（再生中は境界までpending）
+  → buildCompositionTracks
+  → Web Audio / MIDI
+```
+
+- canonical chord timelineは`[0,totalTicks)`を整数tickで隙間なく重複なく覆い、各durationは正、IDは一意です。
+- locked barに触れる編集はfail-closedで拒否します。Undo/Redo、progression metadataの正規化、
+  再生中のdraft/committed分離をStoreが管理します。
+- UIは`notes`、roman numeral、function、sourceなどの派生値をpartial mergeしません。響きを変更する
+  場合はStructuredChordEditから一括再構築します。
+- tensionまたはslash bassを持つコードは、明示的なStore契約によりroot positionのみ許可します。
+- Delete / Backspaceはselected notesを先に削除し、ノートがなければselected chordを削除します。
+  ChordEditorのmodal中は背面のglobal shortcutを抑止します。
+- プロジェクトJSONは既存の`schemaVersion`を使い、ChordEventのtiming・ID・派生値をround-tripします。
+
+実装済みなのは上記のボタン操作、詳細ダイアログ、再生・track・MIDI・JSONへの伝播です。
+freeform pointer move/resizeは未実装です。
+
 主要ショートカット:
 
 | キー | 動作 |
@@ -897,6 +946,10 @@ flowchart TD
 ```
 
 曲データが唯一の正しい状態で、音声ノードと推論候補は派生データです。AI処理と再生処理は独立しており、推論中も再生と手動編集を続けられます。
+
+直接コード編集もこの境界を通ります。UIが正式データを直接書き換えず、`editorStore`がtimelineの
+coverage、locked bar、history、pending boundaryを検証してから、track builderとWeb Audio/MIDIへ
+同じChordEvent定義を渡します。
 
 HarmonyForgeは12層、hidden 768、12 attention heads、FFN 4096の
 single-encoder Transformerです。v0.4の実装はrotary／relative attentionではなく、

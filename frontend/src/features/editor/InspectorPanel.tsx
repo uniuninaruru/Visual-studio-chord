@@ -21,6 +21,7 @@ interface InspectorPanelProps {
   validation: ValidationResult;
   backend: BackendConnection;
   onEditChord: (symbol: string) => void;
+  onOpenChordEditor: () => void;
   onMoveNote: (move: NoteMove) => void;
   onDeleteNote: () => void;
   onClearSelection: () => void;
@@ -40,6 +41,7 @@ export function InspectorPanel({
   validation,
   backend,
   onEditChord,
+  onOpenChordEditor,
   onMoveNote,
   onDeleteNote,
   onClearSelection,
@@ -145,6 +147,14 @@ export function InspectorPanel({
               spellCheck="false"
             />
           </label>
+          <button
+            type="button"
+            className="secondary-button inspector-detail-edit-button"
+            onClick={onOpenChordEditor}
+            aria-haspopup="dialog"
+          >
+            響きを編集
+          </button>
           <dl className="property-list">
             <div><dt>ルート</dt><dd>{selectedChord.root}</dd></div>
             <div><dt>品質</dt><dd>{selectedChord.quality}</dd></div>
