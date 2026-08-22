@@ -296,6 +296,112 @@ export default function App() {
     setSelectedNoteIds([]);
   };
 
+  const chordIntersectsLockedBar = (
+    chord: ChordEvent | undefined,
+    source = useComposerStore.getState(),
+  ): boolean => {
+    if (!chord) return false;
+    const firstBar = Math.floor(chord.startTick / source.draftComposition.ticksPerBar);
+    const lastBar = Math.ceil(
+      (chord.startTick + chord.durationTick) / source.draftComposition.ticksPerBar,
+    );
+    return source.lockedBars.some((bar) => bar >= firstBar && bar < lastBar);
+  };
+
+  const chordActionToast = (message: string): void => {
+    const latest = useComposerStore.getState();
+    setToast(latest.pendingCommit ? `${message} 次の小節から反映されます。` : message);
+  };
+
+  const handleAddChord = (symbol: string, startTick: number, durationTick: number): string | null => {
+    const latest = useComposerStore.getState();
+    const selected = latest.draftComposition.chords.find((chord) => chord.id === selectedChordId);
+    const id = latest.addChord(symbol, startTick, durationTick);
+    if (id) {
+      setSelectedChordId(id);
+      setSelectedNoteIds([]);
+      chordActionToast(`${symbol}を追加しました。Undoで戻せます。`);
+    } else {
+      setToast(chordIntersectsLockedBar(selected, latest)
+        ? "ロックされた小節のコードは追加できません。ロックを外して再試行してください。"
+        : "コードを追加できませんでした。選択区間とコード記号を確認してください。");
+    }
+    return id;
+  };
+
+  const handleDeleteChord = (chordId: string): boolean => {
+    const before = useComposerStore.getState();
+    const index = before.draftComposition.chords.findIndex((chord) => chord.id === chordId);
+    const target = before.draftComposition.chords[index];
+    const absorber = index > 0
+      ? before.draftComposition.chords[index - 1]
+      : before.draftComposition.chords[index + 1];
+    const deleted = before.deleteChord(chordId);
+    if (deleted) {
+      const after = useComposerStore.getState();
+      const next = after.draftComposition.chords[Math.min(
+        Math.max(0, index),
+        after.draftComposition.chords.length - 1,
+      )];
+      setSelectedChordId(next?.id ?? null);
+      setSelectedNoteIds([]);
+      chordActionToast("コードを削除しました。Undoで戻せます。");
+    } else if (chordIntersectsLockedBar(target, before)) {
+      setToast("ロックされた小節のコードは削除できません。ロックを外して再試行してください。");
+    } else if (chordIntersectsLockedBar(absorber, before)) {
+      setToast("削除先または隣接区間がロックされています。ロックを外して再試行してください。");
+    } else {
+      setToast("コードを削除できませんでした。最後の1コードは削除できません。");
+    }
+    return deleted;
+  };
+
+  const handleSplitChord = (chordId: string, splitTick: number): string | null => {
+    const before = useComposerStore.getState();
+    const target = before.draftComposition.chords.find((chord) => chord.id === chordId);
+    const rightId = before.splitChord(chordId, splitTick);
+    if (rightId) {
+      setSelectedChordId(rightId);
+      setSelectedNoteIds([]);
+      chordActionToast("コードを分割しました。Undoで戻せます。");
+    } else {
+      setToast(chordIntersectsLockedBar(target, before)
+        ? "ロックされた小節のコードは分割できません。ロックを外して再試行してください。"
+        : "コードを分割できませんでした。グリッド上の中点を確認してください。");
+    }
+    return rightId;
+  };
+
+  const handleMoveChord = (chordId: string, startTick: number): boolean => {
+    const before = useComposerStore.getState();
+    const target = before.draftComposition.chords.find((chord) => chord.id === chordId);
+    const moved = before.moveChord(chordId, startTick);
+    if (moved) {
+      setSelectedChordId(chordId);
+      chordActionToast("コードを移動しました。Undoで戻せます。");
+    } else {
+      setToast(chordIntersectsLockedBar(target, before)
+        ? "ロックされた小節のコードは移動できません。ロックを外して再試行してください。"
+        : "移動先または隣接区間がロックされています。ロックを外して再試行してください。");
+    }
+    return moved;
+  };
+
+  const handleResizeChord = (chordId: string, durationTick: number): boolean => {
+    const before = useComposerStore.getState();
+    const target = before.draftComposition.chords.find((chord) => chord.id === chordId);
+    const resized = before.resizeChord(chordId, durationTick);
+    if (resized) {
+      setSelectedChordId(chordId);
+      chordActionToast("コードの長さを変更しました。Undoで戻せます。");
+    } else {
+      setToast(chordIntersectsLockedBar(target, before)
+        ? "ロックされた小節のコードは長さを変更できません。ロックを外して再試行してください。"
+        : "変更対象または隣接区間がロックされています。境界と長さを確認してください。");
+    }
+    return resized;
+  };
+
   const handleNoteSelect = (note: NoteEvent, extend = false) => {
     setSelectedNoteIds((current) => {
       if (!extend) return [note.id];
@@ -442,9 +548,13 @@ export default function App() {
     mobilePanelOpen: mobilePanel !== null,
     closeMobilePanel,
     hasSelectedNotes: selectedNoteIds.length > 0,
+    hasSelectedChord: selectedChordId !== null,
     play: startPlayback,
     pause: handlePause,
     deleteSelectedNotes: handleDeleteNote,
+    deleteSelectedChord: () => {
+      if (selectedChordId) handleDeleteChord(selectedChordId);
+    },
     onToast: setToast,
   });
 
@@ -659,6 +769,11 @@ export default function App() {
               onBarSelect={handleBarSelect}
               onChordSelect={handleChordSelect}
               onToggleLock={store.toggleBarLock}
+              onAddChord={handleAddChord}
+              onDeleteChord={handleDeleteChord}
+              onSplitChord={handleSplitChord}
+              onMoveChord={handleMoveChord}
+              onResizeChord={handleResizeChord}
             />
             <PianoRoll
               composition={composition}

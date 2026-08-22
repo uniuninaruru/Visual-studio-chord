@@ -9,9 +9,11 @@ export interface EditorKeyboardShortcutOptions {
   mobilePanelOpen: boolean;
   closeMobilePanel: () => void;
   hasSelectedNotes: boolean;
+  hasSelectedChord?: boolean;
   play: () => void;
   pause: () => void;
   deleteSelectedNotes: () => void;
+  deleteSelectedChord?: () => void;
   onToast: (message: string) => void;
 }
 
@@ -36,9 +38,11 @@ export function useEditorKeyboardShortcuts(
     mobilePanelOpen,
     closeMobilePanel,
     hasSelectedNotes,
+    hasSelectedChord = false,
     play,
     pause,
     deleteSelectedNotes,
+    deleteSelectedChord,
     onToast,
   } = options;
 
@@ -109,6 +113,15 @@ export function useEditorKeyboardShortcuts(
       if ((event.key === "Delete" || event.key === "Backspace") && hasSelectedNotes) {
         event.preventDefault();
         deleteSelectedNotes();
+        return;
+      }
+      if (
+        (event.key === "Delete" || event.key === "Backspace")
+        && hasSelectedChord
+        && deleteSelectedChord
+      ) {
+        event.preventDefault();
+        deleteSelectedChord();
       }
     };
 
@@ -120,9 +133,11 @@ export function useEditorKeyboardShortcuts(
     mobilePanelOpen,
     closeMobilePanel,
     hasSelectedNotes,
+    hasSelectedChord,
     play,
     pause,
     deleteSelectedNotes,
+    deleteSelectedChord,
     onToast,
   ]);
 }

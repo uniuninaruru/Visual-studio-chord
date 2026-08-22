@@ -174,4 +174,24 @@ describe("the global editor shortcuts", () => {
     press("Backspace");
     expect(some.deleteSelectedNotes).toHaveBeenCalledOnce();
   });
+
+  it("deletes a selected chord when no notes are selected", () => {
+    const deleteSelectedChord = vi.fn();
+    const props = mount({ hasSelectedChord: true, deleteSelectedChord });
+    press("Backspace");
+    expect(deleteSelectedChord).toHaveBeenCalledOnce();
+    expect(props.deleteSelectedNotes).not.toHaveBeenCalled();
+  });
+
+  it("gives selected notes priority over selected chord deletion", () => {
+    const deleteSelectedChord = vi.fn();
+    const props = mount({
+      hasSelectedNotes: true,
+      hasSelectedChord: true,
+      deleteSelectedChord,
+    });
+    press("Delete");
+    expect(props.deleteSelectedNotes).toHaveBeenCalledOnce();
+    expect(deleteSelectedChord).not.toHaveBeenCalled();
+  });
 });
