@@ -7,6 +7,32 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Major update — DAW-style direct chord editing ([Issue #27](https://github.com/uniuninaruru/Visual-studio-chord/issues/27))
+
+Chord structure and sound can now be edited directly from the chord lane.
+
+- The Store now supports Add / Delete / Split / Move / Resize while preserving
+  exact `[0,totalTicks)` coverage, positive integer ticks, and unique IDs.
+  Delete heals into a neighboring event and never removes the final chord.
+- The detailed Chord Editor exposes root, quality, tensions, slash bass, and
+  inversion. The Store atomically rebuilds derived notes, roman numeral,
+  function, source, and related theory data. Tensions and slash bass use root
+  position under the existing Store contract.
+- Edits crossing a locked bar fail closed, and progression metadata is normalized
+  for the changed range. Successful actions remain in Undo / Redo history and
+  preserve next-bar pending commits during playback.
+- Added the Chord Lane action bar, double-click entry point, Inspector entry,
+  responsive Japanese dialog, initial focus, focus trap, Esc, focus return,
+  locked/no-op reasons, and suppression of background Delete, Undo/Redo, and
+  playback shortcuts while the modal is open.
+- Added integration regression coverage proving that one ChordEvent definition
+  reaches Web Audio tracks, Bass / Left Hand, Chords / Right Hand, MIDI export,
+  and JSON round-trip. Store, UI, track, MIDI, and JSON-related tests were
+  expanded as well.
+- The direct-edit surface currently uses buttons for one-beat Move / Resize and
+  the dialog. Drag-and-drop and freeform pointer resizing are not included in
+  this update.
+
 ### Fixed — the melody's rhythm could only hold two note values
 
 "Every piece comes out sounding the same" was right, and the cause was not a

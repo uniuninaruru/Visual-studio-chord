@@ -6,17 +6,40 @@ import {
   createStepChordEvent,
   regenerateRange,
   replaceChordSymbol,
+  formatChordSymbol,
+  intervalForTension,
+  intervalsForQuality,
+  parseChordSymbol,
+  resolveAvoidNotes,
   ticksPerBeat,
+  tensionSuffix,
   validateComposition,
+  voiceChord,
+  voiceExtendedChord,
+  appliedDominantResolves,
+  explainSpecialChord,
+  getDiatonicChordDefinition,
+  getDiatonicSeventhChordDefinition,
+  getScalePitchClasses,
+  harmonyFunctionForDegree,
+  normalizePitchClass,
+  romanNumeralForChordQuality,
+  scaleDegreeForPitchClass,
+  transformTriad,
 } from "../music";
 import type {
   BarRange,
   ChordEvent,
+  ChordQuality,
+  ChordSource,
   ProgressionStep,
   GeneratedComposition,
   GeneratorSettings,
   NoteEvent,
   RegenerationOptions,
+  SectionEvent,
+  Tension,
+  PitchClassName,
 } from "../types/music";
 import {
   exportCompositionJson,
@@ -81,7 +104,23 @@ export type GeneratorSettingsPatch = Omit<
   harmony?: Partial<NonNullable<GeneratorSettings["harmony"]>>;
 };
 
-export type ChordEdit = string | Partial<Omit<ChordEvent, "id">>;
+/**
+ * The fields that define the sound are intentionally nullable where clearing
+ * is meaningful. `undefined` means "keep the current value"; `null` means
+ * remove the optional field (currently tensions and slash bass). `source` is a
+ * legacy reharmonisation hint and is ignored after the acoustic rebuild.
+ */
+export interface StructuredChordEdit {
+  symbol?: string;
+  root?: PitchClassName;
+  quality?: ChordQuality;
+  tensions?: readonly Tension[] | null;
+  bass?: PitchClassName | null;
+  inversion?: number;
+  source?: ChordSource;
+}
+
+export type ChordEdit = string | StructuredChordEdit;
 
 export interface NoteMove {
   /** Absolute MIDI pitch. */
@@ -156,6 +195,11 @@ export interface ComposerStoreActions {
   auditionPreviewVariation(index: number | null): boolean;
   adoptPreviewVariation(index: number): boolean;
   editChord(chordId: string, edit: ChordEdit): boolean;
+  addChord(symbol: string, startTick: number, durationTick?: number): string | null;
+  deleteChord(chordId: string): boolean;
+  splitChord(chordId: string, splitTick: number): string | null;
+  moveChord(chordId: string, startTick: number): boolean;
+  resizeChord(chordId: string, durationTick: number): boolean;
   /**
    * Rewrites a stretch of the piece onto a progression.
    *
@@ -227,6 +271,7 @@ const storage = getSafeStorage();
 const historyDatabase = new EditorDatabase();
 let historySerial = 0;
 let noteSerial = 0;
+let chordSerial = 0;
 
 function clone<T>(value: T): T {
   if (typeof structuredClone === "function") {
@@ -307,6 +352,550 @@ function sortNotes(notes: NoteEvent[]): NoteEvent[] {
 
 function clampInteger(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, Math.round(value)));
+}
+
+function nextChordId(existing: ReadonlyArray<ChordEvent>): string {
+  const ids = new Set(existing.map((chord) => chord.id));
+  let id: string;
+  do {
+    chordSerial += 1;
+    id = `chord-user-${chordSerial}`;
+  } while (ids.has(id));
+  return id;
+}
+
+function sectionForTick(
+  composition: GeneratedComposition,
+  tick: number,
+): SectionEvent | undefined {
+  const bar = Math.floor(tick / composition.ticksPerBar);
+  return composition.sections?.find(
+    (section) => bar >= section.startBar && bar < section.endBar,
+  );
+}
+
+function crossesLockedBar(
+  composition: GeneratedComposition,
+  startTick: number,
+  endTick: number,
+  lockedBars: ReadonlyArray<number> = composition.lockedBars,
+): boolean {
+  return lockedBars.some((bar) => {
+    const barStart = bar * composition.ticksPerBar;
+    const barEnd = barStart + composition.ticksPerBar;
+    return startTick < barEnd && endTick > barStart;
+  });
+}
+
+function clearProgressionsForRanges(
+  composition: GeneratedComposition,
+  ranges: ReadonlyArray<TickRange>,
+): void {
+  if (!composition.sections || ranges.length === 0) return;
+  composition.sections = composition.sections.map((section) => {
+    const sectionStart = section.startBar * composition.ticksPerBar;
+    const sectionEnd = section.endBar * composition.ticksPerBar;
+    const touched = ranges.some(
+      (range) => range.startTick < sectionEnd && range.endTick > sectionStart,
+    );
+    if (!touched || section.progressionId === undefined) return section;
+    const next = { ...section };
+    delete next.progressionId;
+    return next;
+  });
+}
+
+function rebuiltChordForSymbol(
+  chord: ChordEvent,
+  symbol: string,
+  composition: GeneratedComposition,
+  id: string,
+  startTick: number,
+  durationTick: number,
+): ChordEvent {
+  const section = sectionForTick(composition, startTick);
+  const rebuilt = cleanReplacedChord(replaceChordSymbol(
+    chord,
+    symbol,
+    section?.key ?? composition.settings.key,
+    section?.mode ?? composition.settings.mode,
+  ));
+  return { ...rebuilt, id, startTick, durationTick };
+}
+
+function cleanReplacedChord(chord: ChordEvent): ChordEvent {
+  const next = { ...chord };
+  // replaceChordSymbol receives the old event as its base. These fields belong
+  // to the old spelling and must not survive onto a plain replacement (an old
+  // colour tone or slash bass would otherwise make the voicing metadata false).
+  delete next.tensions;
+  delete next.bass;
+  delete next.transformation;
+  delete next.targetDegree;
+  delete next.borrowedFromMode;
+  return next;
+}
+
+const STRUCTURED_TENSIONS: readonly Tension[] = [
+  "6",
+  "9",
+  "b9",
+  "#9",
+  "11",
+  "#11",
+  "13",
+  "b13",
+];
+
+interface ParsedStructuredSymbol {
+  root: PitchClassName;
+  quality: ChordQuality;
+  tensions?: Tension[];
+  bass?: PitchClassName;
+}
+
+function hasOwn(object: object, key: PropertyKey): boolean {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function parseStructuredSymbol(symbol: unknown): ParsedStructuredSymbol {
+  if (typeof symbol !== "string" || symbol.trim().length === 0) {
+    throw new RangeError("Chord symbol must be a non-empty string.");
+  }
+  let body = symbol.trim();
+  let bass: PitchClassName | undefined;
+  const slash = body.indexOf("/");
+  if (slash >= 0) {
+    if (body.indexOf("/", slash + 1) >= 0) {
+      throw new RangeError("Chord symbol contains more than one slash bass.");
+    }
+    const bassText = body.slice(slash + 1).trim();
+    if (bassText.length === 0) throw new RangeError("Slash bass is empty.");
+    bass = normalizePitchClass(bassText as PitchClassName);
+    body = body.slice(0, slash).trim();
+  }
+
+  let tensions: Tension[] | undefined;
+  const tensionMatch = /^(.*)\(([^()]*)\)$/.exec(body);
+  if (tensionMatch) {
+    const tensionText = tensionMatch[2]!.split(",").map((value) => value.trim());
+    if (tensionText.length === 0 || tensionText.some((value) => value.length === 0)) {
+      throw new RangeError("Chord tension list is empty or malformed.");
+    }
+    tensions = parseStructuredTensions(tensionText);
+    body = tensionMatch[1]!.trim();
+  }
+  if (body.length === 0) throw new RangeError("Chord symbol has no base chord.");
+  const definition = parseChordSymbol(body);
+  return {
+    root: definition.root,
+    quality: definition.quality,
+    ...(tensions ? { tensions } : {}),
+    ...(bass ? { bass } : {}),
+  };
+}
+
+function parseStructuredTensions(value: unknown): Tension[] {
+  if (!Array.isArray(value)) throw new RangeError("Tensions must be an array.");
+  const seen = new Set<Tension>();
+  for (const tension of value) {
+    if (
+      typeof tension !== "string"
+      || !STRUCTURED_TENSIONS.includes(tension as Tension)
+      || !Number.isFinite(intervalForTension(tension as Tension))
+      || seen.has(tension as Tension)
+    ) {
+      throw new RangeError(`Unsupported or duplicate chord tension: ${String(tension)}`);
+    }
+    seen.add(tension as Tension);
+  }
+  return [...seen];
+}
+
+function canonicalStructuredTensions(
+  quality: ChordQuality,
+  tensions: readonly Tension[],
+): Tension[] {
+  const resolved = new Set(resolveAvoidNotes(quality, tensions));
+  // Stable spelling and order make equivalent input arrays produce the same
+  // symbol, voicing metadata, and history result.
+  return STRUCTURED_TENSIONS.filter((tension) => resolved.has(tension));
+}
+
+function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+/**
+ * Rebuilds a chord's acoustic and theory fields as one operation. Extended
+ * voicings deliberately use inversion zero: a slash bass is the explicit
+ * lowest note, and combining it with a second inversion request is ambiguous.
+ * Callers that request a non-zero inversion with tensions or bass are rejected
+ * before this function can produce a contradictory event.
+ */
+function rebuildStructuredChord(
+  chord: ChordEvent,
+  edit: StructuredChordEdit,
+  key: PitchClassName,
+  mode: SectionEvent["mode"],
+): ChordEvent | null {
+  if (edit === null || typeof edit !== "object" || Array.isArray(edit)) return null;
+  const hasSymbol = hasOwn(edit, "symbol");
+  const symbol = (edit as { symbol?: unknown }).symbol;
+  const parsed = hasSymbol ? parseStructuredSymbol(symbol) : undefined;
+
+  const root: ChordEvent["root"] = edit.root === undefined
+    ? normalizePitchClass(parsed?.root ?? chord.root)
+    : normalizePitchClass(edit.root);
+  const quality = edit.quality === undefined
+    ? parsed?.quality ?? chord.quality
+    : edit.quality;
+  const intervals = intervalsForQuality(quality);
+  if (!Array.isArray(intervals) || intervals.length === 0) return null;
+
+  const tensions = edit.tensions === undefined
+    ? parsed?.tensions ?? (hasSymbol ? [] : [...(chord.tensions ?? [])])
+    : edit.tensions === null
+      ? []
+      : parseStructuredTensions(edit.tensions);
+  const resolvedTensions = canonicalStructuredTensions(quality, tensions);
+  const bass: ChordEvent["bass"] = edit.bass === undefined
+    ? parsed?.bass
+      ? normalizePitchClass(parsed.bass)
+      : (hasSymbol ? undefined : chord.bass)
+    : edit.bass === null
+      ? undefined
+      : normalizePitchClass(edit.bass);
+  const extended = resolvedTensions.length > 0 || bass !== undefined;
+  const sameDefinition =
+    chord.root === root
+    && chord.quality === quality
+    && sameStringArray(
+      resolvedTensions,
+      canonicalStructuredTensions(quality, chord.tensions ?? []),
+    )
+    && chord.bass === bass;
+  const requestedInversion = edit.inversion === undefined
+    ? sameDefinition
+      ? chord.inversion
+      : 0
+    : edit.inversion;
+  if (
+    !Number.isInteger(requestedInversion)
+    || requestedInversion < 0
+    || requestedInversion >= intervals.length
+    || (extended && requestedInversion !== 0)
+  ) {
+    return null;
+  }
+  if (sameDefinition && requestedInversion === chord.inversion) {
+    // Equal acoustic input is a true no-op, even when the source event carries
+    // stale special metadata. Reclassifying an untouched special chord would
+    // unexpectedly change theory data and create history for nothing.
+    return null;
+  }
+
+  const baseSymbol = formatChordSymbol(root, quality);
+  const rebuiltBase = cleanReplacedChord(replaceChordSymbol(
+    chord,
+    baseSymbol,
+    key,
+    mode,
+    extended ? 0 : requestedInversion,
+  ));
+  const voicing = extended
+    ? voiceExtendedChord({ root, quality, tensions: resolvedTensions, bass })
+    : voiceChord(root, quality, undefined, requestedInversion);
+  const next: ChordEvent = {
+    ...rebuiltBase,
+    symbol: `${baseSymbol}${tensionSuffix(resolvedTensions)}${bass ? `/${bass}` : ""}`,
+    root,
+    quality,
+    notes: voicing.notes,
+    inversion: voicing.inversion,
+    leftHand: undefined,
+    ...(resolvedTensions.length > 0 ? { tensions: resolvedTensions } : {}),
+    ...(bass !== undefined ? { bass } : {}),
+  };
+
+  // A direct acoustic edit no longer proves that a secondary, borrowed,
+  // substitute, or Neo-Riemannian claim still holds. Plain sus/add9 quality
+  // classification remains honest when there is no extra slash/colour data;
+  // all other extended edits are explicitly non-diatonic and warning-only.
+  if (extended) {
+    next.source = "other";
+    delete next.specialKind;
+    delete next.targetDegree;
+    delete next.borrowedFromMode;
+    delete next.explanation;
+    delete next.transformation;
+  }
+  return next;
+}
+
+function clearDependentHarmonyClaim(chord: ChordEvent): ChordEvent {
+  const next = { ...chord };
+  if (
+    next.source === "secondaryDominant"
+    || next.specialKind === "secondaryDominant"
+    || next.specialKind === "tritoneSubstitution"
+  ) {
+    next.source = "other";
+    delete next.specialKind;
+    delete next.targetDegree;
+    delete next.explanation;
+  }
+  return next;
+}
+
+function clearContextSpecialClaim(chord: ChordEvent): ChordEvent {
+  const next = { ...chord, source: "other" as const };
+  delete next.specialKind;
+  delete next.targetDegree;
+  delete next.borrowedFromMode;
+  delete next.explanation;
+  return next;
+}
+
+function clearTransformationClaim(chord: ChordEvent): ChordEvent {
+  const next = { ...chord };
+  if (next.transformation) {
+    delete next.transformation;
+    // The chromatic marker and explanation below described this exact
+    // transformation, so retaining them after its source disappeared would
+    // leave a false theory claim even though validation only requires the
+    // transformation field itself to be absent.
+    if (next.specialKind === "chromatic") {
+      delete next.specialKind;
+      delete next.explanation;
+    }
+  }
+  return next;
+}
+
+function sameSectionContext(
+  composition: GeneratedComposition,
+  leftTick: number,
+  rightTick: number,
+): boolean {
+  const leftSection = sectionForTick(composition, leftTick);
+  const rightSection = sectionForTick(composition, rightTick);
+  return (
+    (leftSection?.key ?? composition.settings.key) === (rightSection?.key ?? composition.settings.key)
+    && (leftSection?.mode ?? composition.settings.mode) === (rightSection?.mode ?? composition.settings.mode)
+  );
+}
+
+function reclassifyChordForSection(
+  composition: GeneratedComposition,
+  chord: ChordEvent,
+): ChordEvent {
+  const section = sectionForTick(composition, chord.startTick);
+  const key = section?.key ?? composition.settings.key;
+  const mode = section?.mode ?? composition.settings.mode;
+  let normalized = chord;
+  if (chord.source === "diatonic") {
+    try {
+      const degree = scaleDegreeForPitchClass(chord.root, key, mode);
+      if (degree === null) throw new RangeError("Chord root has no scale degree in this section.");
+      const triad = getDiatonicChordDefinition(key, mode, degree);
+      const seventh = getDiatonicSeventhChordDefinition(key, mode, degree);
+      const matches = chord.tensions === undefined
+        && chord.bass === undefined
+        && (
+          (chord.quality === triad.quality && chord.symbol === triad.symbol)
+          || (chord.quality === seventh.quality && chord.symbol === seventh.symbol)
+        );
+      normalized = matches
+        ? {
+          ...chord,
+          degree,
+          romanNumeral: romanNumeralForChordQuality(degree, mode, chord.quality),
+          function: harmonyFunctionForDegree(degree, mode),
+        }
+        : clearContextSpecialClaim(chord);
+    } catch {
+      normalized = clearContextSpecialClaim(chord);
+    }
+  } else if (
+    chord.source !== "other"
+    && !explainSpecialChord(chord, key, mode).allowed
+  ) {
+    normalized = clearContextSpecialClaim(chord);
+  }
+  return normalized;
+}
+
+function normalizeChordSectionContext(
+  composition: GeneratedComposition,
+  changes: ReadonlyArray<ChordStartContextChange>,
+): void {
+  const handled = new Set<string>();
+  for (const change of changes) {
+    if (handled.has(change.chordId)) continue;
+    handled.add(change.chordId);
+    const index = composition.chords.findIndex((chord) => chord.id === change.chordId);
+    if (index < 0) continue;
+    const chord = composition.chords[index]!;
+    if (sameSectionContext(composition, change.originalStartTick, chord.startTick)) continue;
+    const normalized = reclassifyChordForSection(composition, chord);
+    if (normalized !== chord) composition.chords[index] = normalized;
+  }
+}
+
+function normalizeChordRelationshipMetadata(composition: GeneratedComposition): void {
+  const chords = [...composition.chords].sort(
+    (left, right) => left.startTick - right.startTick || left.id.localeCompare(right.id),
+  );
+  for (const [index, chord] of chords.entries()) {
+    const previous = chords[index - 1];
+    const next = chords[index + 1]
+      ?? (composition.cadence === "loop" ? chords[0] : undefined);
+    let normalized = chord;
+    if (
+      chord.source === "secondaryDominant"
+      || chord.specialKind === "secondaryDominant"
+      || chord.specialKind === "tritoneSubstitution"
+    ) {
+      const section = sectionForTick(composition, chord.startTick);
+      const expectedTargetRoot = chord.targetDegree === undefined
+        ? undefined
+        : getScalePitchClasses(
+          section?.key ?? composition.settings.key,
+          section?.mode ?? composition.settings.mode,
+        )[chord.targetDegree - 1];
+      const dependentKind = chord.specialKind === "secondaryDominant"
+        || chord.specialKind === "tritoneSubstitution";
+      if (
+        !dependentKind
+        || chord.targetDegree === undefined
+        || !appliedDominantResolves(chord, next, expectedTargetRoot)
+      ) {
+        normalized = clearDependentHarmonyClaim(normalized);
+      }
+    }
+    const transformation = normalized.transformation;
+    if (transformation) {
+      const transformed = transformTriad(
+        { root: transformation.fromRoot, quality: transformation.fromQuality },
+        transformation.operation,
+      );
+      if (
+        !previous
+        || previous.root !== transformation.fromRoot
+        || previous.quality !== transformation.fromQuality
+        || normalized.source !== "other"
+        || normalized.specialKind !== "chromatic"
+        || normalized.root !== transformed.root
+        || normalized.quality !== transformed.quality
+      ) {
+        normalized = clearTransformationClaim(normalized);
+      }
+    }
+    if (normalized !== chord) {
+      const compositionIndex = composition.chords.findIndex((candidate) => candidate.id === chord.id);
+      if (compositionIndex >= 0) composition.chords[compositionIndex] = normalized;
+      chords[index] = normalized;
+    }
+  }
+}
+
+function chordEnd(chord: ChordEvent): number {
+  return chord.startTick + chord.durationTick;
+}
+
+function intervalsOverlap(
+  leftStart: number,
+  leftEnd: number,
+  rightStart: number,
+  rightEnd: number,
+): boolean {
+  return leftStart < rightEnd && rightStart < leftEnd;
+}
+
+interface RemovedChordHealing {
+  target: ChordEvent;
+  absorberBefore: ChordEvent;
+  absorberAfter: ChordEvent;
+}
+
+interface ChordStartContextChange {
+  chordId: string;
+  originalStartTick: number;
+}
+
+function removeChordAndHeal(
+  composition: GeneratedComposition,
+  chordId: string,
+): RemovedChordHealing | null {
+  composition.chords.sort(
+    (left, right) => left.startTick - right.startTick || left.id.localeCompare(right.id),
+  );
+  const index = composition.chords.findIndex((chord) => chord.id === chordId);
+  if (index < 0 || composition.chords.length <= 1) return null;
+  const target = composition.chords[index]!;
+  const previous = composition.chords[index - 1];
+  const next = composition.chords[index + 1];
+  const absorber = previous ?? next;
+  if (!absorber) return null;
+  const absorberBefore = { ...absorber };
+  if (previous) {
+    absorber.durationTick += target.durationTick;
+  } else {
+    absorber.startTick = target.startTick;
+    absorber.durationTick += target.durationTick;
+  }
+  const absorberAfter = { ...absorber };
+  composition.chords.splice(index, 1);
+  return { target, absorberBefore, absorberAfter };
+}
+
+interface RangeReplacement {
+  chords: ChordEvent[];
+  changedRanges: TickRange[];
+  contextChanges: ChordStartContextChange[];
+}
+
+function replaceChordRange(
+  chords: readonly ChordEvent[],
+  replacement: ChordEvent,
+  startTick: number,
+  endTick: number,
+): RangeReplacement {
+  const result: ChordEvent[] = [];
+  const changedRanges: TickRange[] = [];
+  const contextChanges: ChordStartContextChange[] = [];
+  for (const chord of chords) {
+    const eventEnd = chordEnd(chord);
+    if (!intervalsOverlap(chord.startTick, eventEnd, startTick, endTick)) {
+      result.push(chord);
+      continue;
+    }
+    changedRanges.push({ startTick: chord.startTick, endTick: eventEnd });
+    const hasLeft = chord.startTick < startTick;
+    const hasRight = eventEnd > endTick;
+    if (hasLeft) {
+      result.push({ ...chord, durationTick: startTick - chord.startTick });
+    }
+    if (hasRight) {
+      const rightId = hasLeft ? nextChordId([...chords, replacement]) : chord.id;
+      result.push({
+        ...chord,
+        id: rightId,
+        startTick: endTick,
+        durationTick: eventEnd - endTick,
+      });
+      if (chord.startTick !== endTick) {
+        contextChanges.push({ chordId: rightId, originalStartTick: chord.startTick });
+      }
+    }
+  }
+  result.push(replacement);
+  result.sort(
+    (left, right) => left.startTick - right.startTick || left.id.localeCompare(right.id),
+  );
+  changedRanges.push({ startTick, endTick });
+  return { chords: result, changedRanges, contextChanges };
 }
 
 function normalizedBarRange(
@@ -802,6 +1391,415 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     return true;
   },
 
+  addChord: (symbol, startTick, durationTick) => {
+    const state = get();
+    const source = state.draftComposition;
+    if (
+      typeof symbol !== "string"
+      || symbol.trim().length === 0
+      || !Number.isInteger(startTick)
+      || startTick < 0
+      || startTick >= source.totalTicks
+      || (durationTick !== undefined
+        && (!Number.isInteger(durationTick) || durationTick <= 0))
+    ) {
+      return null;
+    }
+
+    const targetIndex = source.chords.findIndex(
+      (chord) => startTick >= chord.startTick
+        && startTick < chord.startTick + chord.durationTick,
+    );
+    const target = targetIndex < 0 ? undefined : source.chords[targetIndex];
+    if (!target) return null;
+    const targetEnd = target.startTick + target.durationTick;
+    if (crossesLockedBar(source, target.startTick, targetEnd, state.lockedBars)) {
+      return null;
+    }
+
+    const requestedDuration = durationTick
+      ?? ticksPerBeat(source.timeSignature, source.ppq);
+    const boundedDuration = Math.min(requestedDuration, targetEnd - startTick);
+    if (!Number.isInteger(boundedDuration) || boundedDuration <= 0) return null;
+
+    const composition = clone(source);
+    const newId = nextChordId(composition.chords);
+    let newChord: ChordEvent;
+    try {
+      newChord = rebuiltChordForSymbol(
+        target,
+        symbol,
+        composition,
+        newId,
+        startTick,
+        boundedDuration,
+      );
+    } catch {
+      return null;
+    }
+
+    const left = startTick > target.startTick
+      ? { ...target, durationTick: startTick - target.startTick }
+      : undefined;
+    const rightStart = startTick + boundedDuration;
+    const right = rightStart < targetEnd
+      ? {
+        ...target,
+        id: left ? nextChordId([...composition.chords, newChord]) : target.id,
+        startTick: rightStart,
+        durationTick: targetEnd - rightStart,
+      }
+      : undefined;
+    const hasDependentClaim = target.source === "secondaryDominant"
+      || target.specialKind === "secondaryDominant"
+      || target.specialKind === "tritoneSubstitution";
+    const leftPiece = hasDependentClaim && left
+      ? clearDependentHarmonyClaim(left)
+      : left;
+    let rightPiece = right;
+    if (rightPiece && target.transformation) {
+      rightPiece = clearTransformationClaim(rightPiece);
+    }
+    if (rightPiece && hasDependentClaim && !left) {
+      rightPiece = clearDependentHarmonyClaim(rightPiece);
+    }
+    const replacement = [
+      ...(leftPiece ? [leftPiece] : []),
+      newChord,
+      ...(rightPiece ? [rightPiece] : []),
+    ];
+    composition.chords.splice(targetIndex, 1, ...replacement);
+    composition.chords.sort(
+      (a, b) => a.startTick - b.startTick || a.id.localeCompare(b.id),
+    );
+    clearProgressionsForRanges(composition, [
+      { startTick: target.startTick, endTick: targetEnd },
+      { startTick, endTick: rightStart },
+    ]);
+    normalizeChordRelationshipMetadata(composition);
+    set(stateAfterComposition(state, composition, "add-chord", {
+      startBar: Math.floor(startTick / composition.ticksPerBar),
+      endBar: Math.ceil(rightStart / composition.ticksPerBar),
+    }));
+    return newId;
+  },
+
+  deleteChord: (chordId) => {
+    const state = get();
+    const source = state.draftComposition;
+    const targetIndex = source.chords.findIndex((chord) => chord.id === chordId);
+    if (targetIndex < 0 || source.chords.length <= 1) return false;
+    const target = source.chords[targetIndex]!;
+    const targetEnd = target.startTick + target.durationTick;
+    if (crossesLockedBar(source, target.startTick, targetEnd, state.lockedBars)) {
+      return false;
+    }
+
+    const previous = source.chords[targetIndex - 1];
+    const next = source.chords[targetIndex + 1];
+    const absorbing = previous ?? next;
+    if (!absorbing) return false;
+    const absorbingEnd = absorbing.startTick + absorbing.durationTick;
+    const changedAbsorbingStart = previous ? absorbing.startTick : target.startTick;
+    const changedAbsorbingEnd = previous ? targetEnd : absorbingEnd;
+    if (
+      crossesLockedBar(source, absorbing.startTick, absorbingEnd, state.lockedBars)
+      || crossesLockedBar(
+        source,
+        changedAbsorbingStart,
+        changedAbsorbingEnd,
+        state.lockedBars,
+      )
+    ) {
+      return false;
+    }
+
+    const composition = clone(source);
+    const clonedTargetIndex = composition.chords.findIndex((chord) => chord.id === chordId);
+    const clonedAbsorbing = composition.chords[
+      previous ? clonedTargetIndex - 1 : clonedTargetIndex + 1
+    ];
+    if (!clonedAbsorbing) return false;
+    if (previous) {
+      clonedAbsorbing.durationTick += target.durationTick;
+    } else {
+      clonedAbsorbing.startTick = target.startTick;
+      clonedAbsorbing.durationTick += target.durationTick;
+    }
+    composition.chords.splice(clonedTargetIndex, 1);
+    if (previous) {
+      const previousIndex = composition.chords.findIndex((chord) => chord.id === previous.id);
+      if (previousIndex >= 0 && (
+        previous.source === "secondaryDominant"
+        || previous.specialKind === "secondaryDominant"
+        || previous.specialKind === "tritoneSubstitution"
+      )) {
+        composition.chords[previousIndex] = clearDependentHarmonyClaim(
+          composition.chords[previousIndex]!,
+        );
+      }
+    }
+    if (next?.transformation) {
+      const nextIndex = composition.chords.findIndex((chord) => chord.id === next.id);
+      if (nextIndex >= 0) {
+        composition.chords[nextIndex] = clearTransformationClaim(
+          composition.chords[nextIndex]!,
+        );
+      }
+    }
+    clearProgressionsForRanges(composition, [
+      { startTick: target.startTick, endTick: targetEnd },
+      { startTick: absorbing.startTick, endTick: absorbingEnd },
+      { startTick: changedAbsorbingStart, endTick: changedAbsorbingEnd },
+    ]);
+    normalizeChordRelationshipMetadata(composition);
+    set(stateAfterComposition(state, composition, "delete-chord", {
+      startBar: Math.floor(target.startTick / composition.ticksPerBar),
+      endBar: Math.ceil(targetEnd / composition.ticksPerBar),
+    }));
+    return true;
+  },
+
+  splitChord: (chordId, splitTick) => {
+    const state = get();
+    const source = state.draftComposition;
+    const targetIndex = source.chords.findIndex((chord) => chord.id === chordId);
+    const target = targetIndex < 0 ? undefined : source.chords[targetIndex];
+    if (
+      !target
+      || !Number.isInteger(splitTick)
+      || splitTick <= target.startTick
+      || splitTick >= target.startTick + target.durationTick
+      || splitTick <= 0
+      || splitTick >= source.totalTicks
+      || crossesLockedBar(
+        source,
+        target.startTick,
+        target.startTick + target.durationTick,
+        state.lockedBars,
+      )
+    ) {
+      return null;
+    }
+
+    const composition = clone(source);
+    const rightId = nextChordId(composition.chords);
+    const left = {
+      ...target,
+      durationTick: splitTick - target.startTick,
+    };
+    const right = {
+      ...target,
+      id: rightId,
+      startTick: splitTick,
+      durationTick: target.startTick + target.durationTick - splitTick,
+    };
+    const hasDependentClaim = target.source === "secondaryDominant"
+      || target.specialKind === "secondaryDominant"
+      || target.specialKind === "tritoneSubstitution";
+    composition.chords[targetIndex] = hasDependentClaim
+      ? clearDependentHarmonyClaim(left)
+      : left;
+    const continuation = target.transformation
+      ? clearTransformationClaim(right)
+      : right;
+    composition.chords.splice(targetIndex + 1, 0, continuation);
+    clearProgressionsForRanges(composition, [{
+      startTick: target.startTick,
+      endTick: target.startTick + target.durationTick,
+    }]);
+    normalizeChordRelationshipMetadata(composition);
+    set(stateAfterComposition(state, composition, "split-chord", {
+      startBar: Math.floor(target.startTick / composition.ticksPerBar),
+      endBar: Math.ceil((target.startTick + target.durationTick) / composition.ticksPerBar),
+    }));
+    return rightId;
+  },
+
+  moveChord: (chordId, startTick) => {
+    const state = get();
+    const source = state.draftComposition;
+    const target = source.chords.find((chord) => chord.id === chordId);
+    if (
+      !target
+      || source.chords.length <= 1
+      || !Number.isInteger(startTick)
+      || startTick < 0
+      || startTick === target.startTick
+      || startTick + target.durationTick > source.totalTicks
+    ) {
+      return false;
+    }
+
+    const composition = clone(source);
+    const healing = removeChordAndHeal(composition, chordId);
+    if (!healing) return false;
+    const targetEnd = startTick + healing.target.durationTick;
+    const destinationEvents = composition.chords.filter((chord) =>
+      intervalsOverlap(chord.startTick, chordEnd(chord), startTick, targetEnd),
+    );
+    const lockRanges = [
+      { startTick: target.startTick, endTick: chordEnd(target) },
+      { startTick: healing.absorberBefore.startTick, endTick: chordEnd(healing.absorberBefore) },
+      { startTick: healing.absorberAfter.startTick, endTick: chordEnd(healing.absorberAfter) },
+      { startTick, endTick: targetEnd },
+      ...destinationEvents.map((chord) => ({
+        startTick: chord.startTick,
+        endTick: chordEnd(chord),
+      })),
+    ];
+    if (lockRanges.some((range) => crossesLockedBar(source, range.startTick, range.endTick, state.lockedBars))) {
+      return false;
+    }
+
+    const moved = {
+      ...healing.target,
+      startTick,
+      durationTick: healing.target.durationTick,
+    };
+    const replacement = replaceChordRange(composition.chords, moved, startTick, targetEnd);
+    composition.chords = replacement.chords;
+    const contextChanges: ChordStartContextChange[] = [
+      ...replacement.contextChanges,
+      { chordId: healing.target.id, originalStartTick: healing.target.startTick },
+    ];
+    if (healing.absorberBefore.startTick !== healing.absorberAfter.startTick) {
+      contextChanges.push({
+        chordId: healing.absorberAfter.id,
+        originalStartTick: healing.absorberBefore.startTick,
+      });
+    }
+    clearProgressionsForRanges(composition, [
+      ...lockRanges,
+      ...replacement.changedRanges,
+    ]);
+    normalizeChordSectionContext(composition, contextChanges);
+    normalizeChordRelationshipMetadata(composition);
+    const affectedStarts = [target.startTick, startTick];
+    const affectedEnds = [chordEnd(target), targetEnd];
+    set(stateAfterComposition(state, composition, "move-chord", {
+      startBar: Math.min(...affectedStarts.map((tick) => Math.floor(tick / composition.ticksPerBar))),
+      endBar: Math.max(...affectedEnds.map((tick) => Math.ceil(tick / composition.ticksPerBar))),
+    }));
+    return true;
+  },
+
+  resizeChord: (chordId, durationTick) => {
+    const state = get();
+    const source = state.draftComposition;
+    const index = source.chords.findIndex((chord) => chord.id === chordId);
+    const target = index < 0 ? undefined : source.chords[index];
+    if (
+      !target
+      || !Number.isInteger(durationTick)
+      || durationTick <= 0
+      || durationTick === target.durationTick
+      || target.startTick + durationTick > source.totalTicks
+      || crossesLockedBar(source, target.startTick, chordEnd(target), state.lockedBars)
+      || crossesLockedBar(source, target.startTick, target.startTick + durationTick, state.lockedBars)
+    ) {
+      return false;
+    }
+
+    const composition = clone(source);
+    const clonedTarget = composition.chords[index]!;
+    const oldEnd = chordEnd(target);
+    const newEnd = target.startTick + durationTick;
+    const changedRanges: TickRange[] = [
+      { startTick: target.startTick, endTick: oldEnd },
+      { startTick: target.startTick, endTick: newEnd },
+    ];
+    const contextChanges: ChordStartContextChange[] = [];
+
+    if (durationTick < target.durationTick) {
+      const next = source.chords[index + 1];
+      if (!next) return false;
+      const expandedNext = {
+        ...next,
+        startTick: newEnd,
+        durationTick: next.durationTick + (target.durationTick - durationTick),
+      };
+      if (
+        crossesLockedBar(source, next.startTick, chordEnd(next), state.lockedBars)
+        || crossesLockedBar(source, expandedNext.startTick, chordEnd(expandedNext), state.lockedBars)
+      ) {
+        return false;
+      }
+      clonedTarget.durationTick = durationTick;
+      const clonedNext = composition.chords[index + 1]!;
+      clonedNext.startTick = expandedNext.startTick;
+      clonedNext.durationTick = expandedNext.durationTick;
+      if (next.startTick !== expandedNext.startTick) {
+        contextChanges.push({ chordId: next.id, originalStartTick: next.startTick });
+      }
+      changedRanges.push(
+        { startTick: next.startTick, endTick: chordEnd(next) },
+        { startTick: expandedNext.startTick, endTick: chordEnd(expandedNext) },
+      );
+    } else {
+      const consumed = source.chords.slice(index + 1).filter(
+        (chord) => chord.startTick < newEnd,
+      );
+      for (const chord of consumed) {
+        const originalEnd = chordEnd(chord);
+        if (
+          crossesLockedBar(source, chord.startTick, originalEnd, state.lockedBars)
+        ) {
+          return false;
+        }
+        changedRanges.push({ startTick: chord.startTick, endTick: originalEnd });
+        if (originalEnd > newEnd) {
+          const remainder = {
+            ...chord,
+            startTick: newEnd,
+            durationTick: originalEnd - newEnd,
+          };
+          if (crossesLockedBar(source, remainder.startTick, chordEnd(remainder), state.lockedBars)) {
+            return false;
+          }
+          changedRanges.push({ startTick: remainder.startTick, endTick: chordEnd(remainder) });
+          if (chord.startTick !== remainder.startTick) {
+            contextChanges.push({ chordId: remainder.id, originalStartTick: chord.startTick });
+          }
+        }
+      }
+      clonedTarget.durationTick = durationTick;
+      composition.chords = composition.chords.filter((chord, chordIndex) => {
+        if (chordIndex <= index || chord.startTick >= newEnd) return true;
+        return chordEnd(chord) > newEnd;
+      }).map((chord) => chord.startTick < newEnd && chordEnd(chord) > newEnd
+        ? { ...chord, startTick: newEnd, durationTick: chordEnd(chord) - newEnd }
+        : chord);
+      const firstConsumed = consumed[0];
+      const firstFullyConsumed = firstConsumed !== undefined && chordEnd(firstConsumed) <= newEnd;
+      if (
+        firstFullyConsumed
+        && (target.source === "secondaryDominant"
+          || target.specialKind === "secondaryDominant"
+          || target.specialKind === "tritoneSubstitution")
+      ) {
+        const resized = composition.chords.find((chord) => chord.id === target.id);
+        if (resized) {
+          const normalized = clearDependentHarmonyClaim(resized);
+          const resizedIndex = composition.chords.findIndex((chord) => chord.id === target.id);
+          composition.chords[resizedIndex] = normalized;
+        }
+      }
+    }
+
+    composition.chords.sort(
+      (left, right) => left.startTick - right.startTick || left.id.localeCompare(right.id),
+    );
+    clearProgressionsForRanges(composition, changedRanges);
+    normalizeChordSectionContext(composition, contextChanges);
+    normalizeChordRelationshipMetadata(composition);
+    set(stateAfterComposition(state, composition, "resize-chord", {
+      startBar: Math.floor(target.startTick / composition.ticksPerBar),
+      endBar: Math.ceil(Math.max(oldEnd, newEnd) / composition.ticksPerBar),
+    }));
+    return true;
+  },
+
   editChord: (chordId, edit) => {
     const state = get();
     const index = state.draftComposition.chords.findIndex((chord) => chord.id === chordId);
@@ -809,38 +1807,62 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
       return false;
     }
 
+    const currentSource = state.draftComposition.chords[index]!;
+    if (
+      crossesLockedBar(
+        state.draftComposition,
+        currentSource.startTick,
+        currentSource.startTick + currentSource.durationTick,
+        state.lockedBars,
+      )
+    ) {
+      return false;
+    }
+
     const composition = clone(state.draftComposition);
     const current = composition.chords[index]!;
+    const section = sectionForTick(composition, current.startTick);
+    const key = section?.key ?? composition.settings.key;
+    const mode = section?.mode ?? composition.settings.mode;
     if (typeof edit === "string") {
-      composition.chords[index] = replaceChordSymbol(
-        current,
-        edit,
-        composition.settings.key,
-        composition.settings.mode,
-      );
-    } else if (
-      (edit.symbol !== undefined && edit.symbol !== current.symbol) ||
-      (edit.inversion !== undefined && edit.inversion !== current.inversion)
-    ) {
-      const {
-        symbol = current.symbol,
-        inversion = current.inversion,
-        ...changes
-      } = edit;
-      composition.chords[index] = {
-        ...replaceChordSymbol(
-          current,
-          symbol,
-          composition.settings.key,
-          composition.settings.mode,
-          inversion,
-        ),
-        ...changes,
-        id: current.id,
-      };
+      // Parse first so malformed strings keep the existing throw contract. A
+      // canonical-equivalent base symbol is otherwise a needless history entry.
+      if (parseChordSymbol(edit).symbol === current.symbol) {
+        return false;
+      }
+      composition.chords[index] = cleanReplacedChord(replaceChordSymbol(
+        current, edit, key, mode,
+      ));
     } else {
-      composition.chords[index] = { ...current, ...edit, id: current.id };
+      if (edit === null || typeof edit !== "object" || Array.isArray(edit)) {
+        return false;
+      }
+      const acousticEdit = ["symbol", "root", "quality", "tensions", "bass", "inversion"]
+        .some((field) => hasOwn(edit, field));
+      if (acousticEdit) {
+        let rebuilt: ChordEvent | null;
+        try {
+          rebuilt = rebuildStructuredChord(current, edit, key, mode);
+        } catch {
+          // Structured edits are an editor boundary. Invalid user input is a
+          // rejected operation, not an exception that escapes to the UI.
+          return false;
+        }
+        if (!rebuilt || JSON.stringify(rebuilt) === JSON.stringify(current)) {
+          return false;
+        }
+        composition.chords[index] = { ...rebuilt, id: current.id };
+      } else {
+        // Timing, voicing, and theory fields have dedicated operations or are
+        // derived from the acoustic definition. Runtime callers that smuggle
+        // those keys through a cast must not get a Partial-merge escape hatch.
+        return false;
+      }
     }
+    clearProgressionsForRanges(composition, [{
+      startTick: current.startTick,
+      endTick: current.startTick + current.durationTick,
+    }]);
     set(stateAfterComposition(state, composition, "edit-chord", {
       startBar: Math.floor(current.startTick / composition.ticksPerBar),
       endBar: Math.floor(current.startTick / composition.ticksPerBar) + 1,

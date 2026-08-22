@@ -54,6 +54,35 @@ You can also import a melody MIDI and have chords written to fit it, and the
 three lines in the top left open a usage guide, the release notes, the licences,
 and the volume controls.
 
+### Edit a chord directly
+
+You can change a selected chord's sound and length without rewriting its symbol
+by hand.
+
+1. Click a chord in **Chord Lane**.
+2. Select **Edit sound** in the action bar (double-clicking the chord button does
+   the same). The Inspector's chord section has the same entry point.
+3. Choose the **root, quality, tensions, slash bass,** and **inversion** in the
+   dialog.
+4. Formal project data does not change until you select **Apply**. Cancel or Esc
+   discards the uncommitted form values.
+5. The action bar also provides **Add chord, Delete, Split, one-beat left/right
+   Move,** and **one-beat shorter/longer Resize**. Add inserts into the selected
+   chord, up to one beat where space permits.
+6. An edit touching a locked bar is disabled with a written reason. Successful
+   edits remain undoable. During playback, a next-bar message means the audible
+   side keeps the old chord until that boundary.
+7. The changed definition is propagated to playback, MIDI export, and JSON export.
+
+An **inversion** changes which chord tone is on the bottom while keeping the
+same chord. A **slash bass** explicitly names the lowest sounding note, as in
+`C/E`. Under the Store contract, a chord with tensions or a slash bass uses root
+position rather than a second, ambiguous inversion.
+
+The current direct-edit surface is intentionally button- and dialog-based.
+Drag-and-drop and freeform pointer resizing are not implemented; length changes
+are made one beat at a time.
+
 Candidate A/B/C previews do not change the current song until you explicitly
 adopt one. Apply remains undoable.
 
@@ -568,6 +597,38 @@ For the full processing diagram, artifact gate, prior-work mapping, and primary
 sources, see the
 [English architecture note](docs/neural-harmony-architecture.en.md) or the
 [Japanese version](docs/neural-harmony-architecture.ja.md).
+
+## Direct chord-editing contract
+
+The data path is:
+
+```text
+ChordLane / ChordEditor
+  -> StructuredChordEdit or timeline action
+  -> editorStore
+  -> draft / committed (pending until a playback boundary)
+  -> buildCompositionTracks
+  -> Web Audio / MIDI
+```
+
+- The canonical chord timeline covers exactly `[0,totalTicks)` with integer,
+  positive-duration ticks, no gaps or overlaps, and unique IDs.
+- Locked-bar edits fail closed. The Store owns Undo/Redo, progression metadata
+  normalization, and draft/committed separation while playback is running.
+- The UI never partial-merges derived `notes`, roman numerals, function, source,
+  or other theory fields. Acoustic changes are rebuilt atomically from
+  `StructuredChordEdit`.
+- Tensions or a slash bass use root position only, as required by the existing
+  Store contract.
+- Delete/Backspace removes selected notes first, then the selected chord when no
+  notes are selected. While the chord modal is open, background global shortcuts
+  are suppressed.
+- Project JSON keeps the existing `schemaVersion` and round-trips ChordEvent
+  timing, IDs, and derived data.
+
+The implemented surface is the button-based timeline controls, the detailed
+dialog, and propagation to playback tracks, MIDI, and JSON. Freeform pointer
+move/resize is not implemented.
 
 ## API
 
