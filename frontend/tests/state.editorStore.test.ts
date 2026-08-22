@@ -457,6 +457,283 @@ describe("direct chord timeline edits", () => {
     expect(validateComposition(after).errors).toEqual([]);
   });
 
+  it("moves forward, backward, and across overlapping source/target ranges", () => {
+    const source = useComposerStore.getState().draftComposition;
+    const target = source.chords[0]!;
+    const duration = target.durationTick;
+    expect(useComposerStore.getState().moveChord(target.id, source.ticksPerBar * 2)).toBe(true);
+    let moved = useComposerStore.getState().draftComposition.chords.find(
+      (chord) => chord.id === target.id,
+    )!;
+    expect(moved).toMatchObject({ startTick: source.ticksPerBar * 2, durationTick: duration });
+    expectExactChordCoverage();
+    expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
+
+    expect(useComposerStore.getState().moveChord(target.id, 0)).toBe(true);
+    moved = useComposerStore.getState().draftComposition.chords.find(
+      (chord) => chord.id === target.id,
+    )!;
+    expect(moved).toMatchObject({ startTick: 0, durationTick: duration });
+    expectExactChordCoverage();
+
+    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().generateComposition({
+      seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
+    });
+    const overlapTarget = useComposerStore.getState().draftComposition.chords[0]!;
+    expect(useComposerStore.getState().moveChord(overlapTarget.id, 480)).toBe(true);
+    expect(useComposerStore.getState().draftComposition.chords.find((chord) => chord.id === overlapTarget.id))
+      .toMatchObject({ startTick: 480, durationTick: overlapTarget.durationTick });
+    expectExactChordCoverage();
+    expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
+
+    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().generateComposition({
+      seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
+    });
+    const wideTarget = useComposerStore.getState().draftComposition.chords[0]!;
+    expect(useComposerStore.getState().resizeChord(wideTarget.id, 4_800)).toBe(true);
+    expect(useComposerStore.getState().moveChord(wideTarget.id, 1_920)).toBe(true);
+    expect(useComposerStore.getState().draftComposition.chords.find((chord) => chord.id === wideTarget.id))
+      .toMatchObject({ startTick: 1_920, durationTick: 4_800 });
+    expectExactChordCoverage();
+    expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
+  });
+
+  it("resizes by shrinking, consuming one/multiple events, and expanding to the end", () => {
+    const source = useComposerStore.getState().draftComposition;
+    const first = source.chords[0]!;
+    const next = source.chords[1]!;
+    expect(useComposerStore.getState().resizeChord(first.id, first.durationTick / 2)).toBe(true);
+    expect(useComposerStore.getState().draftComposition.chords.find((chord) => chord.id === first.id))
+      .toMatchObject({ startTick: first.startTick, durationTick: first.durationTick / 2 });
+    expect(useComposerStore.getState().draftComposition.chords.find((chord) => chord.id === next.id)?.durationTick)
+      .toBe(next.durationTick + first.durationTick / 2);
+    expectExactChordCoverage();
+
+    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().generateComposition({
+      seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
+    });
+    const expandTarget = useComposerStore.getState().draftComposition.chords[0]!;
+    expect(useComposerStore.getState().resizeChord(expandTarget.id, expandTarget.durationTick * 2.5)).toBe(true);
+    expectExactChordCoverage();
+    expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
+
+    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().generateComposition({
+      seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
+    });
+    const terminalTarget = useComposerStore.getState().draftComposition.chords[0]!;
+    expect(useComposerStore.getState().resizeChord(terminalTarget.id, 7_680)).toBe(true);
+    expect(useComposerStore.getState().draftComposition.chords).toHaveLength(1);
+    expectExactChordCoverage();
+    expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
+
+    const finalChord = useComposerStore.getState().draftComposition.chords[0]!;
+    expect(useComposerStore.getState().resizeChord(finalChord.id, finalChord.durationTick - 1)).toBe(false);
+  });
+
+  it("rejects move/resize when source, absorber, target, or consumed events are locked", () => {
+    const first = useComposerStore.getState().draftComposition.chords[0]!;
+    const snapshot = () => {
+      const state = useComposerStore.getState();
+      return {
+        draft: structuredClone(state.draftComposition),
+        history: structuredClone(state.history),
+        historyIndex: state.historyIndex,
+      };
+    };
+    useComposerStore.getState().toggleBarLock(0);
+    let before = snapshot();
+    expect(useComposerStore.getState().moveChord(first.id, 1_920)).toBe(false);
+    expect(useComposerStore.getState().resizeChord(first.id, first.durationTick / 2)).toBe(false);
+    expect(snapshot()).toEqual(before);
+
+    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().generateComposition({
+      seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
+    });
+    const absorberCase = useComposerStore.getState().draftComposition.chords[0]!;
+    useComposerStore.getState().toggleBarLock(1);
+    before = snapshot();
+    expect(useComposerStore.getState().moveChord(absorberCase.id, 3_840)).toBe(false);
+    expect(snapshot()).toEqual(before);
+
+    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().generateComposition({
+      seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
+    });
+    const targetCase = useComposerStore.getState().draftComposition.chords[0]!;
+    useComposerStore.getState().toggleBarLock(2);
+    before = snapshot();
+    expect(useComposerStore.getState().moveChord(targetCase.id, 3_840)).toBe(false);
+    expect(snapshot()).toEqual(before);
+
+    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().generateComposition({
+      seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
+    });
+    const consumedCase = useComposerStore.getState().draftComposition.chords[0]!;
+    useComposerStore.getState().toggleBarLock(1);
+    before = snapshot();
+    expect(useComposerStore.getState().resizeChord(consumedCase.id, 3_840)).toBe(false);
+    expect(snapshot()).toEqual(before);
+
+    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().generateComposition({
+      seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
+    });
+    const shrinkNextCase = useComposerStore.getState().draftComposition.chords[0]!;
+    useComposerStore.getState().toggleBarLock(1);
+    before = snapshot();
+    expect(useComposerStore.getState().resizeChord(shrinkNextCase.id, shrinkNextCase.durationTick / 2))
+      .toBe(false);
+    expect(snapshot()).toEqual(before);
+  });
+
+  it("handles invalid/no-op moves and resizes with one-step undo/redo", () => {
+    const state = useComposerStore.getState();
+    const target = state.draftComposition.chords[0]!;
+    const before = structuredClone(state.draftComposition);
+    const historyBefore = state.historyIndex;
+    expect(state.moveChord("missing", 0)).toBe(false);
+    expect(state.moveChord(target.id, target.startTick)).toBe(false);
+    expect(state.moveChord(target.id, Number.NaN)).toBe(false);
+    expect(state.moveChord(target.id, 1.5)).toBe(false);
+    expect(state.moveChord(target.id, -1)).toBe(false);
+    expect(state.moveChord(target.id, state.draftComposition.totalTicks)).toBe(false);
+    expect(state.resizeChord("missing", 1)).toBe(false);
+    expect(state.resizeChord(target.id, target.durationTick)).toBe(false);
+    expect(state.resizeChord(target.id, Number.NaN)).toBe(false);
+    expect(state.resizeChord(target.id, 1.5)).toBe(false);
+    expect(state.draftComposition).toEqual(before);
+    expect(state.historyIndex).toBe(historyBefore);
+
+    expect(state.moveChord(target.id, 1_920)).toBe(true);
+    const after = structuredClone(useComposerStore.getState().draftComposition);
+    expect(useComposerStore.getState().undo()).toBe(true);
+    expect(useComposerStore.getState().draftComposition).toEqual(before);
+    expect(useComposerStore.getState().redo()).toBe(true);
+    expect(useComposerStore.getState().draftComposition).toEqual(after);
+  });
+
+  it("normalizes relationship claims after move and resize", () => {
+    const secondary = secondaryDominantFixture();
+    expect(useComposerStore.getState().moveChord(secondary.secondary.id, 3_840)).toBe(true);
+    expect(useComposerStore.getState().draftComposition.chords
+      .find((chord) => chord.id === secondary.secondary.id)?.targetDegree).toBeUndefined();
+    expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
+
+    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().generateComposition({
+      seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
+    });
+    const neo = neoRiemannianFixture();
+    expect(useComposerStore.getState().moveChord(neo.transformed.id, 5_760)).toBe(true);
+    expect(useComposerStore.getState().draftComposition.chords
+      .find((chord) => chord.id === neo.transformed.id)?.transformation).toBeUndefined();
+    expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
+
+    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().generateComposition({
+      seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
+    });
+    const resizeFixture = secondaryDominantFixture();
+    expect(useComposerStore.getState().resizeChord(resizeFixture.secondary.id, 3_840)).toBe(true);
+    expect(useComposerStore.getState().draftComposition.chords
+      .find((chord) => chord.id === resizeFixture.secondary.id)?.targetDegree).toBeUndefined();
+    expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
+  });
+
+  it("reclassifies a moved chord safely across a modulated section", () => {
+    useComposerStore.getState().generateComposition({
+      seed: "move-final-lift",
+      bars: 16,
+      songForm: { form: "verseChorus", finalLift: 2 },
+    });
+    const source = useComposerStore.getState().draftComposition;
+    const lifted = source.sections?.find((section) => section.transpose !== 0);
+    expect(lifted).toBeDefined();
+    if (!lifted) return;
+    const destinationStart = lifted.startBar * source.ticksPerBar;
+    const original = source.chords.find(
+      (chord) => chord.startTick < destinationStart && chord.source === "diatonic",
+    );
+    expect(original).toBeDefined();
+    if (!original) return;
+    const symbol = original.symbol;
+    const notes = [...original.notes];
+    expect(useComposerStore.getState().moveChord(original.id, destinationStart)).toBe(true);
+    const moved = useComposerStore.getState().draftComposition.chords.find(
+      (chord) => chord.id === original.id,
+    )!;
+    expect(moved.symbol).toBe(symbol);
+    expect(moved.notes).toEqual(notes);
+    expect(moved.startTick).toBe(destinationStart);
+    expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
+  });
+
+  it("leaves same-section tension metadata and unrelated chords unchanged", () => {
+    const source = useComposerStore.getState().draftComposition;
+    const first = source.chords[0]!;
+    const distant = source.chords[source.chords.length - 1]!;
+    const firstTension = createStepChordEvent({
+      step: { degree: 1 },
+      key: source.settings.key,
+      mode: source.settings.mode,
+      startTick: first.startTick,
+      durationTick: first.durationTick,
+      id: first.id,
+      tensionsFor: () => ["9"],
+    });
+    const distantTension = createStepChordEvent({
+      step: { degree: 4 },
+      key: source.settings.key,
+      mode: source.settings.mode,
+      startTick: distant.startTick,
+      durationTick: distant.durationTick,
+      id: distant.id,
+      tensionsFor: () => ["9"],
+    });
+    expect(firstTension.tensions).toContain("9");
+    expect(distantTension.tensions).toContain("9");
+    installChordFixture(source.chords.map((chord) =>
+      chord.id === first.id
+        ? firstTension
+        : chord.id === distant.id
+          ? distantTension
+          : chord,
+    ));
+    const beforeFirst = structuredClone(firstTension);
+    const beforeDistant = structuredClone(distantTension);
+    expect(useComposerStore.getState().moveChord(first.id, 480)).toBe(true);
+    const moved = useComposerStore.getState().draftComposition.chords.find(
+      (chord) => chord.id === first.id,
+    )!;
+    expect({ ...moved, startTick: beforeFirst.startTick }).toEqual(beforeFirst);
+    expect(useComposerStore.getState().draftComposition.chords.find(
+      (chord) => chord.id === distant.id,
+    )).toEqual(beforeDistant);
+    expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
+  });
+
+  it("keeps move and resize pending until the next bar while playing", () => {
+    const target = useComposerStore.getState().draftComposition.chords[0]!;
+    const committed = structuredClone(useComposerStore.getState().committedComposition);
+    useComposerStore.getState().setPlaybackStatus("playing");
+    useComposerStore.getState().setUpdateTiming("nextBar");
+    expect(useComposerStore.getState().moveChord(target.id, 1_920)).toBe(true);
+    expect(useComposerStore.getState().pendingCommit).toBe(true);
+    expect(useComposerStore.getState().committedComposition).toEqual(committed);
+    useComposerStore.getState().setCurrentTick(1_919);
+    expect(useComposerStore.getState().pendingCommit).toBe(true);
+    useComposerStore.getState().setCurrentTick(1_920);
+    expect(useComposerStore.getState().pendingCommit).toBe(false);
+    expect(useComposerStore.getState().committedComposition)
+      .toEqual(useComposerStore.getState().draftComposition);
+  });
+
   it("normalizes applied-dominant claims across add, split, and delete", () => {
     const { secondary } = secondaryDominantFixture();
     expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
@@ -661,6 +938,54 @@ describe("direct chord timeline edits", () => {
     expect(state.splitChord(splitTarget.id, splitTarget.startTick + 1)).toBeTruthy();
     expect(useComposerStore.getState().draftComposition.sections?.find((section) => section.id === splitSection.id)
       ?.progressionId).toBeUndefined();
+
+    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().generateComposition({
+      seed: "section-move", bars: 16, songForm: { form: "verseChorus" },
+    });
+    state = useComposerStore.getState();
+    const moveSections = state.draftComposition.sections ?? [];
+    const moveSection = moveSections.find((section) => section.progressionId !== undefined);
+    const moveUntouchedSection = moveSections.find(
+      (section) => section.id !== moveSection?.id && section.progressionId !== undefined,
+    );
+    expect(moveSection).toBeDefined();
+    expect(moveUntouchedSection).toBeDefined();
+    if (!moveSection || !moveUntouchedSection) return;
+    const moveTarget = state.draftComposition.chords.find(
+      (chord) => chord.startTick >= moveSection.startBar * state.draftComposition.ticksPerBar
+        && chord.startTick < moveSection.endBar * state.draftComposition.ticksPerBar,
+    )!;
+    expect(state.moveChord(moveTarget.id, moveTarget.startTick + 1)).toBe(true);
+    state = useComposerStore.getState();
+    expect(state.draftComposition.sections?.find((section) => section.id === moveSection.id)
+      ?.progressionId).toBeUndefined();
+    expect(state.draftComposition.sections?.find((section) => section.id === moveUntouchedSection.id)
+      ?.progressionId).toBe(moveUntouchedSection.progressionId);
+
+    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().generateComposition({
+      seed: "section-resize", bars: 16, songForm: { form: "verseChorus" },
+    });
+    state = useComposerStore.getState();
+    const resizeSections = state.draftComposition.sections ?? [];
+    const resizeSection = resizeSections.find((section) => section.progressionId !== undefined);
+    const resizeUntouchedSection = resizeSections.find(
+      (section) => section.id !== resizeSection?.id && section.progressionId !== undefined,
+    );
+    expect(resizeSection).toBeDefined();
+    expect(resizeUntouchedSection).toBeDefined();
+    if (!resizeSection || !resizeUntouchedSection) return;
+    const resizeTarget = state.draftComposition.chords.find(
+      (chord) => chord.startTick >= resizeSection.startBar * state.draftComposition.ticksPerBar
+        && chord.startTick < resizeSection.endBar * state.draftComposition.ticksPerBar,
+    )!;
+    expect(state.resizeChord(resizeTarget.id, resizeTarget.durationTick / 2)).toBe(true);
+    state = useComposerStore.getState();
+    expect(state.draftComposition.sections?.find((section) => section.id === resizeSection.id)
+      ?.progressionId).toBeUndefined();
+    expect(state.draftComposition.sections?.find((section) => section.id === resizeUntouchedSection.id)
+      ?.progressionId).toBe(resizeUntouchedSection.progressionId);
   });
 
   it("keeps playback committed until the next bar for a pending add", () => {

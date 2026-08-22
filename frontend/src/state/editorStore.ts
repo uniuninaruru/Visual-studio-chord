@@ -9,7 +9,13 @@ import {
   ticksPerBeat,
   validateComposition,
   appliedDominantResolves,
+  explainSpecialChord,
+  getDiatonicChordDefinition,
+  getDiatonicSeventhChordDefinition,
   getScalePitchClasses,
+  harmonyFunctionForDegree,
+  romanNumeralForChordQuality,
+  scaleDegreeForPitchClass,
   transformTriad,
 } from "../music";
 import type {
@@ -163,6 +169,8 @@ export interface ComposerStoreActions {
   addChord(symbol: string, startTick: number, durationTick?: number): string | null;
   deleteChord(chordId: string): boolean;
   splitChord(chordId: string, splitTick: number): string | null;
+  moveChord(chordId: string, startTick: number): boolean;
+  resizeChord(chordId: string, durationTick: number): boolean;
   /**
    * Rewrites a stretch of the piece onto a progression.
    *
@@ -414,6 +422,15 @@ function clearDependentHarmonyClaim(chord: ChordEvent): ChordEvent {
   return next;
 }
 
+function clearContextSpecialClaim(chord: ChordEvent): ChordEvent {
+  const next = { ...chord, source: "other" as const };
+  delete next.specialKind;
+  delete next.targetDegree;
+  delete next.borrowedFromMode;
+  delete next.explanation;
+  return next;
+}
+
 function clearTransformationClaim(chord: ChordEvent): ChordEvent {
   const next = { ...chord };
   if (next.transformation) {
@@ -428,6 +445,76 @@ function clearTransformationClaim(chord: ChordEvent): ChordEvent {
     }
   }
   return next;
+}
+
+function sameSectionContext(
+  composition: GeneratedComposition,
+  leftTick: number,
+  rightTick: number,
+): boolean {
+  const leftSection = sectionForTick(composition, leftTick);
+  const rightSection = sectionForTick(composition, rightTick);
+  return (
+    (leftSection?.key ?? composition.settings.key) === (rightSection?.key ?? composition.settings.key)
+    && (leftSection?.mode ?? composition.settings.mode) === (rightSection?.mode ?? composition.settings.mode)
+  );
+}
+
+function reclassifyChordForSection(
+  composition: GeneratedComposition,
+  chord: ChordEvent,
+): ChordEvent {
+  const section = sectionForTick(composition, chord.startTick);
+  const key = section?.key ?? composition.settings.key;
+  const mode = section?.mode ?? composition.settings.mode;
+  let normalized = chord;
+  if (chord.source === "diatonic") {
+    try {
+      const degree = scaleDegreeForPitchClass(chord.root, key, mode);
+      if (degree === null) throw new RangeError("Chord root has no scale degree in this section.");
+      const triad = getDiatonicChordDefinition(key, mode, degree);
+      const seventh = getDiatonicSeventhChordDefinition(key, mode, degree);
+      const matches = chord.tensions === undefined
+        && chord.bass === undefined
+        && (
+          (chord.quality === triad.quality && chord.symbol === triad.symbol)
+          || (chord.quality === seventh.quality && chord.symbol === seventh.symbol)
+        );
+      normalized = matches
+        ? {
+          ...chord,
+          degree,
+          romanNumeral: romanNumeralForChordQuality(degree, mode, chord.quality),
+          function: harmonyFunctionForDegree(degree, mode),
+        }
+        : clearContextSpecialClaim(chord);
+    } catch {
+      normalized = clearContextSpecialClaim(chord);
+    }
+  } else if (
+    chord.source !== "other"
+    && !explainSpecialChord(chord, key, mode).allowed
+  ) {
+    normalized = clearContextSpecialClaim(chord);
+  }
+  return normalized;
+}
+
+function normalizeChordSectionContext(
+  composition: GeneratedComposition,
+  changes: ReadonlyArray<ChordStartContextChange>,
+): void {
+  const handled = new Set<string>();
+  for (const change of changes) {
+    if (handled.has(change.chordId)) continue;
+    handled.add(change.chordId);
+    const index = composition.chords.findIndex((chord) => chord.id === change.chordId);
+    if (index < 0) continue;
+    const chord = composition.chords[index]!;
+    if (sameSectionContext(composition, change.originalStartTick, chord.startTick)) continue;
+    const normalized = reclassifyChordForSection(composition, chord);
+    if (normalized !== chord) composition.chords[index] = normalized;
+  }
 }
 
 function normalizeChordRelationshipMetadata(composition: GeneratedComposition): void {
@@ -485,6 +572,104 @@ function normalizeChordRelationshipMetadata(composition: GeneratedComposition): 
       chords[index] = normalized;
     }
   }
+}
+
+function chordEnd(chord: ChordEvent): number {
+  return chord.startTick + chord.durationTick;
+}
+
+function intervalsOverlap(
+  leftStart: number,
+  leftEnd: number,
+  rightStart: number,
+  rightEnd: number,
+): boolean {
+  return leftStart < rightEnd && rightStart < leftEnd;
+}
+
+interface RemovedChordHealing {
+  target: ChordEvent;
+  absorberBefore: ChordEvent;
+  absorberAfter: ChordEvent;
+}
+
+interface ChordStartContextChange {
+  chordId: string;
+  originalStartTick: number;
+}
+
+function removeChordAndHeal(
+  composition: GeneratedComposition,
+  chordId: string,
+): RemovedChordHealing | null {
+  composition.chords.sort(
+    (left, right) => left.startTick - right.startTick || left.id.localeCompare(right.id),
+  );
+  const index = composition.chords.findIndex((chord) => chord.id === chordId);
+  if (index < 0 || composition.chords.length <= 1) return null;
+  const target = composition.chords[index]!;
+  const previous = composition.chords[index - 1];
+  const next = composition.chords[index + 1];
+  const absorber = previous ?? next;
+  if (!absorber) return null;
+  const absorberBefore = { ...absorber };
+  if (previous) {
+    absorber.durationTick += target.durationTick;
+  } else {
+    absorber.startTick = target.startTick;
+    absorber.durationTick += target.durationTick;
+  }
+  const absorberAfter = { ...absorber };
+  composition.chords.splice(index, 1);
+  return { target, absorberBefore, absorberAfter };
+}
+
+interface RangeReplacement {
+  chords: ChordEvent[];
+  changedRanges: TickRange[];
+  contextChanges: ChordStartContextChange[];
+}
+
+function replaceChordRange(
+  chords: readonly ChordEvent[],
+  replacement: ChordEvent,
+  startTick: number,
+  endTick: number,
+): RangeReplacement {
+  const result: ChordEvent[] = [];
+  const changedRanges: TickRange[] = [];
+  const contextChanges: ChordStartContextChange[] = [];
+  for (const chord of chords) {
+    const eventEnd = chordEnd(chord);
+    if (!intervalsOverlap(chord.startTick, eventEnd, startTick, endTick)) {
+      result.push(chord);
+      continue;
+    }
+    changedRanges.push({ startTick: chord.startTick, endTick: eventEnd });
+    const hasLeft = chord.startTick < startTick;
+    const hasRight = eventEnd > endTick;
+    if (hasLeft) {
+      result.push({ ...chord, durationTick: startTick - chord.startTick });
+    }
+    if (hasRight) {
+      const rightId = hasLeft ? nextChordId([...chords, replacement]) : chord.id;
+      result.push({
+        ...chord,
+        id: rightId,
+        startTick: endTick,
+        durationTick: eventEnd - endTick,
+      });
+      if (chord.startTick !== endTick) {
+        contextChanges.push({ chordId: rightId, originalStartTick: chord.startTick });
+      }
+    }
+  }
+  result.push(replacement);
+  result.sort(
+    (left, right) => left.startTick - right.startTick || left.id.localeCompare(right.id),
+  );
+  changedRanges.push({ startTick, endTick });
+  return { chords: result, changedRanges, contextChanges };
 }
 
 function normalizedBarRange(
@@ -1203,6 +1388,190 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
       endBar: Math.ceil((target.startTick + target.durationTick) / composition.ticksPerBar),
     }));
     return rightId;
+  },
+
+  moveChord: (chordId, startTick) => {
+    const state = get();
+    const source = state.draftComposition;
+    const target = source.chords.find((chord) => chord.id === chordId);
+    if (
+      !target
+      || source.chords.length <= 1
+      || !Number.isInteger(startTick)
+      || startTick < 0
+      || startTick === target.startTick
+      || startTick + target.durationTick > source.totalTicks
+    ) {
+      return false;
+    }
+
+    const composition = clone(source);
+    const healing = removeChordAndHeal(composition, chordId);
+    if (!healing) return false;
+    const targetEnd = startTick + healing.target.durationTick;
+    const destinationEvents = composition.chords.filter((chord) =>
+      intervalsOverlap(chord.startTick, chordEnd(chord), startTick, targetEnd),
+    );
+    const lockRanges = [
+      { startTick: target.startTick, endTick: chordEnd(target) },
+      { startTick: healing.absorberBefore.startTick, endTick: chordEnd(healing.absorberBefore) },
+      { startTick: healing.absorberAfter.startTick, endTick: chordEnd(healing.absorberAfter) },
+      { startTick, endTick: targetEnd },
+      ...destinationEvents.map((chord) => ({
+        startTick: chord.startTick,
+        endTick: chordEnd(chord),
+      })),
+    ];
+    if (lockRanges.some((range) => crossesLockedBar(source, range.startTick, range.endTick, state.lockedBars))) {
+      return false;
+    }
+
+    const moved = {
+      ...healing.target,
+      startTick,
+      durationTick: healing.target.durationTick,
+    };
+    const replacement = replaceChordRange(composition.chords, moved, startTick, targetEnd);
+    composition.chords = replacement.chords;
+    const contextChanges: ChordStartContextChange[] = [
+      ...replacement.contextChanges,
+      { chordId: healing.target.id, originalStartTick: healing.target.startTick },
+    ];
+    if (healing.absorberBefore.startTick !== healing.absorberAfter.startTick) {
+      contextChanges.push({
+        chordId: healing.absorberAfter.id,
+        originalStartTick: healing.absorberBefore.startTick,
+      });
+    }
+    clearProgressionsForRanges(composition, [
+      ...lockRanges,
+      ...replacement.changedRanges,
+    ]);
+    normalizeChordSectionContext(composition, contextChanges);
+    normalizeChordRelationshipMetadata(composition);
+    const affectedStarts = [target.startTick, startTick];
+    const affectedEnds = [chordEnd(target), targetEnd];
+    set(stateAfterComposition(state, composition, "move-chord", {
+      startBar: Math.min(...affectedStarts.map((tick) => Math.floor(tick / composition.ticksPerBar))),
+      endBar: Math.max(...affectedEnds.map((tick) => Math.ceil(tick / composition.ticksPerBar))),
+    }));
+    return true;
+  },
+
+  resizeChord: (chordId, durationTick) => {
+    const state = get();
+    const source = state.draftComposition;
+    const index = source.chords.findIndex((chord) => chord.id === chordId);
+    const target = index < 0 ? undefined : source.chords[index];
+    if (
+      !target
+      || !Number.isInteger(durationTick)
+      || durationTick <= 0
+      || durationTick === target.durationTick
+      || target.startTick + durationTick > source.totalTicks
+      || crossesLockedBar(source, target.startTick, chordEnd(target), state.lockedBars)
+      || crossesLockedBar(source, target.startTick, target.startTick + durationTick, state.lockedBars)
+    ) {
+      return false;
+    }
+
+    const composition = clone(source);
+    const clonedTarget = composition.chords[index]!;
+    const oldEnd = chordEnd(target);
+    const newEnd = target.startTick + durationTick;
+    const changedRanges: TickRange[] = [
+      { startTick: target.startTick, endTick: oldEnd },
+      { startTick: target.startTick, endTick: newEnd },
+    ];
+    const contextChanges: ChordStartContextChange[] = [];
+
+    if (durationTick < target.durationTick) {
+      const next = source.chords[index + 1];
+      if (!next) return false;
+      const expandedNext = {
+        ...next,
+        startTick: newEnd,
+        durationTick: next.durationTick + (target.durationTick - durationTick),
+      };
+      if (
+        crossesLockedBar(source, next.startTick, chordEnd(next), state.lockedBars)
+        || crossesLockedBar(source, expandedNext.startTick, chordEnd(expandedNext), state.lockedBars)
+      ) {
+        return false;
+      }
+      clonedTarget.durationTick = durationTick;
+      const clonedNext = composition.chords[index + 1]!;
+      clonedNext.startTick = expandedNext.startTick;
+      clonedNext.durationTick = expandedNext.durationTick;
+      if (next.startTick !== expandedNext.startTick) {
+        contextChanges.push({ chordId: next.id, originalStartTick: next.startTick });
+      }
+      changedRanges.push(
+        { startTick: next.startTick, endTick: chordEnd(next) },
+        { startTick: expandedNext.startTick, endTick: chordEnd(expandedNext) },
+      );
+    } else {
+      const consumed = source.chords.slice(index + 1).filter(
+        (chord) => chord.startTick < newEnd,
+      );
+      for (const chord of consumed) {
+        const originalEnd = chordEnd(chord);
+        if (
+          crossesLockedBar(source, chord.startTick, originalEnd, state.lockedBars)
+        ) {
+          return false;
+        }
+        changedRanges.push({ startTick: chord.startTick, endTick: originalEnd });
+        if (originalEnd > newEnd) {
+          const remainder = {
+            ...chord,
+            startTick: newEnd,
+            durationTick: originalEnd - newEnd,
+          };
+          if (crossesLockedBar(source, remainder.startTick, chordEnd(remainder), state.lockedBars)) {
+            return false;
+          }
+          changedRanges.push({ startTick: remainder.startTick, endTick: chordEnd(remainder) });
+          if (chord.startTick !== remainder.startTick) {
+            contextChanges.push({ chordId: remainder.id, originalStartTick: chord.startTick });
+          }
+        }
+      }
+      clonedTarget.durationTick = durationTick;
+      composition.chords = composition.chords.filter((chord, chordIndex) => {
+        if (chordIndex <= index || chord.startTick >= newEnd) return true;
+        return chordEnd(chord) > newEnd;
+      }).map((chord) => chord.startTick < newEnd && chordEnd(chord) > newEnd
+        ? { ...chord, startTick: newEnd, durationTick: chordEnd(chord) - newEnd }
+        : chord);
+      const firstConsumed = consumed[0];
+      const firstFullyConsumed = firstConsumed !== undefined && chordEnd(firstConsumed) <= newEnd;
+      if (
+        firstFullyConsumed
+        && (target.source === "secondaryDominant"
+          || target.specialKind === "secondaryDominant"
+          || target.specialKind === "tritoneSubstitution")
+      ) {
+        const resized = composition.chords.find((chord) => chord.id === target.id);
+        if (resized) {
+          const normalized = clearDependentHarmonyClaim(resized);
+          const resizedIndex = composition.chords.findIndex((chord) => chord.id === target.id);
+          composition.chords[resizedIndex] = normalized;
+        }
+      }
+    }
+
+    composition.chords.sort(
+      (left, right) => left.startTick - right.startTick || left.id.localeCompare(right.id),
+    );
+    clearProgressionsForRanges(composition, changedRanges);
+    normalizeChordSectionContext(composition, contextChanges);
+    normalizeChordRelationshipMetadata(composition);
+    set(stateAfterComposition(state, composition, "resize-chord", {
+      startBar: Math.floor(target.startTick / composition.ticksPerBar),
+      endBar: Math.ceil(Math.max(oldEnd, newEnd) / composition.ticksPerBar),
+    }));
+    return true;
   },
 
   editChord: (chordId, edit) => {
