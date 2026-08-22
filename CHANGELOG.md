@@ -6,6 +6,26 @@
 
 ## 未リリース
 
+### 大規模アップデート — DAW-style direct chord editing（[Issue #27](https://github.com/uniuninaruru/Visual-studio-chord/issues/27)）
+
+コードレーンからコード構造と響きを直接編集できるようにしました。
+
+- StoreにAdd / Delete / Split / Move / Resizeを追加し、`[0,totalTicks)`の完全coverage、正の整数tick、
+  一意IDを保ったままコードイベントを操作できます。Deleteは隣接イベントへ吸収し、最後の1コードは削除しません。
+- 詳細Chord Editorでroot、quality、tensions、slash bass、inversionを選択できます。derived notes、
+  roman numeral、function、sourceなどはStoreが原子的一括再構築します。tensionまたはslash bassを
+  含むコードはStore契約によりroot positionへ制約されます。
+- locked barに交差する編集はfail-closedで拒否し、progression metadataも変更区間に合わせて正規化します。
+  すべての成功操作はUndo / Redoに入り、再生中のnext-bar pending commitも維持します。
+- Chord Laneの編集バー、ダブルクリック、Inspector入口、レスポンシブな日本語ダイアログを追加しました。
+  dialogは初期focus、focus trap、Esc、focus復帰、locked/no-op理由の表示を備えます。modal中は背面の
+  Delete、Undo/Redo、再生などのglobal shortcutを抑止します。
+- 変更後のChordEventがWeb Audio用track、Bass / Left Hand、Chords / Right Hand、MIDI export、
+  JSON round-tripへ同じ定義で伝播する統合回帰テストを追加しました。Store、UI、track、MIDI、JSONの
+  関連テストも拡充しています。
+- 現在の直接操作はボタンによる1拍Move / Resizeとダイアログ編集です。ドラッグ＆ドロップやfreeform
+  pointer resizeはこの更新には含まれません。
+
 ### 修正 — 旋律のリズムが2種類の音価しか持てませんでした
 
 「同じようなパターンばかり出てくる」というのは正しく、原因は経験則モデルではなく
