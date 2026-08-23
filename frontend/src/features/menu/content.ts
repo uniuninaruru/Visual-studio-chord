@@ -148,6 +148,19 @@ export interface ReleaseNote {
  */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.5.0",
+    date: "2026-08",
+    headline: "パーツから曲を組み立てる",
+    changes: [
+      "Intro、Aメロ、Bメロ、Cメロを別々に生成し、それぞれの設定と素材を独立して保てるようになりました。",
+      "パーツの並べ替え、くり返し、削除、追加を合計128小節まで行えます。",
+      "おまかせ（Auto）、そのまま（Direct）、次へ導く（Dominant）、共通コード（Pivot）から接続を選び、同じ調の共通音や転調のpivot / dominantを使って滑らかにつなぎます。PivotはKey / Scaleが実際に変わる境界だけで使い、両側のdiatonicな共通chordが必要です。",
+      "「1曲にまとめる」を押すまで完成曲は変わらず、結合後もUndoで戻せます。",
+      "完成曲の構成をクリックしてパート範囲とloopを選択できます。",
+      "結合した全trackを再生し、MIDIとJSONへ同じ完成曲を書き出せます。",
+    ],
+  },
+  {
     version: "0.4.0",
     date: "2026-08",
     headline: "伴奏の鳴り方と、曲の展開",

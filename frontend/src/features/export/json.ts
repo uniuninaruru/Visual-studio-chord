@@ -13,7 +13,7 @@ import { validateComposition } from "../../music/validation";
 export const COMPOSITION_JSON_FORMAT = "music-theory-composer";
 export const COMPOSITION_JSON_VERSION = 1;
 export const PROJECT_SCHEMA_VERSION = 3;
-export const PROJECT_APP_VERSION = "0.4.0";
+export const PROJECT_APP_VERSION = "0.5.0";
 export const MAX_COMPOSITION_JSON_CHARACTERS = 5_000_000;
 export const MAX_COMPOSITION_FILE_BYTES = 6_000_000;
 

@@ -63,7 +63,7 @@ import type { NeuralHarmonyPreviewMetadata } from "./api/inferenceTypes";
  * manifest, and importing it to get one string pulls the whole file into the
  * build.
  */
-const APP_VERSION = "0.4.0";
+const APP_VERSION = "0.5.0";
 
 
 
