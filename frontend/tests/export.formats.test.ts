@@ -12,6 +12,7 @@ import {
   DEFAULT_GENERATOR_SETTINGS,
   MINIMAL_GENERATOR_SETTINGS,
   assembleSectionArrangement,
+  buildCompositionTracks,
   createDefaultSectionArrangement,
   generateComposition,
   reconcileSectionLinks,
@@ -371,6 +372,34 @@ describe("composition export", () => {
     ]);
     for (const [index, voice] of (arranged.voices ?? []).entries()) {
       expect(midi.tracks[index + 3]?.notes).toHaveLength(voice.notes.length);
+    }
+  });
+
+  it("keeps every assembled main and additional track present through 128-bar MIDI export", () => {
+    const assembled = assembledArrangement(12);
+    const tracks = buildCompositionTracks(assembled);
+    const midi = new Midi(exportCompositionMidi(assembled));
+    const totalMidiTicks = Math.round(assembled.totalTicks * midi.header.ppq / assembled.ppq);
+
+    expect(assembled.settings.bars).toBe(128);
+    expect(midi.tracks.map((track) => track.name)).toEqual(tracks.map((track) => track.name));
+    expect(midi.tracks).toHaveLength(tracks.length);
+    for (const [index, track] of tracks.entries()) {
+      const midiTrack = midi.tracks[index];
+      expect(midiTrack?.notes).toHaveLength(track.notes.length);
+      expect(midiTrack?.notes.every((note) => note.ticks + note.durationTicks <= totalMidiTicks)).toBe(true);
+    }
+
+    const finalSection = assembled.sections?.at(-1);
+    expect(finalSection).toBeDefined();
+    if (!finalSection) return;
+    const finalStartTick = finalSection.startBar * assembled.ticksPerBar;
+    const finalEndTick = finalSection.endBar * assembled.ticksPerBar;
+    for (const track of tracks.slice(0, 3)) {
+      expect(track.notes.some((note) => (
+        note.startTick < finalEndTick
+        && note.startTick + note.durationTick > finalStartTick
+      ))).toBe(true);
     }
   });
 });

@@ -438,6 +438,11 @@ export default function App() {
     setChordEditorOpen(false);
   }, []);
 
+  const handleSectionSelect = useCallback((range: BarRange) => {
+    clearSelection();
+    useComposerStore.getState().setSelectedRange(range);
+  }, [clearSelection]);
+
   /**
    * All three, because the line above it names all three.
    *
@@ -816,6 +821,7 @@ export default function App() {
               currentTick={editorCurrentTick}
               lockedBars={store.lockedBars}
               onBarSelect={handleBarSelect}
+              onSectionSelect={handleSectionSelect}
               onChordSelect={handleChordSelect}
               onToggleLock={store.toggleBarLock}
               onAddChord={handleAddChord}
