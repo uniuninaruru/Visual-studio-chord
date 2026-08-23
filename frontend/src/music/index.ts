@@ -31,6 +31,7 @@ export * from "./progressions";
 export * from "./reharmonization";
 export * from "./random";
 export * from "./sections";
+export * from "./sectionArrangement";
 export * from "./rhythmGenerator";
 export * from "./scales";
 export * from "./styles";
