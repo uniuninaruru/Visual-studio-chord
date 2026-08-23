@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChordLane } from "./features/editor/ChordLane";
+import { SectionArrangementBuilder } from "./features/arrangement/SectionArrangementBuilder";
 import { AutoFixPanel } from "./features/autoFix/AutoFixPanel";
 import { DiagnosticsPanel } from "./features/diagnostics";
 import { InspectorPanel } from "./features/editor/InspectorPanel";
@@ -148,6 +149,7 @@ export default function App() {
   const [copiedNoteIds, setCopiedNoteIds] = useState<string[]>([]);
   const [selectedChordId, setSelectedChordId] = useState<string | null>(null);
   const [chordEditorOpen, setChordEditorOpen] = useState(false);
+  const [sectionChordEditorOpen, setSectionChordEditorOpen] = useState(false);
   const openChordEditor = useCallback(() => setChordEditorOpen(true), []);
   const closeChordEditor = useCallback(() => setChordEditorOpen(false), []);
   const [historyCompareIds, setHistoryCompareIds] = useState<readonly string[]>([]);
@@ -556,7 +558,7 @@ export default function App() {
     closeMobilePanel,
     hasSelectedNotes: selectedNoteIds.length > 0,
     hasSelectedChord: selectedChordId !== null,
-    chordEditorOpen,
+    chordEditorOpen: chordEditorOpen || sectionChordEditorOpen,
     play: startPlayback,
     pause: handlePause,
     deleteSelectedNotes: handleDeleteNote,
@@ -786,6 +788,27 @@ export default function App() {
               * on the way, so the thing being edited never appeared as one
               * thing. The tools follow, in the order they are reached for.
               */}
+            <SectionArrangementBuilder
+              plan={composition.arrangementPlan}
+              pendingCommit={store.pendingCommit}
+              updateTiming={store.playback.updateTiming}
+              onInitialize={store.initializeSectionArrangement}
+              onUpdateSection={store.updateArrangementSectionDesign}
+              onRegenerateSection={store.regenerateArrangementSection}
+              onEditSectionChord={store.editArrangementSectionChord}
+              onAddInstance={store.addArrangementInstance}
+              onDuplicateInstance={store.duplicateArrangementInstance}
+              onRemoveInstance={store.removeArrangementInstance}
+              onMoveInstance={store.moveArrangementInstance}
+              onSetLinkMode={store.setArrangementLinkMode}
+              onAssemble={() => {
+                const result = store.assembleArrangement();
+                if (result.ok) clearSelection();
+                return result;
+              }}
+              onNotify={setToast}
+              onChordEditorOpenChange={setSectionChordEditorOpen}
+            />
             <ChordLane
               composition={composition}
               selectedRange={store.selectedBarRange}
