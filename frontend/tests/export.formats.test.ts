@@ -53,7 +53,7 @@ describe("composition export", () => {
     const json = exportCompositionJson(composition);
     const document = JSON.parse(json) as { schemaVersion: number; appVersion: string };
     expect(document.schemaVersion).toBe(3);
-    expect(document.appVersion).toBe("0.4.0");
+    expect(document.appVersion).toBe("0.5.0");
     const imported = importCompositionJson(json);
     expect(imported).toEqual(composition);
     expect(imported).not.toBe(composition);

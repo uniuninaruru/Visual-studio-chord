@@ -7,6 +7,40 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+None.
+
+## 0.5.0 — Major update: Section arrangement and DAW editing (2026-08-24)
+
+### Added — Build parts independently, then assemble one song
+
+- The beginner flow creates Intro, A melody, B melody, and C melody independently from “Create the four parts”; each card has a name, template, Key / Scale / Style, and an 8 / 16 / 24 / 32-bar length.
+- A design change keeps the old material and marks the source dirty. “Generate with these settings” deterministically regenerates only that source. The sequence supports reorder, repeat, remove, and add up to 128 total bars.
+- Joins use Auto / Direct / Dominant / Pivot. Pivot is only for a boundary where Key / Scale actually changes, requires a real diatonic chord shared by both keys, and rejects a forced same-key Pivot or other invalid choice fail-closed. Dominant is a secondary dominant; Auto prefers a pivot on modulation, falls back to dominant, and uses seeded approach / common-tone / voice-leading choices in the same key.
+- Only the explicit “Assemble into one song” action changes the finished song. Dirty referenced sources, malformed links, and totals over 128 fail without changing the current song. A successful assembly remains undoable.
+
+### Added — Section theory and data boundaries
+
+- The boundary is `SectionDesign` → `generateArrangementSection` → immutable `SectionSourceDefinition` → sequence instances / adjacent links → `assembleSectionArrangement`. Stable source / instance / link IDs and revision / assembledRevision / manualSongEdited are retained.
+- A repeat references the same source while using an instance-specific event-ID prefix. Assembly applies tick/bar offsets and locks, global four-part revoicing and hand assignment, melody octave smoothing between sections, transition-window pitch reconciliation, and voice merging before `validateComposition`.
+- Approach and pivot split the outgoing final chord in half for a pickup without moving the `[0,totalTicks)` timeline. Store draft / committed / history / pending playback / Undo remain separate from plan edits and explicit assembly.
+
+### Added — Export, mobile, accessibility, and verification
+
+- Projects now use JSON schema 3 and appVersion 0.5.0. Schema v1 / v2 migrate safely as formats without an arrangementPlan; unknown schema / plan versions are rejected.
+- The finished-song SectionRuler aligns with Chord Lane at 122px/bar and shows playback position and selection state in text, not colour alone. Visible part labels stay sticky while a phone scrolls horizontally.
+- Playback, Bass / Left Hand, Chords / Right Hand, Melody, additional voices, and 128-bar MIDI use the shared `buildCompositionTracks`; JSON stores the same finished composition.
+- Regression coverage includes Store/history/pending, schema migration/current-plan coverage, 128-bar JSON/MIDI, Chromium/WebKit full flow, axe, and 390px sticky behavior.
+
+### Architecture and reference boundary
+
+The implementation reuses the existing verified progression catalogue, the
+[section/modulation research](docs/research/niche-genres.md), [SoundQuest's
+secondary-dominant material](https://soundquest.jp/quest/chord/chord-mv2/secondary-dominant/3/),
+and [Open Music Theory's jazz voicing / voice-leading
+principles](https://viva.pressbooks.pub/openmusictheory/chapter/jazz-voicings/).
+It copies no songs or notation examples; general principles are implemented as
+deterministic constraints.
+
 ### Major update — DAW-style direct chord editing ([Issue #27](https://github.com/uniuninaruru/Visual-studio-chord/issues/27))
 
 Chord structure and sound can now be edited directly from the chord lane.
