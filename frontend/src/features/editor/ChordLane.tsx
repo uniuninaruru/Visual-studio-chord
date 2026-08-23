@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Icon } from "../../components/Icon";
 import { ChordEditor } from "./ChordEditor";
+import { SectionRuler } from "../arrangement/SectionRuler";
 import type { StructuredChordEdit } from "../../state";
 import type { BarRange, ChordEvent, GeneratedComposition, HarmonyFunction } from "../../types/music";
 import { formatBarBeat } from "../../utils/musicFormat";
@@ -19,6 +20,7 @@ interface ChordLaneProps {
   currentTick: number;
   lockedBars: number[];
   onBarSelect: (barIndex: number, extend: boolean) => void;
+  onSectionSelect: (range: BarRange) => void;
   onChordSelect: (chord: ChordEvent) => void;
   onToggleLock: (barIndex: number) => void;
   onAddChord: (symbol: string, startTick: number, durationTick: number) => string | null;
@@ -59,6 +61,7 @@ export function ChordLane({
   currentTick,
   lockedBars,
   onBarSelect,
+  onSectionSelect,
   onChordSelect,
   onToggleLock,
   onAddChord,
@@ -188,6 +191,13 @@ export function ChordLane({
           ))}
         </div>
       </div>
+
+      <SectionRuler
+        composition={composition}
+        currentTick={currentTick}
+        selectedRange={selectedRange}
+        onSelectRange={onSectionSelect}
+      />
 
       <div className="chord-action-toolbar" data-testid="chord-action-toolbar">
         {actionState.selectedChord ? (

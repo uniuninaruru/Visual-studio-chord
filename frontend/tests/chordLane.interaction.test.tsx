@@ -44,6 +44,7 @@ describe("ChordLane direct editing toolbar", () => {
       currentTick: 0,
       lockedBars,
       onBarSelect: vi.fn(),
+      onSectionSelect: vi.fn(),
       onChordSelect: vi.fn(),
       onToggleLock: vi.fn(),
       onAddChord: vi.fn(() => "added-chord"),
@@ -107,6 +108,24 @@ describe("ChordLane direct editing toolbar", () => {
 
     act(() => button("削除").click());
     expect(remove).toHaveBeenCalledWith(target.id);
+  });
+
+  it("passes section-ruler clicks through without changing the section editor state", () => {
+    const composition = piece("section-ruler-chord-lane-ui");
+    composition.sections = [{
+      id: "section-ruler-intro",
+      kind: "intro",
+      startBar: 0,
+      endBar: 2,
+      key: "C",
+      mode: "major",
+      transpose: 0,
+    }];
+    const props = render(composition, null);
+    const section = host.querySelector<HTMLButtonElement>(".section-ruler-segment");
+    expect(section).not.toBeNull();
+    act(() => section?.click());
+    expect(props.onSectionSelect).toHaveBeenCalledWith({ startBar: 0, endBar: 2 });
   });
 
   it("shows disabled reasons for locked and terminal edits", () => {
