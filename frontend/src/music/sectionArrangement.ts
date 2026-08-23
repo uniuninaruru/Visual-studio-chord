@@ -986,7 +986,7 @@ export function assembleSectionArrangement(
       key: normalizePitchClass(source.design.key),
       mode: source.design.mode,
       transpose: pitchClassToSemitone(source.design.key) - pitchClassToSemitone(baseSettings.key),
-      progressionId: TEMPLATE_BY_ID.get(source.design.templateId)?.progressionId,
+      progressionId: source.material.settings.progressionId,
     });
     instanceRanges.set(instance.id, { startBar: offsetBar, endBar, source });
     offsetBar = endBar;
