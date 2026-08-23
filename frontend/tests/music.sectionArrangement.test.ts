@@ -443,7 +443,7 @@ describe("independent section arrangement domain", () => {
       expect(actualIntervals).toEqual(sourceIntervals);
       expect(actual.every((note, index) => note.midi % 12 === source.material.notes[index]!.midi % 12)).toBe(true);
     }
-  
+
     const wide = { ...base, bars: 128 as const };
     expect(validateGeneratorSettings(wide).valid).toBe(false);
     expect(() => generateComposition(wide)).toThrow();
