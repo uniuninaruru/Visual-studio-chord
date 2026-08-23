@@ -43,3 +43,17 @@ test("first-use, workspace, and diagnostics have no serious automated WCAG viola
   await expect(page.getByRole("dialog", { name: "環境診断" })).toBeVisible();
   await expectNoSeriousViolations(page);
 });
+
+test("section builder and assembled section ruler have no serious automated WCAG violations", async ({ page }) => {
+  await page.goto("/");
+  const skip = page.getByRole("button", { name: "スキップ" });
+  if (await skip.isVisible()) await skip.click();
+
+  await page.getByRole("button", { name: "4つのパーツを作る", exact: true }).click();
+  await expect(page.getByTestId("section-source-source-intro")).toBeVisible();
+  await expectNoSeriousViolations(page);
+
+  await page.getByRole("button", { name: "1曲にまとめる", exact: true }).click();
+  await expect(page.getByTestId("section-ruler")).toBeVisible();
+  await expectNoSeriousViolations(page);
+});

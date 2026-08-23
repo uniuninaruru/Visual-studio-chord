@@ -3,7 +3,7 @@
 [日本語](README.md) | **English**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version: 0.4.0](https://img.shields.io/badge/version-0.4.0-6f42c1.svg)](CHANGELOG.en.md)
+[![Version: 0.5.0](https://img.shields.io/badge/version-0.5.0-6f42c1.svg)](CHANGELOG.en.md)
 
 ## 🎹 Nothing to install. Just open it
 
@@ -85,6 +85,19 @@ are made one beat at a time.
 
 Candidate A/B/C previews do not change the current song until you explicitly
 adopt one. Apply remains undoable.
+
+### Build a song from separate sections
+
+You can make the parts independently, choose their order, and assemble one
+song only when the plan is ready.
+
+1. Select **Create the four parts** (`4つのパーツを作る`) to make Intro, A melody, B melody, and C melody drafts.
+2. On each card choose its name, template, Key / Scale / Style, and length (8 / 16 / 24 / 32 bars).
+3. A changed setting is marked **Not applied** while the old material stays in place. Select **Generate with these settings** (`この設定で生成`) to update only that part.
+4. Reorder, repeat, remove, or add parts in the sequence. The total must stay at or below 128 bars.
+5. Choose Automatic (おまかせ / Auto) / As-is (そのまま / Direct) / Lead to next (次へ導く / Dominant) / Shared chord (共通コード / Pivot) between parts. Pivot is only for a boundary where Key / Scale actually changes, and it needs a real diatonic chord shared by both keys; a forced same-Key / Scale Pivot is rejected.
+6. The finished song is not overwritten until **Assemble into one song** (`1曲にまとめる`). A dirty part used in the sequence blocks assembly. A failure keeps the current song, and a successful assembly can still be undone.
+7. After assembly, click a section on the composition ruler to select its full range and set the loop. Playback, every track in MIDI, and JSON use the assembled result. On a phone, the visible part label stays readable while the lane scrolls horizontally.
 
 ## 2. Choose one launch method
 
@@ -328,6 +341,8 @@ without starting the backend. Only two things become unavailable:
   harmony;
 - variable harmonic rhythm, sections, modulation, phrase grammar, tension, and
   advanced chord vocabulary;
+- independently designed Intro / A melody / B melody / C melody drafts with
+  explicit assembly, repeatable joins, and a 128-bar ceiling;
 - the full J-pop shape at the longest length: two verse-chorus cycles, a
   bridge, then the sabi twice more as a 落ちサビ and a 大サビ — the same
   progression, set quietly and then at full height;
@@ -378,6 +393,20 @@ The rest of this document is implementation and operations documentation.
 
 # Part 2: Technical reference
 
+## v0.5.0 position and scope
+
+v0.5.0 lets a user design generated parts independently, choose their order,
+repetitions, and joins, and explicitly assemble them into one song. Existing
+direct chord editing, playback, multi-track output, Undo / Redo, MIDI, and JSON
+use the same definitions in the assembled song.
+
+The release includes section drafts, deterministic template generation, a
+sequence up to 128 bars, boundary transition reconciliation, the composition
+SectionRuler, and sticky part labels on a phone. Assembly is explicit and a
+failure leaves the current finished song unchanged. The v0.4.0 HarmonyForge
+neural-harmony research-preview feature remains available as an optional
+research-preview path; no trained checkpoint is bundled or advertised.
+
 ## v0.4.0 scope
 
 v0.4.0 adds the **HarmonyForge neural-harmony research-preview foundation**:
@@ -419,8 +448,62 @@ still works.
 | --- | --- |
 | Runtime and devices | [Optional acceleration](#optional-acceleration), [Native development and tests](#native-development-and-tests) |
 | Neural model | [HarmonyForge research preview](#harmonyforge-research-preview), [Implemented model](#implemented-model), [Fallback](#fallback) |
+| Section arrangement | [Section arrangement architecture and contract](#section-arrangement-architecture-and-contract) |
 | Contracts | [API](#api), artifact validation, cancellation, and versioned data described in the HarmonyForge section |
 | Quality and provenance | [Primary v0.4 references](#primary-v04-references), [Current limitations](#current-limitations) |
+
+## Section arrangement architecture and contract
+
+```mermaid
+flowchart LR
+    DESIGN["SectionDesign<br/>role / template / bars / key"] --> GENERATE["generateArrangementSection"]
+    GENERATE --> SOURCE["immutable SectionSourceDefinition"]
+    SOURCE --> PLAN["sequence instances + adjacent links"]
+    PLAN --> ASSEMBLE["assembleSectionArrangement"]
+    ASSEMBLE --> FINAL["flat composition<br/>playback / MIDI / JSON / Undo"]
+```
+
+- `SectionDesign` passes through `generateArrangementSection` to become an
+  immutable `SectionSourceDefinition` with no nested plan. Source IDs,
+  sequence-instance IDs, and link IDs are stable. A repeat references the same
+  source, while event-ID prefixes are unique to the sequence instance.
+- Each source is 8 / 16 / 24 / 32 bars and a sequence is at most 128 bars. A
+  dirty source referenced by the sequence blocks assembly fail-closed; an
+  unreferenced dirty draft can remain stored. Only explicit
+  `assembleSectionArrangement` creates the finished flat composition. The
+  Store keeps draft, committed, history, pending playback, and Undo separate.
+- `arrangementPlan` carries `revision`, `assembledRevision`, and
+  `manualSongEdited`. Plan-only edits leave the finished audio unchanged;
+  only a successful explicit assembly updates the flat composition.
+- Adjacent links use `auto`, `direct`, `dominant`, or `pivot`. Pivot requires a
+  real diatonic chord shared by both keys and an invalid forced pivot is
+  rejected. Dominant is a secondary dominant. Auto prefers a valid pivot on a
+  modulation, falls back to dominant, and uses a deterministic seeded style
+  approach / common-tone / global voice-leading choice in the same key.
+- Approach and pivot split the outgoing final chord in half to place a pickup.
+  The timeline remains `[0,totalTicks)`, with tick/bar offsets and locks; the
+  assembler then performs global four-part revoicing and hand assignment,
+  melody octave smoothing between sections, transition-window pitch
+  reconciliation, and voice merging before `validateComposition`.
+- JSON schema is 3. Schema v1 / v2 are safely migrated as formats that had no
+  `arrangementPlan`; unknown schema or plan versions are rejected. The current
+  `appVersion` is 0.5.0.
+- SectionRuler shares Chord Lane's 122px-per-bar alignment, shows playback
+  position and selection state in text (not colour alone), and keeps visible
+  part labels sticky on narrow screens.
+
+The implementation reuses the existing verified progression catalogue, the
+[section/modulation research](docs/research/niche-genres.md), [SoundQuest's
+secondary-dominant material](https://soundquest.jp/quest/chord/chord-mv2/secondary-dominant/3/),
+and [Open Music Theory's jazz voicing / voice-leading
+principles](https://viva.pressbooks.pub/openmusictheory/chapter/jazz-voicings/).
+It does not copy songs or examples; it implements general principles as
+deterministic constraints.
+
+The test matrix covers Store history / pending playback, schema migration and
+current-plan coverage, 128-bar JSON, MIDI built from shared
+`buildCompositionTracks`, and Chromium / WebKit full flow, axe, and 390px
+sticky behavior.
 
 ## Optional acceleration
 

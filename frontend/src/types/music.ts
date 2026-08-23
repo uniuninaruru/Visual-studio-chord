@@ -34,7 +34,27 @@ export type Mode =
   | "dorian"
   | "mixolydian";
 export type TimeSignature = "4/4" | "3/4" | "6/8";
-export type BarCount = 4 | 8 | 16 | 24 | 32 | 48;
+/**
+ * Normal editor bar counts plus the multiples used by the section arranger.
+ * The settings UI intentionally continues to expose only the original set;
+ * the wider range exists so an assembled composition still has a truthful
+ * `settings.bars` value.
+ */
+export type BarCount =
+  | 4 | 8 | 16 | 24 | 32 | 40 | 48 | 56 | 64 | 72 | 80 | 88 | 96 | 104 | 112 | 120 | 128;
+
+export type SectionArrangementLength = 8 | 16 | 24 | 32;
+export type SectionArrangementRole = "intro" | "aMelo" | "bMelo" | "cMelo";
+export type SectionLinkMode = "auto" | "direct" | "dominant" | "pivot";
+export type SectionTemplateId =
+  | "intro-ambient"
+  | "intro-hook"
+  | "a-narrative"
+  | "a-groove"
+  | "b-build"
+  | "b-lift"
+  | "c-release"
+  | "c-contrast";
 
 export type StylePresetId =
   | "pop"
@@ -831,7 +851,8 @@ export interface ChordEvent {
   transformation?: NeoRiemannianTransformation;
 }
 
-export interface GeneratedComposition {
+/** The complete flat composition payload shared by generated sections. */
+export interface GeneratedCompositionBase {
   id: string;
   version: 1;
   seed: string;
@@ -854,6 +875,79 @@ export interface GeneratedComposition {
    * Sections tile [0, settings.bars) exactly, in order, without gaps.
    */
   sections?: SectionEvent[];
+}
+
+/** A generated section is deliberately a flat composition without a nested plan. */
+export type SectionMaterial = GeneratedCompositionBase;
+
+export interface SectionDesign {
+  /** Stable source identity. It must not be derived from sequence position. */
+  id: string;
+  role: SectionArrangementRole;
+  name: string;
+  /** Stable id from the section-template catalogue. */
+  templateId: SectionTemplateId;
+  bars: SectionArrangementLength;
+  key: PitchClassName;
+  mode: Mode;
+  style: StylePresetId;
+  seed: string | number;
+}
+
+export interface SectionSourceDefinition {
+  design: SectionDesign;
+  material: SectionMaterial;
+  generationRevision: number;
+  /** Design edits may retain the previous material; referenced dirty material cannot assemble. */
+  dirty: boolean;
+}
+
+export interface SectionSequenceInstance {
+  /** Stable identity for this occurrence, including repeats. */
+  id: string;
+  sourceSectionId: string;
+}
+
+export interface SectionLinkConfig {
+  id: string;
+  fromInstanceId: string;
+  toInstanceId: string;
+  mode: SectionLinkMode;
+  /** Stable link-local stream; independent of sequence position. */
+  seed: string;
+}
+
+export type SectionLinkTechnique =
+  | "direct" | "pivot" | "secondaryDominant" | "commonTone" | "voiceLeading"
+  | "tritoneSub" | "backdoor" | "diminishedApproach" | "chromaticApproach" | "subdominantPrep";
+
+export interface ResolvedSectionLink {
+  linkId: string;
+  fromInstanceId: string;
+  toInstanceId: string;
+  boundaryBar: number;
+  mode: SectionLinkMode;
+  technique: SectionLinkTechnique;
+  label: string;
+  explanation: string;
+}
+
+export interface SectionArrangementPlan {
+  version: 1;
+  id: string;
+  seed: string;
+  revision: number;
+  assembledRevision: number | null;
+  manualSongEdited: boolean;
+  sections: SectionSourceDefinition[];
+  sequence: SectionSequenceInstance[];
+  links: SectionLinkConfig[];
+  resolvedLinks: ResolvedSectionLink[];
+}
+
+export interface GeneratedComposition extends GeneratedCompositionBase {
+  /** Optional arrangement metadata; ordinary generated projects remain unchanged. */
+  arrangementPlan?: SectionArrangementPlan;
 }
 
 /** Zero-based, end-exclusive bar interval: [startBar, endBar). */

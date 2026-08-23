@@ -1,15 +1,19 @@
 import type {
   GeneratedComposition,
   GeneratorSettings,
+  PitchClassName,
+  SectionArrangementPlan,
   ValidationResult,
 } from "../../types/music";
 import { handsAreConsistent } from "../../music/hands";
-import { validateComposition } from "../../music";
+import { normalizePitchClass } from "../../music/scales";
+import { validateSectionArrangement } from "../../music/sectionArrangement";
+import { validateComposition } from "../../music/validation";
 
 export const COMPOSITION_JSON_FORMAT = "music-theory-composer";
 export const COMPOSITION_JSON_VERSION = 1;
-export const PROJECT_SCHEMA_VERSION = 2;
-export const PROJECT_APP_VERSION = "0.3.0";
+export const PROJECT_SCHEMA_VERSION = 3;
+export const PROJECT_APP_VERSION = "0.5.0";
 export const MAX_COMPOSITION_JSON_CHARACTERS = 5_000_000;
 export const MAX_COMPOSITION_FILE_BYTES = 6_000_000;
 
@@ -102,7 +106,13 @@ function registerUnique(values: Set<string>, value: string): boolean {
   return true;
 }
 
-export function isGeneratorSettings(value: unknown): value is GeneratorSettings {
+const ORDINARY_EDITOR_BAR_COUNTS = [4, 8, 16, 24, 32, 48] as const;
+const ARRANGEMENT_BAR_COUNTS = [40, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128] as const;
+
+function isGeneratorSettingsWithBars(
+  value: unknown,
+  allowArrangementBars: boolean,
+): value is GeneratorSettings {
   if (!isRecord(value)) {
     return false;
   }
@@ -129,7 +139,13 @@ export function isGeneratorSettings(value: unknown): value is GeneratorSettings 
     value.bpm < 40 ||
     value.bpm > 240 ||
     !Number.isInteger(value.bars) ||
-    ![4, 8, 16, 24, 32, 48].includes(value.bars as number) ||
+    !(
+      ORDINARY_EDITOR_BAR_COUNTS.includes(value.bars as (typeof ORDINARY_EDITOR_BAR_COUNTS)[number])
+      || (
+        allowArrangementBars
+        && ARRANGEMENT_BAR_COUNTS.includes(value.bars as (typeof ARRANGEMENT_BAR_COUNTS)[number])
+      )
+    ) ||
     typeof value.key !== "string" ||
     !pitchClasses.includes(value.key) ||
     typeof value.mode !== "string" ||
@@ -141,6 +157,7 @@ export function isGeneratorSettings(value: unknown): value is GeneratorSettings 
     (typeof value.seed !== "string" && typeof value.seed !== "number") ||
     (typeof value.seed === "number" && !Number.isFinite(value.seed)) ||
     (typeof value.seed === "string" && value.seed.length === 0) ||
+    (value.progressionId !== undefined && typeof value.progressionId !== "string") ||
     !isRecord(value.melody)
   ) {
     return false;
@@ -250,17 +267,30 @@ export function isGeneratorSettings(value: unknown): value is GeneratorSettings 
   );
 }
 
+export function isGeneratorSettings(value: unknown): value is GeneratorSettings {
+  return isGeneratorSettingsWithBars(value, false);
+}
+
 /**
  * A deliberately strict boundary check for files received from outside the
  * application. The music validator performs the deeper theory checks after
  * this structural check succeeds.
  */
-export function isGeneratedComposition(value: unknown): value is GeneratedComposition {
+function isFlatGeneratedComposition(
+  value: unknown,
+  allowArrangementBars: boolean,
+  allowArrangementPlan: boolean,
+): value is GeneratedComposition {
   if (!isRecord(value)) {
     return false;
   }
 
-  if (!isGeneratorSettings(value.settings) || !Array.isArray(value.chords) || !Array.isArray(value.notes)) {
+  if (
+    (!allowArrangementPlan && Object.prototype.hasOwnProperty.call(value, "arrangementPlan"))
+    || !isGeneratorSettingsWithBars(value.settings, allowArrangementBars)
+    || !Array.isArray(value.chords)
+    || !Array.isArray(value.notes)
+  ) {
     return false;
   }
 
@@ -273,7 +303,7 @@ export function isGeneratedComposition(value: unknown): value is GeneratedCompos
     typeof value.id !== "string" ||
     value.id.length === 0 ||
     value.version !== COMPOSITION_JSON_VERSION ||
-    typeof value.seed !== "string" ||
+    !isNonEmptyString(value.seed) ||
     !Number.isInteger(value.ppq) ||
     (value.ppq as number) <= 0 ||
     !Number.isInteger(value.ticksPerBar) ||
@@ -511,6 +541,252 @@ export function isGeneratedComposition(value: unknown): value is GeneratedCompos
   return validChord && validNote && validVoices;
 }
 
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const allowed = new Set(keys);
+  const actual = Object.keys(value);
+  return actual.length === keys.length && actual.every((key) => allowed.has(key));
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+function isSafeNonNegativeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function isArrangementSeed(value: unknown): value is string | number {
+  return (
+    (typeof value === "string" && value.length > 0)
+    || (typeof value === "number" && Number.isFinite(value))
+  );
+}
+
+function hasSectionMaterialBarCount(value: unknown): boolean {
+  return isRecord(value)
+    && isRecord(value.settings)
+    && [8, 16, 24, 32].includes(value.settings.bars as number);
+}
+
+const ARRANGEMENT_ROLES = ["intro", "aMelo", "bMelo", "cMelo"] as const;
+const ARRANGEMENT_TEMPLATE_IDS = [
+  "intro-ambient", "intro-hook", "a-narrative", "a-groove",
+  "b-build", "b-lift", "c-release", "c-contrast",
+] as const;
+const ARRANGEMENT_MODES = [
+  "major", "naturalMinor", "harmonicMinor", "dorian", "mixolydian",
+] as const;
+const ARRANGEMENT_STYLES = [
+  "pop", "j-pop", "rock", "jazz", "lo-fi", "edm", "ballad", "game-music", "random",
+] as const;
+const ARRANGEMENT_LINK_MODES = ["auto", "direct", "dominant", "pivot"] as const;
+const ARRANGEMENT_LINK_TECHNIQUES = [
+  "direct", "pivot", "secondaryDominant", "commonTone", "voiceLeading",
+  "tritoneSub", "backdoor", "diminishedApproach", "chromaticApproach", "subdominantPrep",
+] as const;
+
+function isSectionArrangementPlanShape(value: unknown): value is SectionArrangementPlan {
+  if (!isRecord(value) || !hasExactKeys(value, [
+    "version", "id", "seed", "revision", "assembledRevision", "manualSongEdited",
+    "sections", "sequence", "links", "resolvedLinks",
+  ])) {
+    return false;
+  }
+  if (
+    value.version !== 1
+    || !isNonEmptyString(value.id)
+    || !isNonEmptyString(value.seed)
+    || !isSafeNonNegativeInteger(value.revision)
+    || (
+      value.assembledRevision !== null
+      && !isSafeNonNegativeInteger(value.assembledRevision)
+    )
+    || (
+      isSafeNonNegativeInteger(value.assembledRevision)
+      && value.assembledRevision > value.revision
+    )
+    || typeof value.manualSongEdited !== "boolean"
+    || !Array.isArray(value.sections)
+    || !Array.isArray(value.sequence)
+    || !Array.isArray(value.links)
+    || !Array.isArray(value.resolvedLinks)
+  ) {
+    return false;
+  }
+
+  const sections = value.sections;
+  const sectionIds = new Set<string>();
+  for (const source of sections) {
+    if (!isRecord(source) || !hasExactKeys(source, ["design", "material", "generationRevision", "dirty"])) {
+      return false;
+    }
+    if (
+      !isRecord(source.design)
+      || !hasExactKeys(source.design, ["id", "role", "name", "templateId", "bars", "key", "mode", "style", "seed"])
+      || !isNonEmptyString(source.design.id)
+      || !registerUnique(sectionIds, source.design.id)
+      || !ARRANGEMENT_ROLES.includes(source.design.role as (typeof ARRANGEMENT_ROLES)[number])
+      || !isNonEmptyString(source.design.name)
+      || !ARRANGEMENT_TEMPLATE_IDS.includes(source.design.templateId as (typeof ARRANGEMENT_TEMPLATE_IDS)[number])
+      || ![8, 16, 24, 32].includes(source.design.bars as number)
+      || typeof source.design.key !== "string"
+      || !ARRANGEMENT_MODES.includes(source.design.mode as (typeof ARRANGEMENT_MODES)[number])
+      || !ARRANGEMENT_STYLES.includes(source.design.style as (typeof ARRANGEMENT_STYLES)[number])
+      || !isArrangementSeed(source.design.seed)
+      || !isFlatGeneratedComposition(source.material, false, false)
+      || !hasSectionMaterialBarCount(source.material)
+      || !isSafeNonNegativeInteger(source.generationRevision)
+      || typeof source.dirty !== "boolean"
+    ) {
+      return false;
+    }
+    try {
+      normalizePitchClass(source.design.key as PitchClassName);
+    } catch {
+      return false;
+    }
+  }
+
+  const sequence = value.sequence;
+  const instanceIds = new Set<string>();
+  for (const instance of sequence) {
+    if (
+      !isRecord(instance)
+      || !hasExactKeys(instance, ["id", "sourceSectionId"])
+      || !isNonEmptyString(instance.id)
+      || !registerUnique(instanceIds, instance.id)
+      || !isNonEmptyString(instance.sourceSectionId)
+    ) {
+      return false;
+    }
+  }
+
+  const links = value.links;
+  const linkIds = new Set<string>();
+  for (const link of links) {
+    if (
+      !isRecord(link)
+      || !hasExactKeys(link, ["id", "fromInstanceId", "toInstanceId", "mode", "seed"])
+      || !isNonEmptyString(link.id)
+      || !registerUnique(linkIds, link.id)
+      || !isNonEmptyString(link.fromInstanceId)
+      || !isNonEmptyString(link.toInstanceId)
+      || !ARRANGEMENT_LINK_MODES.includes(link.mode as (typeof ARRANGEMENT_LINK_MODES)[number])
+      || !isNonEmptyString(link.seed)
+    ) {
+      return false;
+    }
+  }
+
+  const resolvedLinks = value.resolvedLinks;
+  const resolvedIds = new Set<string>();
+  for (const resolved of resolvedLinks) {
+    if (
+      !isRecord(resolved)
+      || !hasExactKeys(resolved, [
+        "linkId", "fromInstanceId", "toInstanceId", "boundaryBar", "mode",
+        "technique", "label", "explanation",
+      ])
+      || !isNonEmptyString(resolved.linkId)
+      || !registerUnique(resolvedIds, resolved.linkId)
+      || !isNonEmptyString(resolved.fromInstanceId)
+      || !isNonEmptyString(resolved.toInstanceId)
+      || !isSafeNonNegativeInteger(resolved.boundaryBar)
+      || !ARRANGEMENT_LINK_MODES.includes(resolved.mode as (typeof ARRANGEMENT_LINK_MODES)[number])
+      || !ARRANGEMENT_LINK_TECHNIQUES.includes(resolved.technique as (typeof ARRANGEMENT_LINK_TECHNIQUES)[number])
+      || typeof resolved.label !== "string"
+      || resolved.label.length === 0
+      || typeof resolved.explanation !== "string"
+      || resolved.explanation.length === 0
+    ) {
+      return false;
+    }
+  }
+
+  if (value.assembledRevision !== value.revision && resolvedLinks.length > 0) {
+    return false;
+  }
+  if (value.assembledRevision === value.revision) {
+    const sourcesById = new Map(
+      sections.map((source) => [
+        (source.design as Record<string, unknown>).id,
+        source,
+      ]),
+    );
+    for (const instance of sequence) {
+      const source = sourcesById.get((instance as Record<string, unknown>).sourceSectionId as string);
+      if (source && source.dirty === true) return false;
+    }
+  }
+  try {
+    const validationTarget = value.assembledRevision === value.revision
+      ? { ...value, manualSongEdited: false }
+      : value;
+    return validateSectionArrangement(validationTarget as unknown as SectionArrangementPlan).valid;
+  } catch {
+    return false;
+  }
+}
+
+const ARRANGEMENT_ROLE_TO_KIND: Readonly<Record<(typeof ARRANGEMENT_ROLES)[number], string>> = {
+  intro: "intro",
+  aMelo: "verse",
+  bMelo: "preChorus",
+  cMelo: "chorus",
+};
+
+function matchesCurrentArrangementComposition(
+  composition: GeneratedComposition,
+  plan: SectionArrangementPlan,
+): boolean {
+  if (plan.assembledRevision !== plan.revision || plan.manualSongEdited) return true;
+  const sources = new Map(plan.sections.map((source) => [source.design.id, source]));
+  let totalBars = 0;
+  for (const instance of plan.sequence) {
+    const source = sources.get(instance.sourceSectionId);
+    if (!source) return false;
+    totalBars += source.design.bars;
+  }
+  if (composition.settings.bars !== totalBars || !Array.isArray(composition.sections)) return false;
+  if (composition.sections.length !== plan.sequence.length) return false;
+  let offsetBar = 0;
+  for (const [index, instance] of plan.sequence.entries()) {
+    const source = sources.get(instance.sourceSectionId);
+    const section = composition.sections[index];
+    if (!source || !section) return false;
+    let key: string;
+    try {
+      key = normalizePitchClass(source.design.key);
+    } catch {
+      return false;
+    }
+    if (
+      section.id !== instance.id
+      || section.kind !== ARRANGEMENT_ROLE_TO_KIND[source.design.role]
+      || section.startBar !== offsetBar
+      || section.endBar !== offsetBar + source.design.bars
+      || section.key !== key
+      || section.mode !== source.design.mode
+      || section.progressionId !== source.material.settings.progressionId
+    ) {
+      return false;
+    }
+    offsetBar += source.design.bars;
+  }
+  return offsetBar === totalBars;
+}
+
+export function isGeneratedComposition(value: unknown): value is GeneratedComposition {
+  if (!isRecord(value)) return false;
+  const hasArrangementPlan = Object.prototype.hasOwnProperty.call(value, "arrangementPlan");
+  if (hasArrangementPlan && !isSectionArrangementPlanShape(value.arrangementPlan)) return false;
+  if (!isFlatGeneratedComposition(value, hasArrangementPlan, hasArrangementPlan)) return false;
+  return !hasArrangementPlan || matchesCurrentArrangementComposition(
+    value,
+    value.arrangementPlan as SectionArrangementPlan,
+  );
+}
+
 function makeDocument(
   composition: GeneratedComposition,
   exportedAt = new Date().toISOString(),
@@ -556,28 +832,51 @@ export function importCompositionJson(json: string): GeneratedComposition {
     throw new CompositionImportError(`Unsupported composition version: ${String(parsed.version)}.`);
   }
 
-  // Files exported before schemaVersion/appVersion were added are migrated as
-  // schema v1. Unknown newer schemas are rejected instead of guessed.
+  // Files exported before schemaVersion/appVersion were added are schema v1;
+  // schema v2 is also a supported pre-arrangement document. Unknown newer
+  // schemas are rejected instead of guessed.
+  const schemaVersion = parsed.schemaVersion === undefined ? 1 : parsed.schemaVersion;
   if (
-    parsed.schemaVersion !== undefined
-    && parsed.schemaVersion !== 1
-    && parsed.schemaVersion !== PROJECT_SCHEMA_VERSION
+    !Number.isInteger(schemaVersion)
+    || ![1, 2, PROJECT_SCHEMA_VERSION].includes(schemaVersion as number)
   ) {
     throw new CompositionImportError(
-      `Unsupported project schema version: ${String(parsed.schemaVersion)}.`,
+      `Unsupported project schema version: ${String(schemaVersion)}.`,
     );
   }
   if (parsed.appVersion !== undefined && typeof parsed.appVersion !== "string") {
     throw new CompositionImportError("The project app version is invalid.");
   }
 
-  if (!isGeneratedComposition(parsed.composition)) {
+  let composition: unknown;
+  try {
+    composition = structuredClone(parsed.composition);
+  } catch {
+    throw new CompositionImportError("The composition data could not be cloned safely.");
+  }
+  if (schemaVersion !== PROJECT_SCHEMA_VERSION && isRecord(composition)) {
+    // Schemas 1 and 2 never defined arrangementPlan. Remove an injected plan
+    // before structural validation so property presence cannot unlock wide bars.
+    delete composition.arrangementPlan;
+  }
+  if (
+    schemaVersion === PROJECT_SCHEMA_VERSION
+    && isRecord(composition)
+    && isRecord(composition.arrangementPlan)
+    && composition.arrangementPlan.version !== 1
+  ) {
+    throw new CompositionImportError(
+      `Unsupported arrangement plan version: ${String(composition.arrangementPlan.version)}.`,
+    );
+  }
+
+  if (!isGeneratedComposition(composition)) {
     throw new CompositionImportError("The composition data is incomplete or out of range.");
   }
 
   let validation: ValidationResult;
   try {
-    validation = validateComposition(parsed.composition);
+    validation = validateComposition(composition);
   } catch {
     throw new CompositionImportError("The composition could not be validated.");
   }
@@ -586,5 +885,5 @@ export function importCompositionJson(json: string): GeneratedComposition {
     throw new CompositionImportError(`The composition failed validation. ${summary}`.trim());
   }
 
-  return structuredClone(parsed.composition);
+  return structuredClone(composition);
 }

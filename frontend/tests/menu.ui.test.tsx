@@ -44,7 +44,7 @@ describe("the menu", () => {
       onMixerChange: vi.fn(),
       onOpenTutorial: vi.fn(),
       onOpenDiagnostics: vi.fn(),
-      appVersion: "0.4.0",
+      appVersion: "0.5.0",
       theme: "system" as const,
       onThemeChange: vi.fn(),
       resolvedTheme: "light" as const,
