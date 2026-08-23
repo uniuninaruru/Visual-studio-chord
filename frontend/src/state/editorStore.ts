@@ -17,15 +17,21 @@ import {
   voiceChord,
   voiceExtendedChord,
   appliedDominantResolves,
+  assembleSectionArrangement,
+  createDefaultSectionArrangement,
   explainSpecialChord,
+  generateArrangementSection,
   getDiatonicChordDefinition,
   getDiatonicSeventhChordDefinition,
   getScalePitchClasses,
   harmonyFunctionForDegree,
   normalizePitchClass,
+  reconcileSectionLinks,
   romanNumeralForChordQuality,
   scaleDegreeForPitchClass,
   transformTriad,
+  type SectionArrangementAssemblyResult,
+  updateSectionDesign,
 } from "../music";
 import type {
   BarRange,
@@ -40,6 +46,11 @@ import type {
   SectionEvent,
   Tension,
   PitchClassName,
+  SectionArrangementPlan,
+  SectionDesign,
+  SectionLinkMode,
+  SectionSequenceInstance,
+  SectionSourceDefinition,
 } from "../types/music";
 import {
   exportCompositionJson,
@@ -178,6 +189,19 @@ export interface ComposerStoreActions {
     settings?: GeneratorSettingsPatch,
     guidance?: PreferenceGuidance,
   ): void;
+  initializeSectionArrangement(): boolean;
+  updateArrangementSectionDesign(
+    sectionId: string,
+    patch: Partial<Omit<SectionDesign, "id" | "role">>,
+  ): boolean;
+  regenerateArrangementSection(sectionId: string): boolean;
+  editArrangementSectionChord(sectionId: string, chordId: string, edit: ChordEdit): boolean;
+  addArrangementInstance(sourceSectionId: string, afterInstanceId?: string): string | null;
+  duplicateArrangementInstance(instanceId: string): string | null;
+  removeArrangementInstance(instanceId: string): boolean;
+  moveArrangementInstance(instanceId: string, direction: -1 | 1): boolean;
+  setArrangementLinkMode(linkId: string, mode: SectionLinkMode): boolean;
+  assembleArrangement(): SectionArrangementAssemblyResult;
   adoptAutoFixPreview(composition: GeneratedComposition): boolean;
   regenerateSelected(options?: RegenerationOptions): boolean;
   generatePreviewVariations(
@@ -306,6 +330,40 @@ function settingsWithPatch(
       ...patch.melody,
     },
   };
+}
+
+const EDITOR_BAR_COUNTS = [4, 8, 16, 24, 32, 48] as const;
+
+function isEditorBarCount(value: number): value is (typeof EDITOR_BAR_COUNTS)[number] {
+  return EDITOR_BAR_COUNTS.includes(value as (typeof EDITOR_BAR_COUNTS)[number]);
+}
+
+/** Keeps the wide assembled song out of the ordinary generator settings. */
+function settingsForEditor(
+  current: GeneratorSettings,
+  composition: GeneratedComposition,
+): GeneratorSettings {
+  const next = clone(composition.settings);
+  next.bars = isEditorBarCount(composition.settings.bars)
+    ? composition.settings.bars
+    : isEditorBarCount(current.bars)
+      ? current.bars
+      : DEFAULT_GENERATOR_SETTINGS.bars;
+  return next;
+}
+
+/** Hydration keeps the separately persisted editor setting for wide songs. */
+function settingsForRestoredState(
+  persisted: GeneratorSettings,
+  composition: GeneratedComposition,
+): GeneratorSettings {
+  const next = clone(persisted);
+  if (!isEditorBarCount(next.bars)) {
+    next.bars = isEditorBarCount(composition.settings.bars)
+      ? composition.settings.bars
+      : DEFAULT_GENERATOR_SETTINGS.bars;
+  }
+  return next;
 }
 
 function noteName(midi: number): string {
@@ -991,7 +1049,7 @@ function restoredState(snapshot: PersistedEditorSnapshot): ComposerStoreState {
   composition.lockedBars = lockedBars;
 
   return {
-    settings: clone(snapshot.settings),
+    settings: settingsForRestoredState(snapshot.settings, composition),
     committedComposition: clone(composition),
     draftComposition: composition,
     previewVariations: [],
@@ -1102,14 +1160,146 @@ function persistentHistoryState(
   };
 }
 
+type ArrangementCompositionEffect = "preserveManual" | "adoptExact";
+
+function compositionWithoutArrangementPlan(
+  composition: GeneratedComposition,
+): GeneratedComposition {
+  const next = clone(composition);
+  delete next.arrangementPlan;
+  return next;
+}
+
+function hasSameAudiblePayload(
+  left: GeneratedComposition,
+  right: GeneratedComposition,
+): boolean {
+  return JSON.stringify(compositionWithoutArrangementPlan(left))
+    === JSON.stringify(compositionWithoutArrangementPlan(right));
+}
+
+function compositionForEffect(
+  state: ComposerStoreState,
+  composition: GeneratedComposition,
+  effect: ArrangementCompositionEffect,
+): GeneratedComposition {
+  const next = clone(composition);
+  if (effect === "preserveManual" && state.draftComposition.arrangementPlan) {
+    next.arrangementPlan = {
+      ...clone(state.draftComposition.arrangementPlan),
+      manualSongEdited: true,
+    };
+  }
+  return next;
+}
+
+function stateAfterArrangementPlan(
+  state: ComposerStoreState,
+  plan: SectionArrangementPlan,
+  action: string,
+): Partial<ComposerStoreState> {
+  const next = clone(state.draftComposition);
+  next.arrangementPlan = clone(plan);
+  const entry = makeHistoryEntry(next, action, null);
+  const history = [...state.history.slice(0, state.historyIndex + 1), entry];
+  const committedBeforeAudition = state.auditionBaseComposition ?? state.committedComposition;
+  const pendingBeforeAudition = state.auditionBaseComposition
+    ? state.auditionBasePendingCommit
+    : state.pendingCommit;
+  const playbackLoopBeforeAudition = state.auditionBaseComposition
+    ? state.auditionBasePlaybackLoopRange ?? state.playbackLoopRange
+    : state.playbackLoopRange;
+  return {
+    draftComposition: next,
+    committedComposition: committedBeforeAudition,
+    previewVariations: [],
+    auditionedVariationIndex: null,
+    auditionBaseComposition: null,
+    auditionBasePendingCommit: false,
+    auditionBasePlaybackLoopRange: null,
+    pendingCommit: pendingBeforeAudition,
+    playbackLoopRange: playbackLoopBeforeAudition,
+    history,
+    historyIndex: history.length - 1,
+    projectSaveStatus: "unsaved",
+  };
+}
+
+function arrangementTotalBars(
+  plan: SectionArrangementPlan,
+): number {
+  const barsBySource = new Map(
+    plan.sections.map((source) => [source.design.id, source.design.bars]),
+  );
+  return plan.sequence.reduce(
+    (total, instance) => total + (barsBySource.get(instance.sourceSectionId) ?? 0),
+    0,
+  );
+}
+
+function nextArrangementInstanceId(
+  plan: SectionArrangementPlan,
+  sourceSectionId: string,
+): string {
+  const used = new Set(plan.sequence.map((instance) => instance.id));
+  const base = `instance-${sourceSectionId}`;
+  if (!used.has(base)) return base;
+  let suffix = 2;
+  while (used.has(`${base}-${suffix}`)) suffix += 1;
+  return `${base}-${suffix}`;
+}
+
+function sourceWithEditedChord(
+  source: SectionSourceDefinition,
+  chordId: string,
+  edit: ChordEdit,
+): SectionSourceDefinition | null {
+  if (source.dirty) return null;
+  const index = source.material.chords.findIndex((chord) => chord.id === chordId);
+  if (index < 0) return null;
+  const chord = source.material.chords[index];
+  if (!chord) return null;
+  let rebuilt: ChordEvent;
+  try {
+    rebuilt = typeof edit === "string"
+      ? rebuiltChordForSymbol(
+        chord,
+        edit,
+        source.material,
+        chord.id,
+        chord.startTick,
+        chord.durationTick,
+      )
+      : rebuildStructuredChord(
+        chord,
+        edit,
+        source.material.settings.key,
+        source.material.settings.mode,
+      ) as ChordEvent;
+  } catch {
+    return null;
+  }
+  if (!rebuilt || JSON.stringify(rebuilt) === JSON.stringify(chord)) return null;
+  const material = clone(source.material);
+  material.chords[index] = rebuilt;
+  // A direct source chord edit is no longer the catalogue progression named
+  // by the template. Keep the draft's retained material honest until it is
+  // regenerated or redesigned.
+  delete material.settings.progressionId;
+  normalizeChordRelationshipMetadata(material);
+  if (!validateComposition(material).valid) return null;
+  return { ...clone(source), material, dirty: false };
+}
+
 function stateAfterComposition(
   state: ComposerStoreState,
   composition: GeneratedComposition,
   action: string,
   range: BarRange | null,
   syncSettings = false,
+  arrangementEffect: ArrangementCompositionEffect = "preserveManual",
 ): Partial<ComposerStoreState> {
-  const next = clone(composition);
+  const next = compositionForEffect(state, composition, arrangementEffect);
   const entry = makeHistoryEntry(next, action, range);
   // Never discard old user history silently. Storage failures are surfaced via
   // projectSaveStatus so the user can export before deciding what to remove.
@@ -1121,7 +1311,7 @@ function stateAfterComposition(
     state.auditionBasePlaybackLoopRange ?? state.playbackLoopRange;
 
   return {
-    settings: syncSettings ? clone(next.settings) : state.settings,
+    settings: syncSettings ? settingsForEditor(state.settings, next) : state.settings,
     draftComposition: next,
     committedComposition: applyImmediately ? clone(next) : committedBeforeAudition,
     previewVariations: [],
@@ -1175,6 +1365,204 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
       playbackLoopRange: update.pendingCommit ? state.playbackLoopRange : loopRange,
       regenerationIteration: 0,
     });
+  },
+
+  initializeSectionArrangement: () => {
+    const state = get();
+    if (state.draftComposition.arrangementPlan) return false;
+    let plan: SectionArrangementPlan;
+    try {
+      plan = createDefaultSectionArrangement(state.settings);
+    } catch {
+      return false;
+    }
+    set(stateAfterArrangementPlan(state, plan, "initialize-arrangement"));
+    return true;
+  },
+
+  updateArrangementSectionDesign: (sectionId, patch) => {
+    const state = get();
+    const plan = state.draftComposition.arrangementPlan;
+    if (!plan) return false;
+    const next = updateSectionDesign(plan, sectionId, patch);
+    if (next === plan) return false;
+    set(stateAfterArrangementPlan(state, next, "edit-arrangement-section"));
+    return true;
+  },
+
+  regenerateArrangementSection: (sectionId) => {
+    const state = get();
+    const plan = state.draftComposition.arrangementPlan;
+    if (!plan) return false;
+    const source = plan.sections.find((entry) => entry.design.id === sectionId);
+    if (!source) return false;
+    let material: SectionSourceDefinition;
+    try {
+      material = generateArrangementSection(source.design, {
+        baseSettings: state.settings,
+        projectSeed: plan.seed,
+        revision: source.generationRevision + 1,
+      });
+    } catch {
+      return false;
+    }
+    const next: SectionArrangementPlan = {
+      ...clone(plan),
+      sections: plan.sections.map((entry) => entry.design.id === sectionId
+        ? material
+        : clone(entry)),
+      revision: plan.revision + 1,
+      resolvedLinks: [],
+    };
+    set(stateAfterArrangementPlan(state, next, "regenerate-arrangement-section"));
+    return true;
+  },
+
+  editArrangementSectionChord: (sectionId, chordId, edit) => {
+    const state = get();
+    const plan = state.draftComposition.arrangementPlan;
+    if (!plan) return false;
+    const source = plan.sections.find((entry) => entry.design.id === sectionId);
+    if (!source) return false;
+    const nextSource = sourceWithEditedChord(source, chordId, edit);
+    if (!nextSource) return false;
+    const next: SectionArrangementPlan = {
+      ...clone(plan),
+      sections: plan.sections.map((entry) => entry.design.id === sectionId
+        ? nextSource
+        : clone(entry)),
+      revision: plan.revision + 1,
+      resolvedLinks: [],
+    };
+    set(stateAfterArrangementPlan(state, next, "edit-arrangement-section-chord"));
+    return true;
+  },
+
+  addArrangementInstance: (sourceSectionId, afterInstanceId) => {
+    const state = get();
+    const plan = state.draftComposition.arrangementPlan;
+    if (!plan) return null;
+    if (!plan.sections.some((source) => source.design.id === sourceSectionId)) return null;
+    const source = plan.sections.find((entry) => entry.design.id === sourceSectionId);
+    if (!source || arrangementTotalBars(plan) + source.design.bars > 128) return null;
+    const insertionIndex = afterInstanceId === undefined
+      ? plan.sequence.length
+      : plan.sequence.findIndex((instance) => instance.id === afterInstanceId) + 1;
+    if (afterInstanceId !== undefined && insertionIndex === 0) return null;
+    const id = nextArrangementInstanceId(plan, sourceSectionId);
+    const instance: SectionSequenceInstance = { id, sourceSectionId };
+    const sequence = [...plan.sequence];
+    sequence.splice(insertionIndex, 0, instance);
+    const next = reconcileSectionLinks(plan, sequence);
+    if (next === plan) return null;
+    set(stateAfterArrangementPlan(state, next, "add-arrangement-instance"));
+    return id;
+  },
+
+  duplicateArrangementInstance: (instanceId) => {
+    const state = get();
+    const plan = state.draftComposition.arrangementPlan;
+    const instance = plan?.sequence.find((entry) => entry.id === instanceId);
+    if (!instance) return null;
+    return get().addArrangementInstance(instance.sourceSectionId, instanceId);
+  },
+
+  removeArrangementInstance: (instanceId) => {
+    const state = get();
+    const plan = state.draftComposition.arrangementPlan;
+    if (!plan || plan.sequence.length <= 1) return false;
+    if (!plan.sequence.some((instance) => instance.id === instanceId)) return false;
+    const sequence = plan.sequence.filter((instance) => instance.id !== instanceId);
+    const next = reconcileSectionLinks(plan, sequence);
+    if (next === plan) return false;
+    set(stateAfterArrangementPlan(state, next, "remove-arrangement-instance"));
+    return true;
+  },
+
+  moveArrangementInstance: (instanceId, direction) => {
+    const state = get();
+    const plan = state.draftComposition.arrangementPlan;
+    if (!plan || (direction !== -1 && direction !== 1)) return false;
+    const index = plan.sequence.findIndex((instance) => instance.id === instanceId);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= plan.sequence.length) return false;
+    const sequence = [...plan.sequence];
+    [sequence[index], sequence[target]] = [sequence[target]!, sequence[index]!];
+    const next = reconcileSectionLinks(plan, sequence);
+    if (next === plan) return false;
+    set(stateAfterArrangementPlan(state, next, "move-arrangement-instance"));
+    return true;
+  },
+
+  setArrangementLinkMode: (linkId, mode) => {
+    const state = get();
+    const plan = state.draftComposition.arrangementPlan;
+    if (!plan || !["auto", "direct", "dominant", "pivot"].includes(mode)) return false;
+    const link = plan.links.find((entry) => entry.id === linkId);
+    if (!link || link.mode === mode) return false;
+    const next: SectionArrangementPlan = {
+      ...clone(plan),
+      links: plan.links.map((entry) => entry.id === linkId
+        ? { ...entry, mode }
+        : clone(entry)),
+      revision: plan.revision + 1,
+      resolvedLinks: [],
+    };
+    set(stateAfterArrangementPlan(state, next, "set-arrangement-link-mode"));
+    return true;
+  },
+
+  assembleArrangement: () => {
+    const state = get();
+    const plan = state.draftComposition.arrangementPlan;
+    if (!plan) {
+      return {
+        ok: false as const,
+        issues: [{ code: "plan.missing", message: "No section arrangement has been initialized." }],
+      };
+    }
+    if (plan.assembledRevision === plan.revision && !plan.manualSongEdited) {
+      return {
+        ok: true as const,
+        composition: clone(state.draftComposition),
+        plan: clone(plan),
+        resolvedLinks: clone(plan.resolvedLinks),
+      };
+    }
+    let result: SectionArrangementAssemblyResult;
+    try {
+      result = assembleSectionArrangement(plan, state.settings);
+    } catch {
+      return {
+        ok: false as const,
+        issues: [{ code: "assembly.exception", message: "Arrangement assembly failed." }],
+      };
+    }
+    if (!result.ok) return result;
+    const update = stateAfterComposition(
+      state,
+      result.composition,
+      "assemble-arrangement",
+      null,
+      false,
+      "adoptExact",
+    );
+    const loopRange = { startTick: 0, endTick: result.composition.totalTicks };
+    set({
+      ...update,
+      selectedBarRange: null,
+      loopRange,
+      playbackLoopRange: update.pendingCommit
+        ? update.playbackLoopRange ?? state.playbackLoopRange
+        : loopRange,
+      regenerationIteration: 0,
+    });
+    return {
+      ok: true as const,
+      composition: clone(result.composition),
+      plan: clone(result.plan),
+      resolvedLinks: clone(result.resolvedLinks),
+    };
   },
 
   adoptAutoFixPreview: (composition) => {
@@ -2151,20 +2539,36 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     const historyIndex = state.historyIndex - 1;
     const composition = clone(state.history[historyIndex]!.composition);
     const selectedBarRange = normalizedBarRange(state.selectedBarRange, composition);
+    const audibleSame = hasSameAudiblePayload(composition, state.draftComposition);
     const applyImmediately =
-      state.playback.status !== "playing" || state.playback.updateTiming === "immediate";
+      !audibleSame
+      && (state.playback.status !== "playing" || state.playback.updateTiming === "immediate");
     const committedBeforeAudition = state.auditionBaseComposition ?? state.committedComposition;
+    const pendingBeforeAudition = state.auditionBaseComposition
+      ? state.auditionBasePendingCommit
+      : state.pendingCommit;
+    const playbackLoopBeforeAudition = state.auditionBaseComposition
+      ? state.auditionBasePlaybackLoopRange ?? state.playbackLoopRange
+      : state.playbackLoopRange;
     const loopRange = normalizedTickRange(state.loopRange, composition);
     set({
-      settings: clone(composition.settings),
+      settings: settingsForEditor(state.settings, composition),
       draftComposition: composition,
-      committedComposition: applyImmediately ? clone(composition) : committedBeforeAudition,
+      committedComposition: audibleSame
+        ? committedBeforeAudition
+        : applyImmediately
+          ? clone(composition)
+          : committedBeforeAudition,
       lockedBars: [...composition.lockedBars],
       selectedBarRange,
       loopRange,
-      playbackLoopRange: applyImmediately ? loopRange : state.playbackLoopRange,
+      playbackLoopRange: audibleSame
+        ? playbackLoopBeforeAudition
+        : applyImmediately
+          ? loopRange
+          : state.playbackLoopRange,
       historyIndex,
-      pendingCommit: !applyImmediately,
+      pendingCommit: audibleSame ? pendingBeforeAudition : !applyImmediately,
       previewVariations: [],
       auditionedVariationIndex: null,
       auditionBaseComposition: null,
@@ -2182,20 +2586,36 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     const historyIndex = state.historyIndex + 1;
     const composition = clone(state.history[historyIndex]!.composition);
     const selectedBarRange = normalizedBarRange(state.selectedBarRange, composition);
+    const audibleSame = hasSameAudiblePayload(composition, state.draftComposition);
     const applyImmediately =
-      state.playback.status !== "playing" || state.playback.updateTiming === "immediate";
+      !audibleSame
+      && (state.playback.status !== "playing" || state.playback.updateTiming === "immediate");
     const committedBeforeAudition = state.auditionBaseComposition ?? state.committedComposition;
+    const pendingBeforeAudition = state.auditionBaseComposition
+      ? state.auditionBasePendingCommit
+      : state.pendingCommit;
+    const playbackLoopBeforeAudition = state.auditionBaseComposition
+      ? state.auditionBasePlaybackLoopRange ?? state.playbackLoopRange
+      : state.playbackLoopRange;
     const loopRange = normalizedTickRange(state.loopRange, composition);
     set({
-      settings: clone(composition.settings),
+      settings: settingsForEditor(state.settings, composition),
       draftComposition: composition,
-      committedComposition: applyImmediately ? clone(composition) : committedBeforeAudition,
+      committedComposition: audibleSame
+        ? committedBeforeAudition
+        : applyImmediately
+          ? clone(composition)
+          : committedBeforeAudition,
       lockedBars: [...composition.lockedBars],
       selectedBarRange,
       loopRange,
-      playbackLoopRange: applyImmediately ? loopRange : state.playbackLoopRange,
+      playbackLoopRange: audibleSame
+        ? playbackLoopBeforeAudition
+        : applyImmediately
+          ? loopRange
+          : state.playbackLoopRange,
       historyIndex,
-      pendingCommit: !applyImmediately,
+      pendingCommit: audibleSame ? pendingBeforeAudition : !applyImmediately,
       previewVariations: [],
       auditionedVariationIndex: null,
       auditionBaseComposition: null,
@@ -2232,6 +2652,7 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
       `restore:${entry.name}`,
       entry.range,
       true,
+      "adoptExact",
     );
     set({
       ...update,
@@ -2344,7 +2765,14 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     const state = get();
     const composition = importCompositionJson(json);
     const loopRange = { startTick: 0, endTick: composition.totalTicks };
-    const update = stateAfterComposition(state, composition, "import-json", null, true);
+    const update = stateAfterComposition(
+      state,
+      composition,
+      "import-json",
+      null,
+      true,
+      "adoptExact",
+    );
     set({
       ...update,
       selectedBarRange: null,
@@ -2360,7 +2788,14 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     const loopRange = { startTick: 0, endTick: composition.totalTicks };
     // Same path as a project import: an imported melody replaces the piece and
     // must not leave a selection pointing at notes that no longer exist.
-    const update = stateAfterComposition(state, composition, "import-melody", null, true);
+    const update = stateAfterComposition(
+      state,
+      composition,
+      "import-melody",
+      null,
+      true,
+      "adoptExact",
+    );
     set({
       ...update,
       selectedBarRange: null,
