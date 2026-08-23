@@ -3,7 +3,7 @@
 [**日本語**](README.md) | [English](README.en.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version: 0.4.0](https://img.shields.io/badge/version-0.4.0-6f42c1.svg)](CHANGELOG.md)
+[![Version: 0.5.0](https://img.shields.io/badge/version-0.5.0-6f42c1.svg)](CHANGELOG.md)
 
 ## 🎹 インストール不要。ブラウザで開くだけです！！　2026/08/02
 
@@ -63,6 +63,7 @@
 - Like / Dislikeによる候補の並べ替え
 - Undo / Redo、JSON保存、マルチトラックMIDI書き出し
 - メロディのMIDIを読み込み、それに合うコードを自動で付ける
+- Aメロ・Bメロ・Cメロを別々に作り、並べて1曲にまとめる
 - 左上の**3本線**から、使い方ガイド・更新履歴・ライセンス・音量設定
 
 ### コードを直接編集する
@@ -87,6 +88,18 @@
 
 現在の直接操作はボタンとダイアログが中心です。ドラッグ＆ドロップや、ポインターで自由に
 長さを伸縮する操作は実装していません。長さ変更は1拍単位です。
+
+### Aメロ・Bメロ・Cメロを別々に作って1曲にまとめる
+
+曲のパーツを先に小さく作り、最後に順番を決めて組み立てられます。
+
+1. **4つのパーツを作る**を押して、Intro、Aメロ、Bメロ、Cメロの下書きを作ります。
+2. それぞれのカードで名前、テンプレート、Key / Scale / Style、長さ（8 / 16 / 24 / 32小節）を選びます。
+3. 設定を変えると元の素材を残したまま**未反映**になります。**この設定で生成**を押すと、そのパーツだけ更新されます。
+4. 下の並びでパーツを並べ替え、くり返し、削除、追加できます。合計は128小節以下です。
+5. パーツの間は、おまかせ（Auto）/ そのまま（Direct）/ 次へ導く（Dominant）/ 共通コード（Pivot）から選べます。PivotはKey / Scaleが実際に変わる境界だけで使え、さらに両側でdiatonicな共通chordが必要です。同じKey / Scaleで強制Pivotを選ぶと拒否されます。
+6. **1曲にまとめる**までは完成曲を上書きしません。並びに入っている未反映パーツがあると結合できません。失敗しても現在の曲は保持され、成功後もUndoで戻せます。
+7. 結合後は**完成曲の構成**をクリックしてパート全体を選択し、範囲やloopを決められます。再生、全trackのMIDI、JSONにも反映されます。スマートフォンでは横スクロール中も、見えているパート名が残ります。
 
 ## 2. 起動方法を選ぶ
 
@@ -356,6 +369,18 @@ APIを使えるため、手元の信頼できるネットワーク専用です�
 
 # Part 2：技術者向けリファレンス
 
+## v0.5.0の位置づけ
+
+v0.5.0は、生成したパーツを独立して設計し、順番・反復・接続を決めてから、明示的に
+1曲へ結合するためのリリースです。通常のコード編集、再生、マルチトラック、Undo / Redo、
+MIDI / JSONは、完成曲にも同じ定義で適用されます。
+
+セクション下書き、決定的なテンプレート生成、128小節までのsequence、境界のtransition
+reconciliation、完成曲のSectionRuler、スマートフォンのstickyなパート表示を含みます。
+結合は明示的な操作だけで行われ、失敗時は現在の完成曲を変更しません。v0.4.0の
+HarmonyForge neural-harmony研究プレビュー機能はoptionalな研究プレビュー経路として引き続き利用できますが、学習済みcheckpointを
+同梱・宣伝するものではありません。
+
 ## v0.4.0の位置づけ
 
 v0.4.0では、論文と実装計画に基づくニューラル和声プレビュー基盤を追加しました。
@@ -395,9 +420,52 @@ CUDA / Apple Metal（MPS）/ CPU adapterを実装しています。
 | 実装済み音楽機能 | [主な機能](#主な機能)、[UI操作仕様](#ui操作仕様)、[生成と好み学習](#生成と好み学習の仕組み) |
 | 実行環境 | [技術スタック](#技術スタック)、[Docker構成](#docker構成と起動技術者向け詳細)、[ネイティブ構成](#ネイティブ構成と起動技術者向け詳細)、[GPU高速化](#gpu高速化任意) |
 | ニューラルモデル | [HarmonyForge研究プレビュー](#ニューラル和声プレビューv04研究プレビュー)、[モデル配置と検証](#ニューラル和声プレビューv04研究プレビュー) |
+| セクション構成 | [セクション構成のアーキテクチャと契約](#セクション構成のアーキテクチャと契約) |
 | システム設計 | [アーキテクチャ](#アーキテクチャ)、[状態とエラー](#状態表示とエラー時の動作)、[設定と診断](#設定と診断) |
 | 安全性と再現性 | [セキュリティ](#セキュリティ)、[品質チェック](#品質チェック)、[再現性](#再現性と設定ファイル) |
 | 契約と保守 | [APIとデータ契約](#apiとデータ契約)、[ディレクトリ](#ディレクトリ)、[ロードマップ](#ロードマップ)、[参考資料](#参考にした音楽理論資料) |
+
+## セクション構成のアーキテクチャと契約
+
+```mermaid
+flowchart LR
+    DESIGN["SectionDesign<br/>role / template / bars / key"] --> GENERATE["generateArrangementSection"]
+    GENERATE --> SOURCE["immutable SectionSourceDefinition"]
+    SOURCE --> PLAN["sequence instances + adjacent links"]
+    PLAN --> ASSEMBLE["assembleSectionArrangement"]
+    ASSEMBLE --> FINAL["flat composition<br/>playback / MIDI / JSON / Undo"]
+```
+
+- `SectionDesign` は `generateArrangementSection` を通って、ネストした計画を持たない
+  immutable `SectionSourceDefinition` になります。source ID、sequence instance ID、link IDは安定し、
+  repeatは同じsourceを参照しますが、生成されるevent IDのprefixはinstanceごとに異なります。
+- sourceは8 / 16 / 24 / 32小節、sequence全体は128小節以下です。sequenceで参照中のdirty sourceは
+  fail-closedで結合を拒否します（未参照のdirty draftは保持できます）。結合は明示的な
+  `assembleSectionArrangement` だけが行い、Storeはdraft / committed / history / pending playback /
+  Undoを分離します。
+- `arrangementPlan` は `revision`、`assembledRevision`、`manualSongEdited` を持ちます。計画だけの編集は
+  完成曲の音を変えず、明示的なassemble成功時だけflat compositionを更新します。
+- 隣接linkのmodeは `auto` / `direct` / `dominant` / `pivot` です。pivotは両方の調に共通する
+  実在のdiatonic chordが必要で、強制した無効pivotは拒否します。dominantは解決先へのsecondary
+  dominantです。autoは転調時に有効なpivotを優先し、なければdominantへfallbackし、同一調では
+  deterministic seedでstyle approach / common tone / global voice-leadingを選びます。
+- approach / pivotは出発側の最終chordを半分にしてpickupを置きます。timelineは
+  `[0,totalTicks)` をずらさず、offset ticks / bars / locksを付けてから、全4声部のrevoiceとhandsの
+  整合、セクション間melodyのoctave smoothing、transition windowのpitch reconciliation、voice mergeを
+  行い、最後に `validateComposition` を通します。
+- JSON schemaは3です。schema v1 / v2は `arrangementPlan` が存在しなかった形式として安全に移行し、
+  未知のschemaやplan versionは拒否します。現行 `appVersion` は0.5.0です。
+- SectionRulerはChord Laneと同じ122px/bar alignmentを使い、再生位置・選択状態を文字でも表示します（色だけに頼りません）。
+  横スクロール中も、スマートフォンでは見えているパート名がstickyに残ります。
+
+この実装は既存の検証済みprogression catalogue、[section / modulation調査](docs/research/niche-genres.md)、
+[SoundQuestのsecondary dominant](https://soundquest.jp/quest/chord/chord-mv2/secondary-dominant/3/)、
+[Open Music Theoryのjazz voicing / voice-leading](https://viva.pressbooks.pub/openmusictheory/chapter/jazz-voicings/)
+を再利用しています。楽曲そのものや譜例をコピーせず、一般原理をdeterministic constraintとして
+実装しています。
+
+検証はStoreのhistory / pending、schema migrationとcurrent-plan coverage、128小節JSON、共有の
+`buildCompositionTracks` を使うMIDI、Chromium / WebKitのfull flow・axe・390px stickyを含みます。
 
 ## 主な機能
 
@@ -485,7 +553,7 @@ Advancedタブの「曲の流れ（Phase A）」「歌えるメロディ（Phase
 - Tone.js再生（左手低音、右手和音、主旋律、追加声部を分離し、ミュート／ソロ対応）
 - ピアノロール（A0〜C8の88鍵、トラック別の色・表示・選択、主旋律は従来どおり編集可能）
 - Standard MIDI File（Bass / Left Hand、Chords / Right Hand、Melody、各追加声部を別トラック化）
-- JSONプロジェクトschema v2（旧schema v1は安全に移行、新しい未知schemaは拒否）
+- JSONプロジェクトschema v3（旧schema v1 / v2は安全に移行、新しい未知schemaは拒否）
 
 **コードの彩り**
 
@@ -1064,16 +1132,16 @@ GET  /api/v2/jobs/{requestId}
 GET  /api/v2/models/{modelId}/manifest
 ```
 
-プロジェクトJSONには `schemaVersion` と `appVersion` が含まれます。旧v1形式は安全に移行し、未知の将来バージョンは現在の曲を変更せず拒否します。読込時はサイズ、MIME / 拡張子の手掛かり、JSON構造、数値範囲、tick、MIDI値を検証します。モデルは曲データと別schemaで検証し、未知形式を無理に読み込みません。
+プロジェクトJSONには `schemaVersion` と `appVersion` が含まれます。旧v1 / v2形式はarrangementPlanなしとして安全に移行し、未知の将来バージョンは現在の曲を変更せず拒否します。読込時はサイズ、MIME / 拡張子の手掛かり、JSON構造、数値範囲、tick、MIDI値を検証します。モデルは曲データと別schemaで検証し、未知形式を無理に読み込みません。
 
 ## ディレクトリ
 
 ```text
-frontend/src/music/       音楽理論・生成・検証（progressions.ts: 名前付き進行 / sections.ts: 曲構造・転調）
+frontend/src/music/       音楽理論・生成・検証（progressions.ts: 名前付き進行 / sections.ts: 曲構造・転調 / sectionArrangement.ts: 独立パーツ結合）
 frontend/src/audio/       再生スケジューラー
 frontend/src/state/       Draft / Committed / History
 frontend/src/storage/     project localStorage / preference IndexedDB / memory fallback
-frontend/src/features/    UI、診断、JSON / MIDI
+frontend/src/features/    UI、診断、JSON / MIDI（features/arrangement: Section Builder / SectionRuler）
 frontend/src/api/         OpenAPI由来のローカル推論クライアント
 backend/app/              FastAPIと推論バックエンド
 backend/app/ml/           tokenizer、Transformer、decode、checkpoint、device adapter
@@ -1094,7 +1162,6 @@ docs/                     互換性マトリクスとリリース検証チェッ
 - CUDA / Apple Metal（MPS）/ CPUで同一checkpointを使う実験・評価計画:
   [日本語](docs/research/neural-chord-model-plan.ja.md) /
   [English](docs/research/neural-chord-model-plan.en.md)
-- 名前付き進行・曲構造（セクション/転調）をBasic/Advanced設定UIから選択可能にする（現状はAPI/設定オブジェクト経由）
 - POP909以外の許諾済みコーパスを使ったスタイル別・階層型モデル
 - AutoHarmonizer等の公開学習済みモデルを共通backendへ移植し、旋律条件付き候補生成
 - A/B選択データを使ったpairwise ranking学習

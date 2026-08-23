@@ -30,10 +30,340 @@ function barSlice(barIndex: number) {
   };
 }
 
+function withoutArrangementPlan(composition: ReturnType<typeof useComposerStore.getState>["draftComposition"]) {
+  const copy = structuredClone(composition);
+  delete copy.arrangementPlan;
+  return copy;
+}
+
+function arrangementPlan() {
+  return useComposerStore.getState().draftComposition.arrangementPlan!;
+}
+
 describe("useComposerStore", () => {
   beforeEach(() => {
     localStorage.clear();
     useComposerStore.getState().reset({ seed: "state-tests" });
+  });
+
+  it("keeps arrangement initialization metadata-only while playing", () => {
+    const store = useComposerStore.getState();
+    store.setPlaybackStatus("playing");
+    store.setCurrentTick(1234);
+    const before = useComposerStore.getState();
+    const committed = structuredClone(before.committedComposition);
+    const committedReference = before.committedComposition;
+    const flat = withoutArrangementPlan(before.draftComposition);
+    const historyIndex = before.historyIndex;
+
+    expect(store.initializeSectionArrangement()).toBe(true);
+    const after = useComposerStore.getState();
+    expect(after.committedComposition).toEqual(committed);
+    expect(after.committedComposition).toBe(committedReference);
+    expect(withoutArrangementPlan(after.draftComposition)).toEqual(flat);
+    expect(after.pendingCommit).toBe(before.pendingCommit);
+    expect(after.playback.currentTick).toBe(before.playback.currentTick);
+    expect(after.historyIndex).toBe(historyIndex + 1);
+    expect(after.draftComposition.arrangementPlan).toBeDefined();
+  });
+
+  it("keeps plan-only undo and redo out of the audible commit path", () => {
+    const store = useComposerStore.getState();
+    expect(store.initializeSectionArrangement()).toBe(true);
+    const committed = structuredClone(useComposerStore.getState().committedComposition);
+    const tick = useComposerStore.getState().playback.currentTick;
+    const section = arrangementPlan().sections[0]!;
+
+    expect(store.updateArrangementSectionDesign(section.design.id, { name: "Intro draft" })).toBe(true);
+    expect(useComposerStore.getState().committedComposition).toEqual(committed);
+    expect(useComposerStore.getState().pendingCommit).toBe(false);
+    expect(store.undo()).toBe(true);
+    expect(useComposerStore.getState().committedComposition).toEqual(committed);
+    expect(useComposerStore.getState().pendingCommit).toBe(false);
+    expect(useComposerStore.getState().playback.currentTick).toBe(tick);
+    expect(store.redo()).toBe(true);
+    expect(useComposerStore.getState().committedComposition).toEqual(committed);
+    expect(useComposerStore.getState().pendingCommit).toBe(false);
+    expect(useComposerStore.getState().draftComposition.arrangementPlan?.sections[0]?.dirty).toBe(true);
+  });
+
+  it("ends arrangement audition by restoring its pre-audition audio state", () => {
+    const store = useComposerStore.getState();
+    expect(store.initializeSectionArrangement()).toBe(true);
+    const state = useComposerStore.getState();
+    const baseCommitted = state.committedComposition;
+    const baseLoop = { startTick: 240, endTick: 960 };
+    useComposerStore.setState({
+      committedComposition: structuredClone(state.draftComposition),
+      pendingCommit: false,
+      auditionBaseComposition: baseCommitted,
+      auditionBasePendingCommit: true,
+      auditionBasePlaybackLoopRange: baseLoop,
+      playbackLoopRange: { startTick: 0, endTick: state.draftComposition.totalTicks },
+    });
+    const tick = useComposerStore.getState().playback.currentTick;
+    expect(store.updateArrangementSectionDesign("source-intro", { name: "Audition-safe" })).toBe(true);
+    const after = useComposerStore.getState();
+    expect(after.committedComposition).toBe(baseCommitted);
+    expect(after.pendingCommit).toBe(true);
+    expect(after.playbackLoopRange).toEqual(baseLoop);
+    expect(after.playback.currentTick).toBe(tick);
+    expect(after.auditionBaseComposition).toBe(null);
+    expect(after.auditionedVariationIndex).toBe(null);
+  });
+
+  it("regenerates only the requested source with a deterministic revisioned stream", () => {
+    const store = useComposerStore.getState();
+    expect(store.initializeSectionArrangement()).toBe(true);
+    const before = structuredClone(arrangementPlan());
+    const target = before.sections.find((source) => source.design.id === "source-aMelo")!;
+    expect(store.regenerateArrangementSection(target.design.id)).toBe(true);
+    const first = structuredClone(arrangementPlan());
+    expect(first.revision).toBe(before.revision + 1);
+    expect(first.sections.find((source) => source.design.id === target.design.id)?.generationRevision)
+      .toBe(target.generationRevision + 1);
+    for (const source of before.sections) {
+      if (source.design.id === target.design.id) continue;
+      expect(first.sections.find((candidate) => candidate.design.id === source.design.id)).toEqual(source);
+    }
+    expect(store.undo()).toBe(true);
+    expect(store.regenerateArrangementSection(target.design.id)).toBe(true);
+    expect(arrangementPlan().sections.find((source) => source.design.id === target.design.id)?.material)
+      .toEqual(first.sections.find((source) => source.design.id === target.design.id)?.material);
+  });
+
+  it("edits clean source chords without changing the final song and rejects dirty sources", () => {
+    const store = useComposerStore.getState();
+    expect(store.initializeSectionArrangement()).toBe(true);
+    const source = arrangementPlan().sections[0]!;
+    const chord = source.material.chords[0]!;
+    const originalFinalChord = structuredClone(useComposerStore.getState().draftComposition.chords[0]);
+    const replacement = chord.symbol === "F#" ? "G#" : "F#";
+    expect(store.editArrangementSectionChord(source.design.id, chord.id, replacement)).toBe(true);
+    expect(useComposerStore.getState().draftComposition.chords[0]).toEqual(originalFinalChord);
+    expect(arrangementPlan().sections[0]?.generationRevision).toBe(source.generationRevision);
+    expect(arrangementPlan().sections[0]?.dirty).toBe(false);
+
+    expect(store.updateArrangementSectionDesign(source.design.id, { name: "Dirty Intro" })).toBe(true);
+    const dirtyChord = arrangementPlan().sections[0]!.material.chords[0]!;
+    expect(store.editArrangementSectionChord(source.design.id, dirtyChord.id, replacement)).toBe(false);
+  });
+
+  it("supports deterministic repeat/reorder/remove topology edits and rejects the last instance", () => {
+    const store = useComposerStore.getState();
+    expect(store.initializeSectionArrangement()).toBe(true);
+    const before = structuredClone(arrangementPlan());
+    const preserved = before.links[1]!;
+    const added = store.addArrangementInstance("source-intro");
+    expect(added).toBe("instance-source-intro");
+    const duplicate = store.duplicateArrangementInstance(added!);
+    expect(duplicate).toBe("instance-source-intro-2");
+    expect(store.moveArrangementInstance(duplicate!, -1)).toBe(true);
+    expect(arrangementPlan().sequence.map((instance) => instance.id)).toContain(duplicate);
+    const retained = arrangementPlan().links.find((link) => link.id === preserved.id);
+    expect(retained).toEqual(preserved);
+    expect(store.removeArrangementInstance(duplicate!)).toBe(true);
+    expect(store.removeArrangementInstance(added!)).toBe(true);
+
+    for (const instance of [...arrangementPlan().sequence.slice(1)]) {
+      expect(store.removeArrangementInstance(instance.id)).toBe(true);
+    }
+    expect(arrangementPlan().sequence).toHaveLength(1);
+    expect(store.removeArrangementInstance(arrangementPlan().sequence[0]!.id)).toBe(false);
+  });
+
+  it("rejects an arrangement over 128 bars and leaves no partial topology state", () => {
+    const store = useComposerStore.getState();
+    expect(store.initializeSectionArrangement()).toBe(true);
+    for (let index = 0; index < 12; index += 1) {
+      expect(store.addArrangementInstance("source-intro")).toBeTruthy();
+    }
+    const before = structuredClone(arrangementPlan());
+    const historyIndex = useComposerStore.getState().historyIndex;
+    expect(store.addArrangementInstance("source-intro")).toBe(null);
+    expect(arrangementPlan()).toEqual(before);
+    expect(useComposerStore.getState().historyIndex).toBe(historyIndex);
+  });
+
+  it("assembles explicitly, applies playback timing, and makes repeated assemble a no-op", () => {
+    const store = useComposerStore.getState();
+    expect(store.initializeSectionArrangement()).toBe(true);
+    const settingsBars = useComposerStore.getState().settings.bars;
+    const first = store.assembleArrangement();
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    let state = useComposerStore.getState();
+    expect(state.draftComposition.settings.bars).toBe(32);
+    expect(state.settings.bars).toBe(settingsBars);
+    expect(state.committedComposition).toEqual(state.draftComposition);
+    expect(state.draftComposition.arrangementPlan?.assembledRevision)
+      .toBe(state.draftComposition.arrangementPlan?.revision);
+    expect(state.draftComposition.arrangementPlan?.manualSongEdited).toBe(false);
+    expect(state.selectedBarRange).toBe(null);
+    expect(state.loopRange).toEqual({ startTick: 0, endTick: state.draftComposition.totalTicks });
+    const historyIndex = state.historyIndex;
+    const repeat = store.assembleArrangement();
+    expect(repeat.ok).toBe(true);
+    state = useComposerStore.getState();
+    expect(state.historyIndex).toBe(historyIndex);
+    expect(repeat).toEqual(first);
+  });
+
+  it("defers an assembled replacement while playing until the existing timing boundary", () => {
+    const store = useComposerStore.getState();
+    expect(store.initializeSectionArrangement()).toBe(true);
+    store.setPlaybackStatus("playing");
+    const before = structuredClone(useComposerStore.getState().committedComposition);
+    const result = store.assembleArrangement();
+    expect(result.ok).toBe(true);
+    const pending = useComposerStore.getState();
+    expect(pending.pendingCommit).toBe(true);
+    expect(pending.committedComposition).toEqual(before);
+    expect(pending.draftComposition.settings.bars).toBe(32);
+    store.setCurrentTick(pending.playback.currentTick + pending.committedComposition.ticksPerBar);
+    const applied = useComposerStore.getState();
+    expect(applied.pendingCommit).toBe(false);
+    expect(applied.committedComposition).toEqual(applied.draftComposition);
+  });
+
+  it("keeps editor bars narrow while adopting wide assembled history", () => {
+    const store = useComposerStore.getState();
+    const narrowBars = useComposerStore.getState().settings.bars;
+    expect([4, 8, 16, 24, 32, 48]).toContain(narrowBars);
+    expect(store.initializeSectionArrangement()).toBe(true);
+    for (let index = 0; index < 12; index += 1) {
+      expect(store.addArrangementInstance("source-intro")).toBeTruthy();
+    }
+    expect(store.assembleArrangement().ok).toBe(true);
+    expect(useComposerStore.getState().draftComposition.settings.bars).toBe(128);
+    expect(useComposerStore.getState().settings.bars).toBe(narrowBars);
+    const planId = arrangementPlan().id;
+    const assembledHistoryId = useComposerStore.getState().history.at(-1)!.id;
+
+    useComposerStore.setState({
+      settings: { ...useComposerStore.getState().settings, bars: 128 },
+    });
+    expect(store.updateArrangementSectionDesign("source-intro", { name: "Wide dirty draft" })).toBe(true);
+    expect(store.undo()).toBe(true);
+    expect(useComposerStore.getState().settings.bars).toBe(DEFAULT_GENERATOR_SETTINGS.bars);
+    expect(store.redo()).toBe(true);
+    expect(useComposerStore.getState().settings.bars).toBe(DEFAULT_GENERATOR_SETTINGS.bars);
+    expect(store.restoreHistoryEntry(assembledHistoryId)).toBe(true);
+    expect(useComposerStore.getState().settings.bars).toBe(narrowBars);
+    expect(() => store.generateComposition({ seed: "after-wide-restore" })).not.toThrow();
+    expect(useComposerStore.getState().settings.bars).toBe(narrowBars);
+    expect(useComposerStore.getState().draftComposition.arrangementPlan?.id)
+      .toBe(planId);
+    expect(useComposerStore.getState().draftComposition.arrangementPlan?.manualSongEdited).toBe(true);
+  });
+
+  it("restores the audition base loop when assembling while a preview is playing", () => {
+    const store = useComposerStore.getState();
+    expect(store.initializeSectionArrangement()).toBe(true);
+    const before = useComposerStore.getState();
+    const baseCommitted = before.committedComposition;
+    const baseLoop = { startTick: 240, endTick: 960 };
+    useComposerStore.setState({
+      playback: { ...before.playback, status: "playing" },
+      committedComposition: structuredClone(before.draftComposition),
+      pendingCommit: false,
+      auditionBaseComposition: baseCommitted,
+      auditionBasePendingCommit: true,
+      auditionBasePlaybackLoopRange: baseLoop,
+      playbackLoopRange: { startTick: 0, endTick: before.draftComposition.totalTicks },
+    });
+
+    const result = store.assembleArrangement();
+    expect(result.ok).toBe(true);
+    const after = useComposerStore.getState();
+    expect(after.committedComposition).toBe(baseCommitted);
+    expect(after.pendingCommit).toBe(true);
+    expect(after.playbackLoopRange).toEqual(baseLoop);
+    expect(after.auditionBaseComposition).toBe(null);
+    expect(after.auditionedVariationIndex).toBe(null);
+    expect(after.auditionBasePendingCommit).toBe(false);
+    expect(after.auditionBasePlaybackLoopRange).toBe(null);
+  });
+
+  it("clears a source template claim after chord editing while preserving it for untouched sources", () => {
+    const store = useComposerStore.getState();
+    expect(store.initializeSectionArrangement()).toBe(true);
+    const source = arrangementPlan().sections[0]!;
+    const originalProgression = source.material.settings.progressionId;
+    expect(originalProgression).toBeDefined();
+    const chord = source.material.chords[0]!;
+    const replacement = chord.symbol === "F#" ? "G#" : "F#";
+    expect(store.editArrangementSectionChord(source.design.id, chord.id, replacement)).toBe(true);
+    expect(arrangementPlan().sections[0]!.material.settings.progressionId).toBeUndefined();
+    expect(store.undo()).toBe(true);
+    expect(arrangementPlan().sections[0]!.material.settings.progressionId).toBe(originalProgression);
+    expect(store.redo()).toBe(true);
+    const assembled = store.assembleArrangement();
+    expect(assembled.ok).toBe(true);
+    if (!assembled.ok) return;
+    const editedSection = assembled.composition.sections?.find((section) => section.id === "instance-intro");
+    const untouchedSection = assembled.composition.sections?.find((section) => section.id === "instance-aMelo");
+    expect(editedSection?.progressionId).toBeUndefined();
+    expect(untouchedSection?.progressionId).toBeDefined();
+  });
+
+  it("marks manual final edits and restores them when undoing a reassembly", () => {
+    const store = useComposerStore.getState();
+    expect(store.initializeSectionArrangement()).toBe(true);
+    expect(store.assembleArrangement().ok).toBe(true);
+    const chord = useComposerStore.getState().draftComposition.chords[0]!;
+    const replacement = chord.symbol === "F#" ? "G#" : "F#";
+    expect(store.editChord(chord.id, replacement)).toBe(true);
+    expect(arrangementPlan().manualSongEdited).toBe(true);
+    const editedSymbol = useComposerStore.getState().draftComposition.chords[0]!.symbol;
+    expect(store.assembleArrangement().ok).toBe(true);
+    expect(arrangementPlan().manualSongEdited).toBe(false);
+    expect(useComposerStore.getState().draftComposition.chords[0]!.symbol).not.toBe(editedSymbol);
+    expect(store.undo()).toBe(true);
+    expect(useComposerStore.getState().draftComposition.chords[0]!.symbol).toBe(editedSymbol);
+    expect(arrangementPlan().manualSongEdited).toBe(true);
+  });
+
+  it("preserves an arrangement plan when main Generate replaces the flat song", () => {
+    const store = useComposerStore.getState();
+    expect(store.initializeSectionArrangement()).toBe(true);
+    const planId = arrangementPlan().id;
+    store.generateComposition({ seed: "new-flat-song" });
+    expect(arrangementPlan().id).toBe(planId);
+    expect(arrangementPlan().manualSongEdited).toBe(true);
+  });
+
+  it("does not create history for arrangement no-ops", () => {
+    const store = useComposerStore.getState();
+    expect(store.initializeSectionArrangement()).toBe(true);
+    const plan = arrangementPlan();
+    const historyIndex = useComposerStore.getState().historyIndex;
+    expect(store.updateArrangementSectionDesign(plan.sections[0]!.design.id, {
+      name: plan.sections[0]!.design.name,
+    })).toBe(false);
+    const link = plan.links[0]!;
+    const revision = arrangementPlan().revision;
+    expect(store.setArrangementLinkMode(link.id, "direct")).toBe(true);
+    expect(arrangementPlan().revision).toBe(revision + 1);
+    expect(arrangementPlan().links[0]?.id).toBe(link.id);
+    expect(arrangementPlan().links[0]?.seed).toBe(link.seed);
+    expect(arrangementPlan().resolvedLinks).toEqual([]);
+    const afterLinkHistory = useComposerStore.getState().historyIndex;
+    expect(store.setArrangementLinkMode(link.id, "direct")).toBe(false);
+    expect(store.moveArrangementInstance(plan.sequence[0]!.id, -1)).toBe(false);
+    expect(store.addArrangementInstance("missing-source")).toBe(null);
+    expect(useComposerStore.getState().historyIndex).toBe(afterLinkHistory);
+    expect(afterLinkHistory).toBe(historyIndex + 1);
+  });
+
+  it("allows an unreferenced dirty draft source while blocking it when referenced", () => {
+    const store = useComposerStore.getState();
+    expect(store.initializeSectionArrangement()).toBe(true);
+    expect(store.updateArrangementSectionDesign("source-intro", { name: "Dirty Intro" })).toBe(true);
+    expect(store.assembleArrangement().ok).toBe(false);
+    expect(store.removeArrangementInstance("instance-intro")).toBe(true);
+    const result = store.assembleArrangement();
+    expect(result.ok).toBe(true);
   });
 
   it("generates deterministically for the same settings and seed", () => {
@@ -47,6 +377,24 @@ describe("useComposerStore", () => {
     expect(second.chords).toEqual(first.chords);
     expect(second.notes).toEqual(first.notes);
     expect(second.seed).toBe(first.seed);
+  });
+
+  it("syncs ordinary generator bars from the generated composition", () => {
+    const store = useComposerStore.getState();
+    store.generateComposition({ bars: 16, seed: "ordinary-16" });
+    expect(useComposerStore.getState().draftComposition.settings.bars).toBe(16);
+    expect(useComposerStore.getState().settings.bars).toBe(16);
+  });
+
+  it("syncs ordinary bar counts across history undo and redo", () => {
+    const store = useComposerStore.getState();
+    store.generateComposition({ bars: 16, seed: "ordinary-16" });
+    store.generateComposition({ bars: 24, seed: "ordinary-24" });
+    expect(useComposerStore.getState().settings.bars).toBe(24);
+    expect(store.undo()).toBe(true);
+    expect(useComposerStore.getState().settings.bars).toBe(16);
+    expect(store.redo()).toBe(true);
+    expect(useComposerStore.getState().settings.bars).toBe(24);
   });
 
   it("preserves bars outside the regeneration range and locked bars inside it", () => {

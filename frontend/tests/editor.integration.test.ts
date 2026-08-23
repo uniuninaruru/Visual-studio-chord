@@ -151,7 +151,7 @@ describe("structured chord editor integration", () => {
     const document = JSON.parse(exportCompositionJson(composition)) as {
       schemaVersion: number;
     };
-    expect(document.schemaVersion).toBe(2);
+    expect(document.schemaVersion).toBe(3);
     expect(importCompositionJson(exportCompositionJson(composition))).toEqual(composition);
   });
 

@@ -6,6 +6,37 @@
 
 ## 未リリース
 
+なし。
+
+## 0.5.0 — 大規模アップデート: セクション構成とDAW編集（2026-08-24）
+
+### 追加 — パーツを別々に作り、明示的に1曲へまとめる
+
+- 初心者向けの導線として、Intro / Aメロ / Bメロ / Cメロを「4つのパーツを作る」から独立して生成し、名前、テンプレート、Key / Scale / Style、8 / 16 / 24 / 32小節をパーツごとに設定できます。
+- 設定変更は旧素材を保持したまま未反映になり、「この設定で生成」で対象パーツだけを決定的に再生成します。並べ替え、反復、削除、追加を合計128小節まで行えます。
+- Auto / Direct / Dominant / Pivotの接続を選べます。PivotはKey / Scaleが実際に変わる境界だけで使い、両方の調に共通する実在のdiatonic chordを要求します。同じKey / Scaleでのforced Pivotやinvalidな指定はfail-closedで拒否します。Dominantはsecondary dominant、Autoは転調時のpivot優先とdominant fallback、同一調のseeded approach / common-tone / voice-leadingを使います。
+- 結合は明示的な「1曲にまとめる」だけで行い、参照中dirty source、壊れたリンク、128小節超などの失敗では現在の曲を保持します。成功後もUndoで戻せます。
+
+### 追加 — セクション境界の理論とデータ境界
+
+- `SectionDesign` → `generateArrangementSection` → immutable `SectionSourceDefinition` → sequence instances / adjacent links → `assembleSectionArrangement` の境界を追加しました。source / instance / linkのstable ID、revision / assembledRevision / manualSongEditedを保持します。
+- repeatは同じsourceを参照しながらinstance固有のevent ID prefixを使います。結合時はoffset ticks / bars / locks、全4声部のrevoiceとhands、セクション間melody octave smoothing、transition-window pitch reconciliation、voice mergeを適用し、最後に`validateComposition`を実行します。
+- approach / pivotは出発側最終chordを半分にしてpickupを置きますが、timeline `[0,totalTicks)` はずらしません。Storeのdraft / committed / history / pending playback / Undoは計画編集と正式結合を分離します。
+
+### 追加 — 書き出し、モバイル、アクセシビリティ、検証
+
+- JSON schema 3とappVersion 0.5.0に更新しました。schema v1 / v2はarrangementPlanなしとして安全に移行し、未知のschema / plan versionは拒否します。
+- 完成曲のSectionRulerはChord Laneと122px/barで揃い、再生位置・選択範囲を文章でも示します。スマートフォンの横スクロール中は見えているパート名をsticky表示します。
+- 再生、Bass / Left Hand、Chords / Right Hand、Melody、追加声部、128小節のMIDIは共有`buildCompositionTracks`を使用し、JSONにも同じ完成曲を保存します。
+- Store/history/pending、schema migration/current-plan coverage、128小節JSON/MIDI、Chromium/WebKit full flow、axe、390px stickyを回帰テストに追加しました。
+
+### 参照境界とアーキテクチャ
+
+既存の検証済みprogression catalogue、[section / modulation調査](docs/research/niche-genres.md)、
+[SoundQuestのsecondary dominant](https://soundquest.jp/quest/chord/chord-mv2/secondary-dominant/3/)、
+[Open Music Theoryのjazz voicing / voice-leading](https://viva.pressbooks.pub/openmusictheory/chapter/jazz-voicings/)を再利用しています。
+楽曲そのものや譜例はコピーせず、一般原理をdeterministic constraintとして実装しています。
+
 ### 大規模アップデート — DAW-style direct chord editing（[Issue #27](https://github.com/uniuninaruru/Visual-studio-chord/issues/27)）
 
 コードレーンからコード構造と響きを直接編集できるようにしました。

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_GENERATOR_SETTINGS, generateComposition } from "../src/music";
+import {
+  DEFAULT_GENERATOR_SETTINGS,
+  assembleSectionArrangement,
+  createDefaultSectionArrangement,
+  generateComposition,
+  reconcileSectionLinks,
+} from "../src/music";
 import {
   EDITOR_HISTORY_STORAGE_KEY,
   EDITOR_STORAGE_KEY,
@@ -68,6 +74,41 @@ function editorSnapshot(seed = "persistence-a"): PersistedEditorSnapshot {
       action: "generate",
       timestamp: "2026-07-22T00:00:00.000Z",
       seed,
+      range: null,
+      composition,
+    }],
+    historyIndex: 0,
+    regenerationIteration: 0,
+  };
+}
+
+function assembled128Snapshot(): PersistedEditorSnapshot {
+  const basePlan = createDefaultSectionArrangement(DEFAULT_GENERATOR_SETTINGS);
+  const sequence = [
+    ...basePlan.sequence,
+    ...Array.from({ length: 12 }, (_, index) => ({
+      id: `instance-persistence-intro-${index + 1}`,
+      sourceSectionId: "source-intro",
+    })),
+  ];
+  const plan = reconcileSectionLinks(basePlan, sequence);
+  const result = assembleSectionArrangement(plan, DEFAULT_GENERATOR_SETTINGS);
+  if (!result.ok) throw new Error(result.issues.map((entry) => entry.message).join(" "));
+  const composition = result.composition;
+  return {
+    version: 1,
+    settings: structuredClone(DEFAULT_GENERATOR_SETTINGS),
+    composition,
+    selectedBarRange: null,
+    loopRange: { startTick: 0, endTick: composition.totalTicks },
+    lockedBars: composition.lockedBars,
+    updateTiming: "nextBar",
+    history: [{
+      id: "history-arranged-128",
+      name: "Assembled 128",
+      action: "assemble-arrangement",
+      timestamp: "2026-07-22T00:00:00.000Z",
+      seed: composition.seed,
       range: null,
       composition,
     }],
@@ -268,5 +309,26 @@ describe("safe storage helpers", () => {
     expect(clearEditorSnapshot(storage)).toBe(true);
     expect(storage.getItem(EDITOR_STORAGE_KEY)).toBeNull();
     expect(storage.getItem(EDITOR_HISTORY_STORAGE_KEY)).toBeNull();
+  });
+
+  it("round-trips a 128-bar arrangement in current and history storage with narrow settings", () => {
+    const storage = new MapStorage();
+    const snapshot = assembled128Snapshot();
+    expect(snapshot.composition.settings.bars).toBe(128);
+    expect(snapshot.settings.bars).toBe(DEFAULT_GENERATOR_SETTINGS.bars);
+    expect(saveEditorSnapshotWithStatus(snapshot, storage)).toMatchObject({
+      currentSaved: true,
+      historySaved: true,
+    });
+
+    const loaded = loadEditorSnapshotWithStatus(storage);
+    expect(loaded.issue).toBe("none");
+    expect(loaded.snapshot?.settings.bars).toBe(DEFAULT_GENERATOR_SETTINGS.bars);
+    expect(loaded.snapshot?.composition).toEqual(snapshot.composition);
+    expect(loaded.snapshot?.history[loaded.snapshot.historyIndex]?.composition)
+      .toEqual(snapshot.composition);
+    expect(loaded.snapshot?.composition.arrangementPlan).toEqual(
+      snapshot.composition.arrangementPlan,
+    );
   });
 });
