@@ -30,6 +30,11 @@ import {
 } from "./scales";
 import { ticksPerBar, ticksPerBeat } from "./time";
 
+export interface GeneratorValidationOptions {
+  /** Arrangement assembly is the only caller allowed to use 40..128 bars. */
+  allowArrangementBars?: boolean;
+}
+
 function result(issues: ValidationIssue[]): ValidationResult {
   const errors = issues.filter((issue) => issue.severity === "error");
   const warnings = issues.filter((issue) => issue.severity === "warning");
@@ -52,7 +57,10 @@ function isProbability(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
-export function validateGeneratorSettings(settings: GeneratorSettings): ValidationResult {
+export function validateGeneratorSettings(
+  settings: GeneratorSettings,
+  options: GeneratorValidationOptions = {},
+): ValidationResult {
   const issues: ValidationIssue[] = [];
   let keyIsValid = true;
   try {
@@ -75,8 +83,16 @@ export function validateGeneratorSettings(settings: GeneratorSettings): Validati
   if (!["4/4", "3/4", "6/8"].includes(settings.timeSignature)) {
     issues.push(error("settings.timeSignature", "Time signature must be 4/4, 3/4, or 6/8."));
   }
-  if (![4, 8, 16, 24, 32, 48].includes(settings.bars)) {
-    issues.push(error("settings.bars", "Bar count must be 4, 8, 16, 24, 32, or 48."));
+  const allowedBars = options.allowArrangementBars
+    ? [4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128]
+    : [4, 8, 16, 24, 32, 48];
+  if (!allowedBars.includes(settings.bars)) {
+    issues.push(error(
+      "settings.bars",
+      options.allowArrangementBars
+        ? "Bar count must be one of 4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, or 128."
+        : "Bar count must be one of 4, 8, 16, 24, 32, or 48.",
+    ));
   }
   if (
     ![
@@ -481,7 +497,9 @@ function validateChord(
 }
 
 export function validateComposition(composition: GeneratedComposition): ValidationResult {
-  const settingsValidation = validateGeneratorSettings(composition.settings);
+  const settingsValidation = validateGeneratorSettings(composition.settings, {
+    allowArrangementBars: composition.arrangementPlan !== undefined,
+  });
   const issues: ValidationIssue[] = [
     ...settingsValidation.errors,
     ...settingsValidation.warnings,
