@@ -51,7 +51,7 @@
   },
   "evaluationScope": "languageModelOnlyNotUiTemplateAdvisor",
   "evaluatorVersion": "mcgill-billboard-external-evaluator-1",
-  "generatedAt": "2026-08-24T19:57:28.386006Z",
+  "generatedAt": "2026-08-24T20:05:23.138403Z",
   "model": {
     "modelId": "harmony-corpus-ngram-v1",
     "modelSha256": "dfa28603b2aa0247abe5265a6975ae8267042a91e72e8c1ddd2221e2624209ae",
@@ -63,8 +63,8 @@
     ]
   },
   "normalization": {
-    "parserVersion": "mcgill-salami-v2-normalizer-1",
-    "tokenizerScriptSha256": "b524df19323c5fbc28c30e90960a8dec3d17e0d7b2e22c774647693fd947a28d"
+    "canonicalTokenizerScriptSha256": "b524df19323c5fbc28c30e90960a8dec3d17e0d7b2e22c774647693fd947a28d",
+    "parserVersion": "mcgill-salami-v2-normalizer-1"
   },
   "order3Deltas": {
     "vsOrder1": {

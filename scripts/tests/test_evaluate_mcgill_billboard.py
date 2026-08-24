@@ -424,7 +424,9 @@ class ModelMetricsTests(unittest.TestCase):
             tokenizer_data = original_reader(
                 tokenizer_path, max_bytes=MODULE.MAX_MODEL_BYTES
             )
-            expected_hash = hashlib.sha256(tokenizer_data).hexdigest()
+            expected_hash = hashlib.sha256(
+                MODULE._canonicalize_tokenizer_snapshot(tokenizer_data)
+            ).hexdigest()
             loaded_module, loaded_hash = MODULE._load_training_tokenizer()
             self.assertEqual(loaded_hash, expected_hash)
             self.assertEqual(
@@ -446,7 +448,36 @@ class ModelMetricsTests(unittest.TestCase):
                 ),
             ):
                 model = MODULE.load_model(path)
-            self.assertEqual(model.tokenizer_sha256, expected_hash)
+            self.assertEqual(model.canonical_tokenizer_sha256, expected_hash)
+
+    def test_tokenizer_newlines_are_canonical_and_invalid_bytes_rejected(self) -> None:
+        tokenizer_path = Path(MODULE.__file__).with_name("train-harmony-corpus.py")
+        original_reader = MODULE._read_regular_snapshot
+        source = original_reader(tokenizer_path, max_bytes=MODULE.MAX_MODEL_BYTES)
+        canonical = MODULE._canonicalize_tokenizer_snapshot(source)
+        variants = (
+            canonical,
+            canonical.replace(b"\n", b"\r\n"),
+            canonical.replace(b"\n", b"\r"),
+        )
+        hashes = []
+        tokens = []
+        for variant in variants:
+            with mock.patch.object(
+                MODULE, "_read_regular_snapshot", return_value=variant
+            ):
+                loaded_module, loaded_hash = MODULE._load_training_tokenizer()
+            hashes.append(loaded_hash)
+            tokens.append(loaded_module.chord_token("G:7", "C:maj"))
+        self.assertEqual(hashes, [hashes[0]] * len(variants))
+        self.assertEqual(tokens, [MODULE._TRAIN.chord_token("G:7", "C:maj")] * 3)
+        for invalid in (canonical + b"\x80", canonical + b"\x00"):
+            with self.subTest(invalid=invalid[-1:]):
+                with mock.patch.object(
+                    MODULE, "_read_regular_snapshot", return_value=invalid
+                ):
+                    with self.assertRaises(MODULE.EvaluationInputError):
+                        MODULE._load_training_tokenizer()
 
     def test_model_strict_schema_and_sha(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -617,7 +648,7 @@ class ModelMetricsTests(unittest.TestCase):
                 report1["normalization"],
                 {
                     "parserVersion": MODULE.PARSER_VERSION,
-                    "tokenizerScriptSha256": MODULE.TRAIN_TOKENIZER_SHA256,
+                    "canonicalTokenizerScriptSha256": MODULE.CANONICAL_TOKENIZER_SHA256,
                 },
             )
             self.assertEqual(
@@ -668,12 +699,13 @@ class TrackedReportContractTests(unittest.TestCase):
             MODULE.EXPECTED_MODEL_SHA256,
         )
         self.assertNotIn("tokenizerScriptSha256", report["model"])
+        self.assertNotIn("canonicalTokenizerScriptSha256", report["model"])
         self.assertEqual(
             report["normalization"]["parserVersion"], MODULE.PARSER_VERSION
         )
         self.assertEqual(
-            report["normalization"]["tokenizerScriptSha256"],
-            MODULE.TRAIN_TOKENIZER_SHA256,
+            report["normalization"]["canonicalTokenizerScriptSha256"],
+            MODULE.CANONICAL_TOKENIZER_SHA256,
         )
         self.assertEqual(
             report["protocol"]["sectionBoundaryDefinition"][

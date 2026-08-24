@@ -53,12 +53,13 @@ raw dataset、曲名、アーティスト、絶対パス、個別sequenceを文�
 | portable tree | `312a0e6478ca018aef44291e799434cc2096c0ea4a0e2568ef0ac90020ebb503` |
 | tracked aggregate model | `dfa28603b2aa0247abe5265a6975ae8267042a91e72e8c1ddd2221e2624209ae` |
 | normalized evaluation input | `f0ceb26872322f3e867d0d6ba9c4523c0bd057efed9799769a6208993cc21fdb` |
-| tokenizer script | `b524df19323c5fbc28c30e90960a8dec3d17e0d7b2e22c774647693fd947a28d` |
+| canonical tokenizer script (strict UTF-8 + LF) | `b524df19323c5fbc28c30e90960a8dec3d17e0d7b2e22c774647693fd947a28d` |
 
 ## 正規化プロトコル
 
 `parserVersion: mcgill-salami-v2-normalizer-1` は、既存の
-`scripts/train-harmony-corpus.py` と同じsnapshot tokenizerを使います。正規化は次の
+`scripts/train-harmony-corpus.py` をstrict UTF-8として読み、CRLFと単独CRをLFへ
+canonicalizeしたsnapshot tokenizerを、hashとcompile/execの両方に使います。正規化は次の
 境界を固定します。
 
 - rootはtonicからの相対半音にし、slash bassはtoken化に使いません。extensionsは既存のquality classへ正規化します。
