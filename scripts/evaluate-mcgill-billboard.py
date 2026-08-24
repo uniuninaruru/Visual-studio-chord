@@ -107,9 +107,21 @@ class EvaluationInputError(ValueError):
     """The external corpus is malformed or violates its safety contract."""
 
 
+def _canonicalize_tokenizer_snapshot(data: bytes) -> bytes:
+    try:
+        text = data.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise EvaluationInputError("the training tokenizer is not valid UTF-8") from exc
+    if "\x00" in text:
+        raise EvaluationInputError("the training tokenizer contains NUL")
+    return text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+
+
 def _load_training_tokenizer() -> tuple[types.ModuleType, str]:
     script = Path(__file__).with_name("train-harmony-corpus.py")
-    data = _read_regular_snapshot(script, max_bytes=MAX_MODEL_BYTES)
+    data = _canonicalize_tokenizer_snapshot(
+        _read_regular_snapshot(script, max_bytes=MAX_MODEL_BYTES)
+    )
     digest = hashlib.sha256(data).hexdigest()
     module = types.ModuleType("train_harmony_corpus_for_eval")
     module.__file__ = str(script)
@@ -514,7 +526,7 @@ def _read_regular_snapshot(path: Path, *, max_bytes: int) -> bytes:
         raise EvaluationInputError("file cannot be read safely") from exc
 
 
-_TRAIN, TRAIN_TOKENIZER_SHA256 = _load_training_tokenizer()
+_TRAIN, CANONICAL_TOKENIZER_SHA256 = _load_training_tokenizer()
 PITCH_CLASSES = _TRAIN.PITCH_CLASSES
 CHORD_PATTERN = _TRAIN.CHORD_PATTERN
 normalized_quality = _TRAIN.normalized_quality
@@ -689,7 +701,7 @@ class HarmonyModel:
     model_version: str
     orders: dict[int, dict[str, int]]
     sha256: str
-    tokenizer_sha256: str
+    canonical_tokenizer_sha256: str
 
 
 def _json_load_strict(data: bytes, description: str) -> object:
@@ -784,7 +796,7 @@ def load_model(path: Path = DEFAULT_MODEL) -> HarmonyModel:
         MODEL_VERSION,
         orders,
         model_sha256,
-        TRAIN_TOKENIZER_SHA256,
+        CANONICAL_TOKENIZER_SHA256,
     )
 
 
@@ -1173,7 +1185,7 @@ def build_report(
         },
         "normalization": {
             "parserVersion": PARSER_VERSION,
-            "tokenizerScriptSha256": TRAIN_TOKENIZER_SHA256,
+            "canonicalTokenizerScriptSha256": CANONICAL_TOKENIZER_SHA256,
         },
         "coverage": _coverage_payload(parsed.coverage),
         "protocol": {

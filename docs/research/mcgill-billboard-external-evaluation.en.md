@@ -57,12 +57,14 @@ SHA-256 values.
 | portable tree | `312a0e6478ca018aef44291e799434cc2096c0ea4a0e2568ef0ac90020ebb503` |
 | tracked aggregate model | `dfa28603b2aa0247abe5265a6975ae8267042a91e72e8c1ddd2221e2624209ae` |
 | normalized evaluation input | `f0ceb26872322f3e867d0d6ba9c4523c0bd057efed9799769a6208993cc21fdb` |
-| tokenizer script | `b524df19323c5fbc28c30e90960a8dec3d17e0d7b2e22c774647693fd947a28d` |
+| canonical tokenizer script (strict UTF-8 + LF) | `b524df19323c5fbc28c30e90960a8dec3d17e0d7b2e22c774647693fd947a28d` |
 
 ## Normalization protocol
 
-`parserVersion: mcgill-salami-v2-normalizer-1` uses the same snapshot tokenizer
-as `scripts/train-harmony-corpus.py`. The normalization fixes these boundaries:
+`parserVersion: mcgill-salami-v2-normalizer-1` reads
+`scripts/train-harmony-corpus.py` as strict UTF-8, canonicalizes CRLF and lone CR
+to LF, and uses that canonical snapshot for both hashing and compile/exec. The
+normalization fixes these boundaries:
 
 - Roots are tonic-relative semitones; slash bass is not tokenized. Extensions are normalized into the existing quality classes.
 - Adjacent identical tokens collapse; `.` expands the preceding token within the phrase; official `xN` repeats are expanded. Elision markers are counted and then removed.

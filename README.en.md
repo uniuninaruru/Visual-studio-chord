@@ -487,7 +487,8 @@ python3 scripts/evaluate-mcgill-billboard.py \
 ```
 
 The report fixes five SHA-256 values for the source archive, portable tree,
-model, normalized input, and tokenizer script, plus denominators and OOV rate,
+model, normalized input, and the canonical tokenizer script (strict UTF-8 + LF;
+not raw checkout bytes), plus denominators and OOV rate,
 overall and section-boundary results,
 and the claims that are intentionally excluded:
 [McGill Billboard external evaluation report](docs/research/mcgill-billboard-external-evaluation.en.md).
@@ -502,10 +503,10 @@ The input hashes and denominator are:
 | portable tree | `312a0e6478ca018aef44291e799434cc2096c0ea4a0e2568ef0ac90020ebb503` |
 | tracked aggregate model | `dfa28603b2aa0247abe5265a6975ae8267042a91e72e8c1ddd2221e2624209ae` |
 | normalized evaluation input | `f0ceb26872322f3e867d0d6ba9c4523c0bd057efed9799769a6208993cc21fdb` |
-| tokenizer script | `b524df19323c5fbc28c30e90960a8dec3d17e0d7b2e22c774647693fd947a28d` |
+| canonical tokenizer script (strict UTF-8 + LF) | `b524df19323c5fbc28c30e90960a8dec3d17e0d7b2e22c774647693fd947a28d` |
 | coverage / OOV | 890 annotations, 79,807 transitions / `191 / 79,807 = 0.2393%` |
 
-`parserVersion` is `mcgill-salami-v2-normalizer-1`. The candidate set is all 106 model unigrams, not the UI template advisor
+`parserVersion` is `mcgill-salami-v2-normalizer-1`. The tokenizer is read as strict UTF-8; CRLF and lone CR are canonicalized to LF, and those canonical bytes are used for both hashing and compile/exec. The candidate set is all 106 model unigrams, not the UI template advisor
 subset. McGill is centered on US Billboard material from 1958–1991; melody,
 voicing, rhythm, audio, listening, and song-ID identity exclusion relative to
 POP909 are not evaluated. Do not read the overall 3-gram improvement as a claim

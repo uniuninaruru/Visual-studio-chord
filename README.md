@@ -455,7 +455,8 @@ python3 scripts/evaluate-mcgill-billboard.py \
   --output docs/research/evaluations/mcgill-billboard-v2-harmony-language-model-v1.json
 ```
 
-source archive、portable tree、model、normalized input、tokenizer scriptの5つのSHA-256、分母とOOV、
+source archive、portable tree、model、normalized input、strict UTF-8 + LF canonical formの
+tokenizer scriptの5つのSHA-256（raw checkout bytesではない）、分母とOOV、
 overall / section-boundaryの数値、そして「何を主張しないか」は
 [McGill Billboard外部評価レポート](docs/research/mcgill-billboard-external-evaluation.ja.md)
 に固定しています。
@@ -469,10 +470,10 @@ overall / section-boundaryの数値、そして「何を主張しないか」は
 | portable tree | `312a0e6478ca018aef44291e799434cc2096c0ea4a0e2568ef0ac90020ebb503` |
 | tracked aggregate model | `dfa28603b2aa0247abe5265a6975ae8267042a91e72e8c1ddd2221e2624209ae` |
 | normalized evaluation input | `f0ceb26872322f3e867d0d6ba9c4523c0bd057efed9799769a6208993cc21fdb` |
-| tokenizer script | `b524df19323c5fbc28c30e90960a8dec3d17e0d7b2e22c774647693fd947a28d` |
+| canonical tokenizer script (strict UTF-8 + LF) | `b524df19323c5fbc28c30e90960a8dec3d17e0d7b2e22c774647693fd947a28d` |
 | coverage / OOV | 890 annotations, 79,807 transitions / `191 / 79,807 = 0.2393%` |
 
-`parserVersion`は`mcgill-salami-v2-normalizer-1`です。候補集合はUI template advisor subsetではなくmodel unigram全106語です。McGillは
+`parserVersion`は`mcgill-salami-v2-normalizer-1`です。tokenizerはstrict UTF-8で読み、CRLFと単独CRをLFへcanonicalizeしたbytesをhashとcompile/execの両方に使います。候補集合はUI template advisor subsetではなくmodel unigram全106語です。McGillは
 1958–1991年の米国Billboard中心で、melody、voicing、rhythm、audio、listeningや
 POP909とのsong ID同一性排除は評価していません。3-gramのoverall改善を、音楽品質や
 候補器全体の改善とは読み替えません。
