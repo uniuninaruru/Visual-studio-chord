@@ -35,6 +35,7 @@ export * from "./sectionArrangement";
 export * from "./rhythmGenerator";
 export * from "./scales";
 export * from "./styles";
+export * from "./statisticalHarmony";
 export * from "./tensionCurve";
 export * from "./time";
 export * from "./validation";

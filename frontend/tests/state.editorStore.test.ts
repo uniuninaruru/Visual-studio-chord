@@ -587,10 +587,22 @@ describe("useComposerStore", () => {
     expect(state.draftComposition.chords.find((chord) => chord.id === target.id)?.quality)
       .toBe(nextQuality);
     expect(state.undo()).toBe(true);
+    expect(useComposerStore.getState().pendingCommit).toBe(false);
+    expect(useComposerStore.getState().committedComposition.chords.find((chord) => chord.id === target.id))
+      .toEqual(original);
     expect(useComposerStore.getState().draftComposition.chords.find((chord) => chord.id === target.id))
       .toEqual(original);
     expect(useComposerStore.getState().redo()).toBe(true);
+    expect(useComposerStore.getState().pendingCommit).toBe(true);
+    expect(useComposerStore.getState().committedComposition.chords.find((chord) => chord.id === target.id))
+      .toEqual(original);
     expect(useComposerStore.getState().draftComposition.chords.find((chord) => chord.id === target.id)?.quality)
+      .toBe(nextQuality);
+    useComposerStore.getState().setCurrentTick(useComposerStore.getState().draftComposition.ticksPerBar);
+    expect(useComposerStore.getState().pendingCommit).toBe(false);
+    expect(useComposerStore.getState().undo()).toBe(true);
+    expect(useComposerStore.getState().pendingCommit).toBe(true);
+    expect(useComposerStore.getState().committedComposition.chords.find((chord) => chord.id === target.id)?.quality)
       .toBe(nextQuality);
   });
 

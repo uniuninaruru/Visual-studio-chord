@@ -7,7 +7,13 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
-None.
+### Major update — Statistical chord advisor
+
+- Added an offline-first statistical advisor inspired by conditional-frequency, familiarity, novelty, and surprisal concepts. It uses only the already tracked local POP909 model: no Hooktheory data, scrape, copied dump, or external provider is bundled or used for training.
+- `scripts/build-browser-harmony-statistics.mjs` validates the model schema, provenance, and SHA-256, then deterministically generates the browser's compact 1–3-gram snapshot. `pnpm stats:check` detects stale output.
+- The pure engine matches the backend's data-weighted interpolation/backoff and reports raw observed conditional frequency separately from interpolated probability, plus exact gram/context support, surprisal bits, and stable familiar/balanced/adventurous profiles. Candidates come from validated existing progression templates, so popularity cannot legalize invalid harmony.
+- The 統計 tab shows whole-piece or selected-range aggregate metrics (interpolated probability, surprisal, supported transitions, complexity, duration-weighted melody tension, stepwise bass motion, and syncopation), while raw observed frequency is shown in candidate details. Suggestions can be auditioned and explicitly applied to one selected chord only; with no selected chord, the whole piece is analyzed but never overwritten. During playback, undoing before the next boundary also clears the pending indicator when the audible content is restored.
+- Formulas, sources, API/terms analysis, corpus limitations, provider boundary, and test plan are documented in [`docs/research/statistical-chord-advisor.en.md`](docs/research/statistical-chord-advisor.en.md) and the Japanese version.
 
 ## 0.5.0 — Major update: Section arrangement and DAW editing (2026-08-24)
 
