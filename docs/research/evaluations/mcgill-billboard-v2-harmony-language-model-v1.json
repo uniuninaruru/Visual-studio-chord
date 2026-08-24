@@ -1,0 +1,457 @@
+{
+  "conclusion": {
+    "interpretation": "external distribution fit only",
+    "qualityImprovementClaimed": false
+  },
+  "coverage": {
+    "annotationSlots": 890,
+    "chordLexemes": 115730,
+    "dotRepetitions": 12359,
+    "elisionMarkers": 138,
+    "expandedBars": 91343,
+    "keyChanges": 132,
+    "meterChanges": 225,
+    "normalizedRawLexemes": 122314,
+    "normalizedTokens": 82294,
+    "phrases": 23392,
+    "publishedDistinctSongs": 740,
+    "repeatDirectives": 361,
+    "sequences": 2487,
+    "specialMarkers": 4558,
+    "specialReasons": {
+      "&pause": 122,
+      "*": 110,
+      "N": 1602,
+      "Z": 102,
+      "end": 890,
+      "silence": 1732
+    },
+    "transitions": 79807,
+    "unsupportedReasons": {
+      "unsupported_quality": 5668
+    },
+    "unsupportedTokens": 5668
+  },
+  "dataset": {
+    "annotationSlots": 890,
+    "archiveSha256": "a22e32bf24c8a18859ce18427c6501a7a72520185cddd6d882ceb3c61d02ec75",
+    "audioDistributed": false,
+    "id": "McGill-Billboard",
+    "license": "CC0-1.0",
+    "noQualityClaim": true,
+    "normalizedEvaluationSha256": "f0ceb26872322f3e867d0d6ba9c4523c0bd057efed9799769a6208993cc21fdb",
+    "portableSourceTreeSha256": "312a0e6478ca018aef44291e799434cc2096c0ea4a0e2568ef0ac90020ebb503",
+    "publishedDistinctSongs": 740,
+    "rawAnnotationsTrackedInRepository": false,
+    "rawSequencesPublished": false,
+    "role": "evaluationOnly",
+    "sourceArchiveUrl": "https://www.dropbox.com/s/2lvny9ves8kns4o/billboard-2.0-salami_chords.tar.gz?dl=1",
+    "sourcePageUrl": "https://ddmal.ca/research/The_McGill_Billboard_Project_(Chord_Analysis_Dataset)/",
+    "version": "v2"
+  },
+  "evaluationScope": "languageModelOnlyNotUiTemplateAdvisor",
+  "evaluatorVersion": "mcgill-billboard-external-evaluator-1",
+  "generatedAt": "2026-08-24T19:57:28.386006Z",
+  "model": {
+    "modelId": "harmony-corpus-ngram-v1",
+    "modelSha256": "dfa28603b2aa0247abe5265a6975ae8267042a91e72e8c1ddd2221e2624209ae",
+    "modelVersion": "local-corpus-v1",
+    "runtimeOrders": [
+      1,
+      2,
+      3
+    ]
+  },
+  "normalization": {
+    "parserVersion": "mcgill-salami-v2-normalizer-1",
+    "tokenizerScriptSha256": "b524df19323c5fbc28c30e90960a8dec3d17e0d7b2e22c774647693fd947a28d"
+  },
+  "order3Deltas": {
+    "vsOrder1": {
+      "all": {
+        "exactSupportRateChange": -0.19113611587955948,
+        "nllBitsImprovement": 0.6228687847884355,
+        "top1RateChange": 0.0586164120941772,
+        "top3RateChange": 0.18428208051925266,
+        "top5RateChange": 0.09606926710689545
+      },
+      "sectionBoundary": {
+        "exactSupportRateChange": -0.2143410852713178,
+        "nllBitsImprovement": 0.5236039993461485,
+        "top1RateChange": -0.06589147286821706,
+        "top3RateChange": 0.044379844961240256,
+        "top5RateChange": 0.04418604651162794
+      },
+      "withinSection": {
+        "exactSupportRateChange": -0.18953206424906566,
+        "nllBitsImprovement": 0.6297395471130622,
+        "top1RateChange": 0.0672230632175439,
+        "top3RateChange": 0.19395287151526514,
+        "top5RateChange": 0.0996557128886626
+      }
+    },
+    "vsOrder2": {
+      "all": {
+        "exactSupportRateChange": -0.13819589760296713,
+        "nllBitsImprovement": 0.10917573475776354,
+        "top1RateChange": 0.03033568483967572,
+        "top3RateChange": 0.004347989524728368,
+        "top5RateChange": 0.047113661708872656
+      },
+      "sectionBoundary": {
+        "exactSupportRateChange": -0.1656976744186046,
+        "nllBitsImprovement": 0.02214921366866074,
+        "top1RateChange": 0.009302325581395321,
+        "top3RateChange": -0.010271317829457338,
+        "top5RateChange": 0.03624031007751938
+      },
+      "withinSection": {
+        "exactSupportRateChange": -0.1362948276554986,
+        "nllBitsImprovement": 0.11519940709648413,
+        "top1RateChange": 0.031789623159671515,
+        "top3RateChange": 0.005358554262060111,
+        "top5RateChange": 0.04786528594585182
+      }
+    }
+  },
+  "protocol": {
+    "candidateVocabulary": "sorted observed unigram vocabulary shared by all caps",
+    "nllDenominator": "inVocabularyCount",
+    "oov": "target outside observed unigram vocabulary; top-k miss and NLL/perplexity denominator excluded",
+    "perplexityDenominator": "inVocabularyCount",
+    "probability": "TS LocalCorpus recursive interpolation with unigram additive smoothing",
+    "qualityClaim": "distributional language-model fit only; no musical-quality claim",
+    "sectionBoundaryDefinition": {
+      "formalHighLevelSegmentStart": "first valid token after capital letter plus zero or more primes at phrase prefix",
+      "plainTextLabelsExcluded": true,
+      "zBehavior": "resetWithoutBoundary"
+    },
+    "sectionSlices": "all is partitioned exactly into withinSection and sectionBoundary transitions",
+    "transitionDenominator": "adjacent tokens within context-contiguous normalized sequences; sequence first tokens excluded"
+  },
+  "reportKind": "externalHarmonyLanguageModelEvaluation",
+  "results": {
+    "1": {
+      "all": {
+        "effectiveOrderCounts": {
+          "1": 79807,
+          "2": 0,
+          "3": 0
+        },
+        "inVocabularyCount": 79616,
+        "meanNllBits": 4.7870988083012636,
+        "nllDenominator": 79616,
+        "oovCount": 191,
+        "oovRate": 0.0023932737729773076,
+        "perplexityBase2": 27.60961390705025,
+        "perplexityDenominator": 79616,
+        "requestedExactSupport": {
+          "count": 79616,
+          "denominator": 79807,
+          "rate": 0.9976067262270227
+        },
+        "top1": {
+          "correct": 16017,
+          "denominator": 79807,
+          "rate": 0.20069668074229077
+        },
+        "top3": {
+          "correct": 26887,
+          "denominator": 79807,
+          "rate": 0.33690027190597316
+        },
+        "top5": {
+          "correct": 44183,
+          "denominator": 79807,
+          "rate": 0.5536231157667874
+        },
+        "transitionCount": 79807
+      },
+      "sectionBoundary": {
+        "effectiveOrderCounts": {
+          "1": 5160,
+          "2": 0,
+          "3": 0
+        },
+        "inVocabularyCount": 5154,
+        "meanNllBits": 4.422349854158825,
+        "nllDenominator": 5154,
+        "oovCount": 6,
+        "oovRate": 0.0011627906976744186,
+        "perplexityBase2": 21.44173663866196,
+        "perplexityDenominator": 5154,
+        "requestedExactSupport": {
+          "count": 5154,
+          "denominator": 5160,
+          "rate": 0.9988372093023256
+        },
+        "top1": {
+          "correct": 2085,
+          "denominator": 5160,
+          "rate": 0.40406976744186046
+        },
+        "top3": {
+          "correct": 2670,
+          "denominator": 5160,
+          "rate": 0.5174418604651163
+        },
+        "top5": {
+          "correct": 3288,
+          "denominator": 5160,
+          "rate": 0.6372093023255814
+        },
+        "transitionCount": 5160
+      },
+      "withinSection": {
+        "effectiveOrderCounts": {
+          "1": 74647,
+          "2": 0,
+          "3": 0
+        },
+        "inVocabularyCount": 74462,
+        "meanNllBits": 4.812345459072045,
+        "nllDenominator": 74462,
+        "oovCount": 185,
+        "oovRate": 0.0024783313462027946,
+        "perplexityBase2": 28.09702466248416,
+        "perplexityDenominator": 74462,
+        "requestedExactSupport": {
+          "count": 74462,
+          "denominator": 74647,
+          "rate": 0.9975216686537972
+        },
+        "top1": {
+          "correct": 13932,
+          "denominator": 74647,
+          "rate": 0.18663844494755316
+        },
+        "top3": {
+          "correct": 24217,
+          "denominator": 74647,
+          "rate": 0.3244202714107734
+        },
+        "top5": {
+          "correct": 40895,
+          "denominator": 74647,
+          "rate": 0.5478451913673691
+        },
+        "transitionCount": 74647
+      }
+    },
+    "2": {
+      "all": {
+        "effectiveOrderCounts": {
+          "1": 210,
+          "2": 79597,
+          "3": 0
+        },
+        "inVocabularyCount": 79616,
+        "meanNllBits": 4.2734057582705915,
+        "nllDenominator": 79616,
+        "oovCount": 191,
+        "oovRate": 0.0023932737729773076,
+        "perplexityBase2": 19.338523693136526,
+        "perplexityDenominator": 79616,
+        "requestedExactSupport": {
+          "count": 75391,
+          "denominator": 79807,
+          "rate": 0.9446665079504304
+        },
+        "top1": {
+          "correct": 18274,
+          "denominator": 79807,
+          "rate": 0.22897740799679225
+        },
+        "top3": {
+          "correct": 41247,
+          "denominator": 79807,
+          "rate": 0.5168343629004974
+        },
+        "top5": {
+          "correct": 48090,
+          "denominator": 79807,
+          "rate": 0.6025787211648101
+        },
+        "transitionCount": 79807
+      },
+      "sectionBoundary": {
+        "effectiveOrderCounts": {
+          "1": 12,
+          "2": 5148,
+          "3": 0
+        },
+        "inVocabularyCount": 5154,
+        "meanNllBits": 3.9208950684813373,
+        "nllDenominator": 5154,
+        "oovCount": 6,
+        "oovRate": 0.0011627906976744186,
+        "perplexityBase2": 15.146316422898707,
+        "perplexityDenominator": 5154,
+        "requestedExactSupport": {
+          "count": 4903,
+          "denominator": 5160,
+          "rate": 0.9501937984496124
+        },
+        "top1": {
+          "correct": 1697,
+          "denominator": 5160,
+          "rate": 0.3288759689922481
+        },
+        "top3": {
+          "correct": 2952,
+          "denominator": 5160,
+          "rate": 0.5720930232558139
+        },
+        "top5": {
+          "correct": 3329,
+          "denominator": 5160,
+          "rate": 0.6451550387596899
+        },
+        "transitionCount": 5160
+      },
+      "withinSection": {
+        "effectiveOrderCounts": {
+          "1": 198,
+          "2": 74449,
+          "3": 0
+        },
+        "inVocabularyCount": 74462,
+        "meanNllBits": 4.297805319055467,
+        "nllDenominator": 74462,
+        "oovCount": 185,
+        "oovRate": 0.0024783313462027946,
+        "perplexityBase2": 19.668367597354862,
+        "perplexityDenominator": 74462,
+        "requestedExactSupport": {
+          "count": 70488,
+          "denominator": 74647,
+          "rate": 0.9442844320602302
+        },
+        "top1": {
+          "correct": 16577,
+          "denominator": 74647,
+          "rate": 0.22207188500542555
+        },
+        "top3": {
+          "correct": 38295,
+          "denominator": 74647,
+          "rate": 0.5130145886639784
+        },
+        "top5": {
+          "correct": 44761,
+          "denominator": 74647,
+          "rate": 0.5996356183101799
+        },
+        "transitionCount": 74647
+      }
+    },
+    "3": {
+      "all": {
+        "effectiveOrderCounts": {
+          "1": 210,
+          "2": 6162,
+          "3": 73435
+        },
+        "inVocabularyCount": 79616,
+        "meanNllBits": 4.164230023512828,
+        "nllDenominator": 79616,
+        "oovCount": 191,
+        "oovRate": 0.0023932737729773076,
+        "perplexityBase2": 17.92908581535047,
+        "perplexityDenominator": 79616,
+        "requestedExactSupport": {
+          "count": 64362,
+          "denominator": 79807,
+          "rate": 0.8064706103474633
+        },
+        "top1": {
+          "correct": 20695,
+          "denominator": 79807,
+          "rate": 0.259313092836468
+        },
+        "top3": {
+          "correct": 41594,
+          "denominator": 79807,
+          "rate": 0.5211823524252258
+        },
+        "top5": {
+          "correct": 51850,
+          "denominator": 79807,
+          "rate": 0.6496923828736828
+        },
+        "transitionCount": 79807
+      },
+      "sectionBoundary": {
+        "effectiveOrderCounts": {
+          "1": 12,
+          "2": 431,
+          "3": 4717
+        },
+        "inVocabularyCount": 5154,
+        "meanNllBits": 3.8987458548126765,
+        "nllDenominator": 5154,
+        "oovCount": 6,
+        "oovRate": 0.0011627906976744186,
+        "perplexityBase2": 14.915556026894636,
+        "perplexityDenominator": 5154,
+        "requestedExactSupport": {
+          "count": 4048,
+          "denominator": 5160,
+          "rate": 0.7844961240310078
+        },
+        "top1": {
+          "correct": 1745,
+          "denominator": 5160,
+          "rate": 0.3381782945736434
+        },
+        "top3": {
+          "correct": 2899,
+          "denominator": 5160,
+          "rate": 0.5618217054263566
+        },
+        "top5": {
+          "correct": 3516,
+          "denominator": 5160,
+          "rate": 0.6813953488372093
+        },
+        "transitionCount": 5160
+      },
+      "withinSection": {
+        "effectiveOrderCounts": {
+          "1": 198,
+          "2": 5731,
+          "3": 68718
+        },
+        "inVocabularyCount": 74462,
+        "meanNllBits": 4.182605911958983,
+        "nllDenominator": 74462,
+        "oovCount": 185,
+        "oovRate": 0.0024783313462027946,
+        "perplexityBase2": 18.158912649792033,
+        "perplexityDenominator": 74462,
+        "requestedExactSupport": {
+          "count": 60314,
+          "denominator": 74647,
+          "rate": 0.8079896044047316
+        },
+        "top1": {
+          "correct": 18950,
+          "denominator": 74647,
+          "rate": 0.25386150816509706
+        },
+        "top3": {
+          "correct": 38695,
+          "denominator": 74647,
+          "rate": 0.5183731429260385
+        },
+        "top5": {
+          "correct": 48334,
+          "denominator": 74647,
+          "rate": 0.6475009042560317
+        },
+        "transitionCount": 74647
+      }
+    }
+  },
+  "schemaVersion": 1
+}

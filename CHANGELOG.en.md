@@ -15,6 +15,12 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 - The 統計 tab shows whole-piece or selected-range aggregate metrics (interpolated probability, surprisal, supported transitions, complexity, duration-weighted melody tension, stepwise bass motion, and syncopation), while raw observed frequency is shown in candidate details. Suggestions can be auditioned and explicitly applied to one selected chord only; with no selected chord, the whole piece is analyzed but never overwritten. During playback, undoing before the next boundary also clears the pending indicator when the audible content is restored.
 - Formulas, sources, API/terms analysis, corpus limitations, provider boundary, and test plan are documented in [`docs/research/statistical-chord-advisor.en.md`](docs/research/statistical-chord-advisor.en.md) and the Japanese version.
 
+### Investigated — McGill Billboard external evaluation
+
+- Added a reproducible local path to fetch, normalize, and aggregate the official McGill Billboard annotations without sending them into runtime or training. The raw dataset is not tracked by Git, and the tracked aggregate evaluation report (aggregate evaluation JSON) contains no song titles, artists, absolute paths, or individual sequences.
+- The report records denominators for 890 annotations and 79,807 transitions, including OOV 191 / 79,807 (0.2393%). Order 3 beats orders 1 / 2 on overall NLL and Top-k, while it does not improve section-boundary ranking uniformly. This is not an evaluation of music quality, listening, or the complete UI advisor.
+- Reproduction commands, five SHA-256 values, `parserVersion: mcgill-salami-v2-normalizer-1`, the all-106-model-unigram candidate set, and the 1958–1991 US Billboard-centered limitation are documented in [`docs/research/mcgill-billboard-external-evaluation.en.md`](docs/research/mcgill-billboard-external-evaluation.en.md) and the Japanese version. The section-boundary slice includes only a McGill capital-letter-plus-optional-primes marker as a formal high-level segment start.
+
 ## 0.5.0 — Major update: Section arrangement and DAW editing (2026-08-24)
 
 ### Added — Build parts independently, then assemble one song

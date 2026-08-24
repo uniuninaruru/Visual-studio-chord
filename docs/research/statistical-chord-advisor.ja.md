@@ -6,6 +6,12 @@
 
 Hooktheoryのページから取り入れるのは、個々の進行や数値ではなく「現在の文脈から次のコードを直接観測頻度と補間推定確率で順位付けし、定番度と意外性を分けて見せる」というUXと分析の考え方です。本実装はオフラインで完結し、Hooktheoryへの接続、スクレイピング、統計値のコピー、同サイトのデータによる学習は行いません。
 
+McGill Billboard注釈を使った外部評価は、アプリのruntimeやtrainingとは別のローカル
+評価です。[McGill Billboard外部評価レポート](mcgill-billboard-external-evaluation.ja.md)
+では、3-gramが外部コーパス全体のdistributional fitとoverall Top-kを改善した一方、
+section-boundary rankingは一様に改善しなかったことを記録しています。この結果から
+音楽品質、聴感、UI候補器全体の改善は主張しません。
+
 ## 参照した考え方
 
 - [Hooktheory Popular chord progressions](https://www.hooktheory.com/theorytab/popular-chord-progressions): 進行を局所的な遷移として見せ、頻出性を発見の入口にする考え方。
