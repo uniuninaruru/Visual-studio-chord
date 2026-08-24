@@ -6,6 +6,14 @@ Updated: 2026-08-24
 
 The reusable part of Hooktheory's page is not a list of progressions or its numbers. It is the idea of ranking a next-chord choice by raw observed frequency and interpolated probability, while exposing familiarity and novelty as separate, inspectable dimensions. This implementation is offline-first: it does not connect to Hooktheory, scrape it, copy its statistics, or train on its data.
 
+The McGill Billboard annotation check is a separate, local external evaluation;
+it is not part of the application's runtime or training input. The [McGill
+Billboard external evaluation report](mcgill-billboard-external-evaluation.en.md)
+records that the 3-gram improves distributional fit and overall Top-k on the
+external corpus, while section-boundary ranking does not improve uniformly. It
+does not support a claim of improved music quality, listening, or the whole UI
+advisor.
+
 ## References and boundary
 
 - [Hooktheory Popular chord progressions](https://www.hooktheory.com/theorytab/popular-chord-progressions): a reference for presenting common transitions as a discovery aid.

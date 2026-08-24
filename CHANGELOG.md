@@ -14,6 +14,12 @@
 - 「統計」タブに、曲全体または選択範囲の集計指標（補間推定確率、サプライズ、観測済み遷移、複雑度、旋律の非コード音、ベース順次進行、シンコペーション）と、候補詳細の直接観測頻度、定番／バランス／意外プロファイルを追加しました。候補は試聴と明示的な1コード適用だけで、コード未選択時に曲全体を自動変更しません。再生中に次の境界前でUndoした場合も、pending表示を取り消して現在の再生内容と一致させます。
 - 詳細な数式、出典、API利用条件の分析、データバイアス、provider境界、テスト計画は [`docs/research/statistical-chord-advisor.ja.md`](docs/research/statistical-chord-advisor.ja.md) と英語版に記録しています。
 
+### 調査 — McGill Billboard外部評価
+
+- 公式のMcGill Billboard annotationsを、runtimeやtrainingへ投入しないローカル外部評価として取得・正規化・集計する再現導線を追加しました。raw datasetはGitで追跡せず、tracked aggregate evaluation report（集計評価JSON）にも曲名、アーティスト、絶対パス、個別sequenceを出しません。
+- 890 annotations、79,807 transitions、OOV 191 / 79,807（0.2393%）を分母付きで記録し、order 3がoverall NLL / Top-kでorder 1 / 2を上回る一方、section-boundary rankingを一様には改善しないことを明記しました。これは音楽品質、聴感、UI候補器全体の改善を主張する評価ではありません。
+- 再現コマンド、5つのSHA-256、`parserVersion: mcgill-salami-v2-normalizer-1`、候補集合がmodel unigram全106であること、1958–1991年米国Billboard中心という限界は [`docs/research/mcgill-billboard-external-evaluation.ja.md`](docs/research/mcgill-billboard-external-evaluation.ja.md) と英語版に記録しています。section-boundaryはMcGillの大文字+任意prime markerが示す高水準segment開始だけをformal sliceに含めます。
+
 ## 0.5.0 — 大規模アップデート: セクション構成とDAW編集（2026-08-24）
 
 ### 追加 — パーツを別々に作り、明示的に1曲へまとめる
