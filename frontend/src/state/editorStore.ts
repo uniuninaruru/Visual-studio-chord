@@ -2540,10 +2540,11 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     const composition = clone(state.history[historyIndex]!.composition);
     const selectedBarRange = normalizedBarRange(state.selectedBarRange, composition);
     const audibleSame = hasSameAudiblePayload(composition, state.draftComposition);
+    const committedBeforeAudition = state.auditionBaseComposition ?? state.committedComposition;
+    const targetMatchesCommitted = hasSameAudiblePayload(composition, committedBeforeAudition);
     const applyImmediately =
       !audibleSame
       && (state.playback.status !== "playing" || state.playback.updateTiming === "immediate");
-    const committedBeforeAudition = state.auditionBaseComposition ?? state.committedComposition;
     const pendingBeforeAudition = state.auditionBaseComposition
       ? state.auditionBasePendingCommit
       : state.pendingCommit;
@@ -2568,7 +2569,11 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
           ? loopRange
           : state.playbackLoopRange,
       historyIndex,
-      pendingCommit: audibleSame ? pendingBeforeAudition : !applyImmediately,
+      pendingCommit: targetMatchesCommitted
+        ? false
+        : audibleSame
+          ? pendingBeforeAudition
+          : !applyImmediately,
       previewVariations: [],
       auditionedVariationIndex: null,
       auditionBaseComposition: null,
@@ -2587,10 +2592,11 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     const composition = clone(state.history[historyIndex]!.composition);
     const selectedBarRange = normalizedBarRange(state.selectedBarRange, composition);
     const audibleSame = hasSameAudiblePayload(composition, state.draftComposition);
+    const committedBeforeAudition = state.auditionBaseComposition ?? state.committedComposition;
+    const targetMatchesCommitted = hasSameAudiblePayload(composition, committedBeforeAudition);
     const applyImmediately =
       !audibleSame
       && (state.playback.status !== "playing" || state.playback.updateTiming === "immediate");
-    const committedBeforeAudition = state.auditionBaseComposition ?? state.committedComposition;
     const pendingBeforeAudition = state.auditionBaseComposition
       ? state.auditionBasePendingCommit
       : state.pendingCommit;
@@ -2615,7 +2621,11 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
           ? loopRange
           : state.playbackLoopRange,
       historyIndex,
-      pendingCommit: audibleSame ? pendingBeforeAudition : !applyImmediately,
+      pendingCommit: targetMatchesCommitted
+        ? false
+        : audibleSame
+          ? pendingBeforeAudition
+          : !applyImmediately,
       previewVariations: [],
       auditionedVariationIndex: null,
       auditionBaseComposition: null,

@@ -8,6 +8,7 @@ import { describeSelection } from "./features/editor/selectionSummary";
 import { WorkspaceTools } from "./features/editor/WorkspaceTools";
 import { ReharmonizationPanel } from "./features/editor/ReharmonizationPanel";
 import { ProgressionSearchPanel } from "./features/progressions/ProgressionSearchPanel";
+import { HarmonyInsightsPanel } from "./features/statistics/HarmonyInsightsPanel";
 import { createStepChordEvent } from "./music/chords";
 import { SECTION_LABEL } from "./music/explanation";
 import { SettingsPanel } from "./features/generator/SettingsPanel";
@@ -210,6 +211,25 @@ export default function App() {
     }
     return { range: null, label: "曲全体" };
   }, [store.selectedBarRange, selectedChord, composition]);
+  // Statistics has independent read/write scopes: analysis may cover a
+  // selected range or the whole song, while Apply can only edit the chord the
+  // user explicitly selected in Chord Lane.
+  const statisticsAnalysisScope = store.selectedBarRange ?? (selectedChord
+    ? (() => {
+      const startBar = Math.floor(selectedChord.startTick / composition.ticksPerBar);
+      const endBar = Math.min(
+        composition.settings.bars,
+        Math.max(
+          startBar + 1,
+          Math.ceil((selectedChord.startTick + selectedChord.durationTick) / composition.ticksPerBar),
+        ),
+      );
+      return { startBar, endBar };
+    })()
+    : null);
+  const statisticsTargetLabel = statisticsAnalysisScope
+    ? `${statisticsAnalysisScope.startBar + 1}〜${statisticsAnalysisScope.endBar}小節`
+    : "曲全体";
   const validation = validateComposition(composition);
   const currentPreferenceFeatures = useMemo(
     () => extractPreferenceFeatures(composition),
@@ -1004,6 +1024,31 @@ export default function App() {
                           }}
                         />
                     </>
+                  ),
+                },
+                {
+                  id: "statistics",
+                  label: "統計",
+                  render: () => (
+                    <HarmonyInsightsPanel
+                      composition={composition}
+                      analysisScope={statisticsAnalysisScope}
+                      targetLabel={statisticsTargetLabel}
+                      selectedChord={selectedChord}
+                      lockedBars={store.lockedBars}
+                      onAudition={(notes) => auditionChord(notes)}
+                      onApply={(suggestion) => {
+                        if (!selectedChord) return false;
+                        return handleStructuredChordEdit(selectedChord.id, {
+                          root: suggestion.chord.root,
+                          quality: suggestion.chord.quality,
+                          tensions: suggestion.chord.tensions ?? null,
+                          bass: suggestion.chord.bass ?? null,
+                          inversion: suggestion.chord.inversion,
+                        });
+                      }}
+                      onToast={setToast}
+                    />
                   ),
                 },
                 {
