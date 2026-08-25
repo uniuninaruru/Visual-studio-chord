@@ -99,6 +99,22 @@ song only when the plan is ready.
 6. The finished song is not overwritten until **Assemble into one song** (`1曲にまとめる`). A dirty part used in the sequence blocks assembly. A failure keeps the current song, and a successful assembly can still be undone.
 7. After assembly, click a section on the composition ruler to select its full range and set the loop. Playback, every track in MIDI, and JSON use the assembled result. On a phone, the visible part label stays readable while the lane scrolls horizontally.
 
+### Find the next chord statistically
+
+The **統計** tab in Workspace Tools analyzes the whole song or the selected bar range against the local POP909 statistics. **定番** (familiar) favors frequent candidates, **バランス** (balanced) aims between familiarity and novelty, and **意外** (adventurous) favors unusual candidates that were still observed. It separates **raw observed frequency** — how often this chord actually followed this context — from **interpolated probability**, which combines that evidence with shorter-context and global tendencies. Neither is a quality score. Counts are occurrences (including repetitions), not unique songs; ranking uses root+quality only, while voicing, tensions, and inversion remain theory/arrangement decisions.
+
+**試聴** (audition) never edits the song. Applying is enabled only for one explicitly selected chord, preserves its exact start and duration, and names the target bar. With no selected chord the whole song can still be analyzed and song-end candidates auditioned, but nothing can be applied. Locked bars are refused. Every successful apply remains undoable.
+
+The source is a compact browser 3-gram snapshot derived from the tracked local POP909 model (909 songs, 1,131 tonal sequences, 93,904 tokens). The app does not connect to Hooktheory or copy its statistics/data. Formulas and limitations are documented in [`docs/research/statistical-chord-advisor.en.md`](docs/research/statistical-chord-advisor.en.md).
+
+For technical readers, a separate external evaluation uses McGill Billboard
+annotations. The 3-gram improves prediction and overall Top-k on that corpus,
+but the section-boundary subset does not improve uniformly. This does not
+guarantee better music, listening quality, or a better complete UI candidate
+advisor. Normal composition does not fetch the external data; see the
+[external evaluation report](docs/research/mcgill-billboard-external-evaluation.en.md)
+for scope and reproduction.
+
 ## 2. Choose one launch method
 
 | Goal | Recommended method |
@@ -449,8 +465,58 @@ still works.
 | Runtime and devices | [Optional acceleration](#optional-acceleration), [Native development and tests](#native-development-and-tests) |
 | Neural model | [HarmonyForge research preview](#harmonyforge-research-preview), [Implemented model](#implemented-model), [Fallback](#fallback) |
 | Section arrangement | [Section arrangement architecture and contract](#section-arrangement-architecture-and-contract) |
+| External evaluation | [McGill Billboard external evaluation](#mcgill-billboard-external-evaluation), [evaluation report](docs/research/mcgill-billboard-external-evaluation.en.md) |
 | Contracts | [API](#api), artifact validation, cancellation, and versioned data described in the HarmonyForge section |
 | Quality and provenance | [Primary v0.4 references](#primary-v04-references), [Current limitations](#current-limitations) |
+
+## McGill Billboard external evaluation
+
+McGill Billboard annotations are used only to evaluate the tracked aggregate
+model externally. The raw dataset is not tracked by Git and is not sent into the
+application runtime or training path. The evaluation writes aggregate values to
+a tracked aggregate evaluation report (aggregate evaluation JSON); song titles,
+artists, absolute paths, and individual sequences are not written to public
+documentation or tracked JSON.
+
+On POSIX systems, reproduce it with:
+
+```bash
+python3 scripts/fetch-mcgill-billboard.py
+python3 scripts/evaluate-mcgill-billboard.py \
+  --output docs/research/evaluations/mcgill-billboard-v2-harmony-language-model-v1.json
+```
+
+The report fixes five SHA-256 values for the source archive, portable tree,
+model, normalized input, and the canonical tokenizer script (strict UTF-8 + LF;
+not raw checkout bytes), plus denominators and OOV rate,
+overall and section-boundary results,
+and the claims that are intentionally excluded:
+[McGill Billboard external evaluation report](docs/research/mcgill-billboard-external-evaluation.en.md).
+The tracked machine-readable result is the
+[aggregate evaluation JSON](docs/research/evaluations/mcgill-billboard-v2-harmony-language-model-v1.json).
+
+The input hashes and denominator are:
+
+| Item | SHA-256 / count |
+| --- | --- |
+| source archive | `a22e32bf24c8a18859ce18427c6501a7a72520185cddd6d882ceb3c61d02ec75` |
+| portable tree | `312a0e6478ca018aef44291e799434cc2096c0ea4a0e2568ef0ac90020ebb503` |
+| tracked aggregate model | `dfa28603b2aa0247abe5265a6975ae8267042a91e72e8c1ddd2221e2624209ae` |
+| normalized evaluation input | `f0ceb26872322f3e867d0d6ba9c4523c0bd057efed9799769a6208993cc21fdb` |
+| canonical tokenizer script (strict UTF-8 + LF) | `b524df19323c5fbc28c30e90960a8dec3d17e0d7b2e22c774647693fd947a28d` |
+| coverage / OOV | 890 annotations, 79,807 transitions / `191 / 79,807 = 0.2393%` |
+
+`parserVersion` is `mcgill-salami-v2-normalizer-1`. The tokenizer is read as strict UTF-8; CRLF and lone CR are canonicalized to LF, and those canonical bytes are used for both hashing and compile/exec. The candidate set is all 106 model unigrams, not the UI template advisor
+subset. McGill is centered on US Billboard material from 1958–1991; melody,
+voicing, rhythm, audio, listening, and song-ID identity exclusion relative to
+POP909 are not evaluated. Do not read the overall 3-gram improvement as a claim
+about music quality or the complete advisor.
+
+The section-boundary slice is not a generic inferred break: it uses the McGill
+marker of a capital letter plus optional primes (`A`, `B'`, and so on) as a
+high-level segment start, then evaluates the transition into that phrase's first
+valid token from the preceding context. `Z` is non-musical and resets context;
+a plain-text function label alone is excluded from this formal slice.
 
 ## Section arrangement architecture and contract
 

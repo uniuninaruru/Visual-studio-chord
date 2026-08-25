@@ -136,6 +136,8 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Verify browser harmony statistics artifact
+        run: node scripts/build-browser-harmony-statistics.mjs --check
       - run: pnpm --dir frontend typecheck
       - run: pnpm --dir frontend lint
       - run: pnpm --dir frontend test

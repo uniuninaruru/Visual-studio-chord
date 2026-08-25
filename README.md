@@ -101,6 +101,20 @@
 6. **1曲にまとめる**までは完成曲を上書きしません。並びに入っている未反映パーツがあると結合できません。失敗しても現在の曲は保持され、成功後もUndoで戻せます。
 7. 結合後は**完成曲の構成**をクリックしてパート全体を選択し、範囲やloopを決められます。再生、全trackのMIDI、JSONにも反映されます。スマートフォンでは横スクロール中も、見えているパート名が残ります。
 
+### 統計から次のコードを探す
+
+Workspace Toolsの**統計**タブでは、現在の曲全体または選択範囲をPOP909のローカル統計と照らし合わせられます。**定番**は頻度の高い候補、**バランス**は定番度と意外性の中間、**意外**は観測済みの低頻度候補を出します。表示する**直接観測頻度**はその文脈で実際に出た割合、**補間推定確率**は直接観測に短い文脈と全体傾向を組み合わせた値です。どちらも音楽的な良さの点数ではありません。出現数は曲数ではなく反復を含む出現回数で、統計が順位付けするのはroot+qualityです。voicing、tension、inversionは理論・編曲側で決まります。
+
+候補の**試聴**は曲を変更せず、適用は明示的に選択した1つのコードだけを対象にし、開始tickと長さを維持します。コードを選んでいないと曲全体を解析し、曲末候補を試聴できますが、適用ボタンは無効です。ロックされた小節にも適用できません。適用後はUndoで戻せます。
+
+統計の出典はアプリに含まれるPOP909由来のコンパクトなブラウザ3-gramスナップショットです（909曲、1,131 tonal sequences、93,904 tokens）。Hooktheoryへ接続したり、サイトの統計やデータをコピーしたりする機能ではありません。計算式と限界は[`docs/research/statistical-chord-advisor.ja.md`](docs/research/statistical-chord-advisor.ja.md)にまとめています。
+
+技術者向けには、別のMcGill Billboard注釈を使った外部評価もあります。3-gramはその
+外部コーパス全体での予測とTop-kを改善しましたが、セクション境界では一様な改善を
+確認できませんでした。この結果は音楽が良くなること、聴感が上がること、画面の候補
+全体が改善することを保証しません。通常の曲作りに外部データを取得する必要はなく、
+詳しい範囲と再現手順は[`docs/research/mcgill-billboard-external-evaluation.ja.md`](docs/research/mcgill-billboard-external-evaluation.ja.md)を参照してください。
+
 ## 2. 起動方法を選ぶ
 
 迷った場合は、この表だけで選べます。
@@ -421,9 +435,53 @@ CUDA / Apple Metal（MPS）/ CPU adapterを実装しています。
 | 実行環境 | [技術スタック](#技術スタック)、[Docker構成](#docker構成と起動技術者向け詳細)、[ネイティブ構成](#ネイティブ構成と起動技術者向け詳細)、[GPU高速化](#gpu高速化任意) |
 | ニューラルモデル | [HarmonyForge研究プレビュー](#ニューラル和声プレビューv04研究プレビュー)、[モデル配置と検証](#ニューラル和声プレビューv04研究プレビュー) |
 | セクション構成 | [セクション構成のアーキテクチャと契約](#セクション構成のアーキテクチャと契約) |
+| 外部評価 | [McGill Billboard外部評価](#mcgill-billboard外部評価)、[評価レポート](docs/research/mcgill-billboard-external-evaluation.ja.md) |
 | システム設計 | [アーキテクチャ](#アーキテクチャ)、[状態とエラー](#状態表示とエラー時の動作)、[設定と診断](#設定と診断) |
 | 安全性と再現性 | [セキュリティ](#セキュリティ)、[品質チェック](#品質チェック)、[再現性](#再現性と設定ファイル) |
 | 契約と保守 | [APIとデータ契約](#apiとデータ契約)、[ディレクトリ](#ディレクトリ)、[ロードマップ](#ロードマップ)、[参考資料](#参考にした音楽理論資料) |
+
+## McGill Billboard外部評価
+
+McGill Billboard annotationsは、追跡済みモデルの外部評価にだけ使います。取得した
+raw datasetはGitで追跡せず、アプリのruntimeやtrainingへ投入しません。評価は集計値
+だけをtracked aggregate evaluation report（集計評価JSON）へ書き出します。曲名、アーティスト、
+絶対パス、個別sequenceは公開文書や追跡JSONへ出しません。
+
+POSIX環境での再現コマンドは次の通りです。WindowsはレポートのPowerShell版を使います。
+
+```bash
+python3 scripts/fetch-mcgill-billboard.py
+python3 scripts/evaluate-mcgill-billboard.py \
+  --output docs/research/evaluations/mcgill-billboard-v2-harmony-language-model-v1.json
+```
+
+source archive、portable tree、model、normalized input、strict UTF-8 + LF canonical formの
+tokenizer scriptの5つのSHA-256（raw checkout bytesではない）、分母とOOV、
+overall / section-boundaryの数値、そして「何を主張しないか」は
+[McGill Billboard外部評価レポート](docs/research/mcgill-billboard-external-evaluation.ja.md)
+に固定しています。
+集計結果本体は[追跡済みmachine-readable評価JSON](docs/research/evaluations/mcgill-billboard-v2-harmony-language-model-v1.json)です。
+
+評価入力のhashと分母は次の通りです。
+
+| 対象 | SHA-256 / 件数 |
+| --- | --- |
+| source archive | `a22e32bf24c8a18859ce18427c6501a7a72520185cddd6d882ceb3c61d02ec75` |
+| portable tree | `312a0e6478ca018aef44291e799434cc2096c0ea4a0e2568ef0ac90020ebb503` |
+| tracked aggregate model | `dfa28603b2aa0247abe5265a6975ae8267042a91e72e8c1ddd2221e2624209ae` |
+| normalized evaluation input | `f0ceb26872322f3e867d0d6ba9c4523c0bd057efed9799769a6208993cc21fdb` |
+| canonical tokenizer script (strict UTF-8 + LF) | `b524df19323c5fbc28c30e90960a8dec3d17e0d7b2e22c774647693fd947a28d` |
+| coverage / OOV | 890 annotations, 79,807 transitions / `191 / 79,807 = 0.2393%` |
+
+`parserVersion`は`mcgill-salami-v2-normalizer-1`です。tokenizerはstrict UTF-8で読み、CRLFと単独CRをLFへcanonicalizeしたbytesをhashとcompile/execの両方に使います。候補集合はUI template advisor subsetではなくmodel unigram全106語です。McGillは
+1958–1991年の米国Billboard中心で、melody、voicing、rhythm、audio、listeningや
+POP909とのsong ID同一性排除は評価していません。3-gramのoverall改善を、音楽品質や
+候補器全体の改善とは読み替えません。
+
+section-boundaryは一般的な境目の推測ではなく、McGill仕様の大文字+任意prime（`A`、
+`B'`など）が示す高水準segment開始の、最初の有効tokenと直前contextのtransition
+です。`Z`は非音楽としてresetし、plain-text function labelだけはこのformal sliceに
+含めません。
 
 ## セクション構成のアーキテクチャと契約
 
