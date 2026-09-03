@@ -99,6 +99,16 @@ song only when the plan is ready.
 6. The finished song is not overwritten until **Assemble into one song** (`1曲にまとめる`). A dirty part used in the sequence blocks assembly. A failure keeps the current song, and a successful assembly can still be undone.
 7. After assembly, click a section on the composition ruler to select its full range and set the loop. Playback, every track in MIDI, and JSON use the assembled result. On a phone, the visible part label stays readable while the lane scrolls horizontally.
 
+For a same-Key / Scale `Auto` join, only theory-valid candidates are compared
+using local two-step POP909 conditional evidence, the existing optimized
+four-part voice leading, and the current style prior. No one score decides the
+result: a seeded choice is made from the Pareto frontier. If corpus evidence is
+unavailable, the corpus view is removed for every candidate and selection
+continues safely, with the reason retained in the explanation. Forced `Direct`,
+`Dominant`, and `Pivot` keep their existing meanings. See
+[`docs/research/section-transition-ranking.en.md`](docs/research/section-transition-ranking.en.md)
+for the calculation and limits.
+
 ### Find the next chord statistically
 
 The **統計** tab in Workspace Tools analyzes the whole song or the selected bar range against the local POP909 statistics. **定番** (familiar) favors frequent candidates, **バランス** (balanced) aims between familiarity and novelty, and **意外** (adventurous) favors unusual candidates that were still observed. It separates **raw observed frequency** — how often this chord actually followed this context — from **interpolated probability**, which combines that evidence with shorter-context and global tendencies. Neither is a quality score. Counts are occurrences (including repetitions), not unique songs; ranking uses root+quality only, while voicing, tensions, and inversion remain theory/arrangement decisions.
