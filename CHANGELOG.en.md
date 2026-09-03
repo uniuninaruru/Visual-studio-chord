@@ -15,6 +15,12 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 - The 統計 tab shows whole-piece or selected-range aggregate metrics (interpolated probability, surprisal, supported transitions, complexity, duration-weighted melody tension, stepwise bass motion, and syncopation), while raw observed frequency is shown in candidate details. Suggestions can be auditioned and explicitly applied to one selected chord only; with no selected chord, the whole piece is analyzed but never overwritten. During playback, undoing before the next boundary also clears the pending indicator when the audible content is restored.
 - Formulas, sources, API/terms analysis, corpus limitations, provider boundary, and test plan are documented in [`docs/research/statistical-chord-advisor.en.md`](docs/research/statistical-chord-advisor.en.md) and the Japanese version.
 
+### Major update — Auditable automatic section-transition ranking
+
+- Same-Key / Scale `Auto` joins compare only existing theory-valid candidates using destination-tonic-relative POP909 2-gram/3-gram evidence, the existing optimized four-part voice-leading cost, and the style-profile weight. A seeded weighted choice is made within the Pareto frontier; the seed cannot revive a dominated candidate.
+- Provider exceptions, non-finite values, out-of-range probabilities, and invalid counts/orders trigger a fail-closed fallback that removes the corpus view for every candidate. Forced Direct / Dominant / Pivot, the existing rate gate, prepared-dominant behavior, timeline, IDs, and seed determinism are unchanged. The explanation records candidate/frontier counts, corpus support/surprisal, four-part cost, and fallback state.
+- Design, primary sources, the boundary to the McGill external evaluation, and non-claims are documented in [`docs/research/section-transition-ranking.en.md`](docs/research/section-transition-ranking.en.md) and the Japanese version.
+
 ### Investigated — McGill Billboard external evaluation
 
 - Added a reproducible local path to fetch, normalize, and aggregate the official McGill Billboard annotations without sending them into runtime or training. The raw dataset is not tracked by Git, and the tracked aggregate evaluation report (aggregate evaluation JSON) contains no song titles, artists, absolute paths, or individual sequences.

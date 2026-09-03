@@ -14,6 +14,12 @@
 - 「統計」タブに、曲全体または選択範囲の集計指標（補間推定確率、サプライズ、観測済み遷移、複雑度、旋律の非コード音、ベース順次進行、シンコペーション）と、候補詳細の直接観測頻度、定番／バランス／意外プロファイルを追加しました。候補は試聴と明示的な1コード適用だけで、コード未選択時に曲全体を自動変更しません。再生中に次の境界前でUndoした場合も、pending表示を取り消して現在の再生内容と一致させます。
 - 詳細な数式、出典、API利用条件の分析、データバイアス、provider境界、テスト計画は [`docs/research/statistical-chord-advisor.ja.md`](docs/research/statistical-chord-advisor.ja.md) と英語版に記録しています。
 
+### 大規模アップデート — セクション自動接続の監査可能な順位付け
+
+- 同一Key / Scaleの`Auto`接続は、既存の理論候補だけを、接続先tonic相対のPOP909 2-gram / 3-gram証拠、既存の最適化4声voice-leading cost、style profile weightで比較し、Pareto frontier内からseed付きweighted choiceを行います。支配された候補をseedで復活させません。
+- corpus providerの例外、非有限値、範囲外確率、不正なcount / orderでは、全候補からcorpus観点を外すfail-closed fallbackを使います。強制Direct / Dominant / Pivot、既存のrate gate、準備済みdominant、timeline、ID、seed決定性は変更しません。説明文には候補数、frontier数、corpus support / surprisal、4声cost、fallbackを記録します。
+- 設計、一次資料、McGill外部評価との境界、非主張事項は [`docs/research/section-transition-ranking.ja.md`](docs/research/section-transition-ranking.ja.md) と英語版に記録しています。
+
 ### 調査 — McGill Billboard外部評価
 
 - 公式のMcGill Billboard annotationsを、runtimeやtrainingへ投入しないローカル外部評価として取得・正規化・集計する再現導線を追加しました。raw datasetはGitで追跡せず、tracked aggregate evaluation report（集計評価JSON）にも曲名、アーティスト、絶対パス、個別sequenceを出しません。
