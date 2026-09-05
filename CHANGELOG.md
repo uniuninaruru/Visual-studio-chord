@@ -6,6 +6,14 @@
 
 ## 未リリース
 
+### 追加 — TISによるセクション緊張カーブ再順位付け
+
+- `tonalTension`設定を追加し、出荷時は有効、互換用の`MINIMAL_GENERATOR_SETTINGS`では不在/OFFとしました。新しく評価するautomatic group/sectionごとに、plannerのcatalog baseline（候補0）+機能和声候補7個の8候補を、候補0の従来seedを保ったまま比較します。同じgroupの互換する反復sectionはcached resultを再利用し、8候補の新規評価を繰り返しません。top-levelの明示的な名前付き進行はこの再順位付け経路をバイパスし、組立済みarrangementはこの経路へ入らず独立したsource pipelineで生成・assembleします。
+- Bernardes (2016) / Navarro-Cáceres (2020)のTIS原理と、Ebrahimzadeh et al. (2025)プロフィールの重み（`1.58`, `30.3`, `2.71`）、chord距離定数`64.8757`、Pearsonまたはflatness fallbackを、依存なしのブラウザ内TypeScriptとして独立実装しました。8候補は既存のcadence / grammar検証を通り、`style: random`では候補0の解決済みstyleを共有します。dissonanceは厳密な`sqrt(sum(weights^2))`で正規化し、参照実装の丸め値とのbit単位一致は主張しません。
+- `tonalTensionApplied` markerで正常評価済みsectionを説明へ反映し、候補0勝利時はcatalog理由とTIS理由を併記、機能和声候補勝利時はcatalog IDを外します。partial regenerationはsection-wide適用を主張せず候補0を使い、実際にunlocked barを1つ以上置換したsectionだけmarkerを外して未接触・全locked sectionのmetadataを保ちます。voicing/doubling/tick位置を含むsounding identityで誤dedupeを防ぎます。反復planner groupはcandidate stream/style/選択indexを共有し、互換長の反復結果を再利用します。
+- top-levelの名前付き進行はsong formの全sectionへ実際に適用され、TISをバイパスします。section-localな事前voicing曲線のため、後段pivot／transition／左右手割当／再voicing後の最終出音がtargetと一致する保証はありません。
+- TISはTransformerでも学習済み重みでもなく、2020年の階層木項を含みません。このアプリでの聴感改善も未証明です。式、tick加重、決定性、例外時の候補0 fallback、一次資料と限界は [`docs/research/tonal-tension-reranking.ja.md`](docs/research/tonal-tension-reranking.ja.md) と英語版に記録しています。
+
 ### 大規模アップデート — 統計コードアドバイザー
 
 - Hooktheoryの考え方（条件付きの出現傾向、定番度、意外性、サプライズ）を、外部サイトへ接続せず、追跡済みのPOP909ローカルモデルだけで実装しました。Hooktheoryのデータ、スクレイピング結果、重みはコピー・同梱・学習利用していません。

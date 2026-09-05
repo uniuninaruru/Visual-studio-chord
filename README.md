@@ -541,6 +541,7 @@ flowchart LR
 - 7th、セカンダリードミナント、借用和音、トライトーン代理、sus / add9
 - コード候補を1個ずつ抽選せず、終止・適用和音の実根音解決・共通音・固定声部数の実ボイスリーディング距離を全曲単位で検査
 - 機能和声のクロマティック区間ではNeo-Riemannian P / L / Rを実コード候補として生成し、変換元と操作をプロジェクトへ保存
+- **セクションの緊張カーブを整える** — 機能和声の自動セクションで、新しく評価するgroup/sectionごとにcatalog baseline（候補0）と機能和声候補7個の8候補をTonal Interval Space（TIS）でsection-localな小節shapeに照合。互換する反復sectionはcached resultを再利用します。top-levelの明示的な名前付き進行はsong formの全sectionへ実際に適用してこの経路をバイパスし、組立済みarrangementはこの再順位付け経路へ入らず独立したsource pipelineで生成・assembleします。同じplanner進行IDの反復はcandidate stream/style/選択indexを共有します
 - 王道進行・小室進行・丸サ進行・カノン進行・循環コードなど、実務者の合意がある**名前付きコード進行**をID指定で選択可能（33種）
 - 9th / 11th / 13th 等のテンション、分数コード（スラッシュベース）に対応
 - **左手はシェル**（ルート＋5度／7度／オクターブ／10度）。音程は低音程限界の表からベース音に応じて選ばれ、低いほど広くなります。両手は音域が重なってよく、入れ替わることはありません
@@ -572,6 +573,7 @@ Advancedタブの「曲の流れ（Phase A）」「歌えるメロディ（Phase
 | `harmonicRhythm` | 1小節1コードの制約を外し、コードを tick 単位のスロットに配置。終止に向けた和声リズムの加速も指定可 |
 | `phraseGrammar` | 「提示 → 応答 → 断片化 → カデンツ」という古典的な楽節構造でフレーズを区分 |
 | `functionalHarmony` | 進行を度数テンプレートの展開ではなく、序数化した和声機能の状態遷移探索として生成。Advancedでは終止制約を保ったままNeo-Riemannian P / L / R候補も使用 |
+| `tonalTension` | 自動機能和声セクションで、新しく評価するgroup/sectionごとに候補0（catalog baseline）+機能和声候補7個をTISプロフィールとsection-local energy shapeのPearson相関（平坦時は`1`／逆分散／`-1`のflatness fallback）で再順位付け。互換する反復sectionはcached resultを再利用。top-level明示進行はこの経路をバイパスし、組立済みarrangementは経路自体へ入りません。後段のpivot／transition／voicing後の最終出音がtargetに一致する保証はありません |
 | `voiceLeading` | 「左手はベース、右手は3声」のピアノ配置として和音を生成。共通音を残しながら3rd / 7thを滑らかにつなぎ、連続5度・連続8度・声部交差・限定進行音の未解決を回避 |
 | `melodicSkeleton` | フレーズの開始音・頂点・終止を先に決め、その間を補間した音域に旋律を寄せる（`phraseGrammar` が必要） |
 | `nonChordTones` | 経過音・刺繍音・アポジャトゥーラ・先取音・掛留・逆行掛留・逸音・囲い込みを「準備→不協和→解決」の3音一組で生成 |
@@ -596,6 +598,7 @@ Advancedタブの「曲の流れ（Phase A）」「歌えるメロディ（Phase
 生成された曲や手入力の進行を「読む」ための関数群です。曲の出力には影響しません。
 
 - **緊張カーブ／エネルギー曲線** — 和声・旋律・リズムから小節ごとの緊張度を測定し、セクション別の目標エネルギーを計画
+- **TIS緊張プロフィール** — chroma count、重み付きDFT、key/function角度、dissonance、tick加重のbar curveを依存なしで計算し、自動機能和声の候補選択へ接続（dissonanceは厳密な`sqrt(sum(weights^2))`で正規化し、丸められた参照値とのbit単位一致は主張しません。[式・出典・限界](docs/research/tonal-tension-reranking.ja.md)）。Transformerや学習済みモデルではありません
 - **ガイドトーンライン** — 各和音の3rdと7thを、担う構成音を交替しながら最小移動でつなぐ2声を算出
 - **モーダルインターチェンジ** — 平行スケール群から借用和音の語彙を体系的に生成（Cメジャーで46和音）、スタイル別の重み付き
 - **コードスケール理論** — 各和音に合うスケールを15種から照合し、利用可能音・アヴォイドノート・到達できるテンションを報告
@@ -1260,6 +1263,9 @@ v0.4で直接参照した主要資料:
   非微分可能ruleをforward評価する考え方
 - [Full-to-full curriculum masking](https://arxiv.org/abs/2601.16150) —
   旋律を無視する近道を抑える学習計画（学習結果は未報告）
+
+TISによるセクション緊張カーブ再順位付けの一次資料、定数、8候補の流れ、
+offline/browser実装と非主張事項は[研究ノート](docs/research/tonal-tension-reranking.ja.md)にまとめています。
 
 - [Open Music Theory: Species Counterpoint](https://viva.pressbooks.pub/openmusictheorycopy/chapter/species-counterpoint/) — 旋律の音域、頂点、大跳躍後の反対方向への順次進行、協和・不協和の扱い
 - [Open Music Theory: Jazz Voicings](https://viva.pressbooks.pub/openmusictheory/chapter/jazz-voicings/) — 低音域ほど広く、上声ほど密にする配置、ガイドトーンと滑らかな声部進行

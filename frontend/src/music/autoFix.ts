@@ -84,6 +84,18 @@ export function createAutoFixPreview(
       reason: "コードを単独抽選せず、着地点から逆算して流れを作ります。",
     });
   }
+  const hasAutomaticSections = settings.songForm?.form !== undefined
+    && settings.songForm.form !== "none"
+    && settings.progressionId === undefined
+    && composition.arrangementPlan === undefined;
+  if (hasAutomaticSections && settings.tonalTension?.enabled !== true) {
+    settings.tonalTension = { enabled: true };
+    changes.push({
+      id: "tonal-tension",
+      label: "セクションの緊張カーブを整える",
+      reason: "曲の構造があるため、機能和声の候補をTISでセクションごとに比較します。",
+    });
+  }
   if (!settings.phraseGrammar?.enabled) {
     settings.phraseGrammar = { enabled: true };
     changes.push({

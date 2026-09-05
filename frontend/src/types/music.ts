@@ -232,6 +232,8 @@ export interface SectionEvent {
   melodyScale?: MelodyScaleName;
   /** Named progression this section was built from. */
   progressionId?: string;
+  /** True only when the TIS beam was evaluated for this section. */
+  tonalTensionApplied?: true;
 }
 
 /**
@@ -463,6 +465,17 @@ export interface FunctionalHarmonySettings {
   enabled: boolean;
   /** 0..1. Higher wanders through more colourful functions. */
   exploration?: number;
+}
+
+/**
+ * Bar-level Tonal Interval Space reranking for automatic functional sections.
+ *
+ * This is intentionally a single compatibility-safe switch. The browser
+ * computes the symbolic profile locally; no model weights or network service
+ * are involved.
+ */
+export interface TonalTensionSettings {
+  enabled: boolean;
 }
 
 /** Phrase grammar. Off keeps the original fixed-length phrasing. */
@@ -707,6 +720,8 @@ export interface GeneratorSettings {
    * expanding a degree template. Omitted keeps the template behaviour.
    */
   functionalHarmony?: FunctionalHarmonySettings;
+  /** Optional TIS contour reranking for generated sections. */
+  tonalTension?: TonalTensionSettings;
   /**
    * Voices chords as four independent parts, applying part-writing rules
    * weighted by style. Omitted keeps the original note-set voicer.

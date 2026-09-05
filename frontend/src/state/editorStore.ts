@@ -456,9 +456,10 @@ function clearProgressionsForRanges(
     const touched = ranges.some(
       (range) => range.startTick < sectionEnd && range.endTick > sectionStart,
     );
-    if (!touched || section.progressionId === undefined) return section;
+    if (!touched) return section;
     const next = { ...section };
     delete next.progressionId;
+    delete next.tonalTensionApplied;
     return next;
   });
 }
@@ -2305,6 +2306,7 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
         // section that plays no named progression does not serialise one.
         const rest = { ...section };
         delete rest.progressionId;
+        delete rest.tonalTensionApplied;
         return covered && progressionId !== undefined
           ? { ...rest, progressionId }
           : rest;

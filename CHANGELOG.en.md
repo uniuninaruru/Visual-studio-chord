@@ -7,6 +7,13 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Added — TIS bar-level tension reranking
+
+- Added optional `tonalTension` settings, enabled in shipped defaults and absent/off in `MINIMAL_GENERATOR_SETTINGS` for compatibility. Each newly evaluated automatic group/section compares eight theory-valid candidates: candidate 0 is the planner catalog baseline with its original section seed, and candidates 1–7 explicitly use functional harmony. Compatible repeated sections reuse the cached result instead of making eight new evaluations. Top-level explicit progressions bypass this reranking path; assembled arrangements do not enter the path at all and are generated/assembled through their own source pipeline.
+- Independently implemented the TIS primitives from Bernardes (2016) / Navarro-Cáceres (2020) and the Ebrahimzadeh et al. (2025) profile: coefficients `1.58`, `30.3`, `2.71`, chord-distance normalizer `64.8757`, and Pearson or flatness fallback, entirely dependency-free in the browser. Candidates remain under the existing cadence/grammar generator; `style: random` candidates share candidate 0's resolved style. Dissonance uses exact `sqrt(sum(weights^2))`; parity with the reference's rounded maximum is not claimed.
+- Added truthful `tonalTensionApplied` section provenance: catalog winners retain both catalog and TIS explanations, functional winners remove the catalog ID, and range regeneration makes no section-wide TIS claim, removing the marker only when a section has at least one actually replaced unlocked bar. Repeated planner groups share stream/style/selected index and reuse compatible results; a top-level named progression is applied to every song-form section and bypasses TIS. Audible dedupe includes tick timing, duration, and sorted sounding MIDI data, preserving voicing/doubling differences. The section-local pre-voicing target is not a guarantee about the final post-pivot/transition/hand-assignment/revoiced sound.
+- This is not a Transformer or trained model, and does not include the 2020 hierarchical-tree term. Listening improvement for this app is not yet proven. Equations, tick weighting, determinism, candidate-0 failure fallback, references, and limitations are documented in [`docs/research/tonal-tension-reranking.en.md`](docs/research/tonal-tension-reranking.en.md) and the Japanese version.
+
 ### Major update — Statistical chord advisor
 
 - Added an offline-first statistical advisor inspired by conditional-frequency, familiarity, novelty, and surprisal concepts. It uses only the already tracked local POP909 model: no Hooktheory data, scrape, copied dump, or external provider is bundled or used for training.
