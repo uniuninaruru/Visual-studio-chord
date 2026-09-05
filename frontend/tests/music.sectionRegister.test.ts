@@ -29,7 +29,9 @@ const STYLES = ["pop", "j-pop", "jazz", "ballad", "rock", "lo-fi", "edm", "game-
 
 function piece(patch: Partial<GeneratorSettings>) {
   return generateComposition({
-    ...DEFAULT_GENERATOR_SETTINGS, bars: 32, ...patch,
+    ...DEFAULT_GENERATOR_SETTINGS, bars: 32,
+    tonalTension: { enabled: false },
+    ...patch,
   } as GeneratorSettings);
 }
 

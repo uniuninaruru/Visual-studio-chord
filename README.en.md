@@ -365,6 +365,12 @@ without starting the backend. Only two things become unavailable:
 
 - deterministic, seeded generation with named progressions and functional
   harmony;
+- automatic functional sections can optionally compare a catalog baseline
+  (candidate 0) plus seven functional-harmony candidates in Tonal Interval
+  Space (TIS) against section-local build/release shape; top-level explicit
+  progressions are applied to every section in a song form and bypass this
+  adaptation, while assembled sections bypass it; repeated planner groups share
+  candidate stream, style, and selected candidate index;
 - variable harmonic rhythm, sections, modulation, phrase grammar, tension, and
   advanced chord vocabulary;
 - independently designed Intro / A melody / B melody / C melody drafts with
@@ -407,6 +413,14 @@ without starting the backend. Only two things become unavailable:
   to fit it;
 - an explanation of what it wrote and why, per chord and for the whole piece,
   each statement naming the body of theory it comes from;
+- a dependency-free, browser-local TIS profile (weighted DFT, key/function
+  angles, dissonance, tick-weighted bar curves, and Pearson/shape fallback)
+  that is section-local rather than a cross-section absolute-level optimizer,
+  uses the exact `sqrt(sum(weights^2))` dissonance normalization without claiming
+  bit parity with the rounded reference maximum, and does not guarantee that
+  later pivot/transition/voicing produces the same final sound as the target,
+  documented with equations, sources, and claim limits in the
+  [TIS reranking research note](docs/research/tonal-tension-reranking.en.md);
 - local JSON persistence, offline operation after setup, diagnostics, and
   safe browser/theory fallbacks;
 - a menu behind the three lines: usage guide, release notes, dependency
@@ -475,6 +489,7 @@ still works.
 | Runtime and devices | [Optional acceleration](#optional-acceleration), [Native development and tests](#native-development-and-tests) |
 | Neural model | [HarmonyForge research preview](#harmonyforge-research-preview), [Implemented model](#implemented-model), [Fallback](#fallback) |
 | Section arrangement | [Section arrangement architecture and contract](#section-arrangement-architecture-and-contract) |
+| TIS contour reranking | [TIS bar-level tension reranking](docs/research/tonal-tension-reranking.en.md) |
 | External evaluation | [McGill Billboard external evaluation](#mcgill-billboard-external-evaluation), [evaluation report](docs/research/mcgill-billboard-external-evaluation.en.md) |
 | Contracts | [API](#api), artifact validation, cancellation, and versioned data described in the HarmonyForge section |
 | Quality and provenance | [Primary v0.4 references](#primary-v04-references), [Current limitations](#current-limitations) |
@@ -839,6 +854,10 @@ MPS remain real-hardware release gates.
 - [Full-to-full curriculum masking](https://arxiv.org/abs/2601.16150):
   a training plan intended to discourage melody-ignoring shortcuts; no
   training result is claimed here.
+
+The primary sources, constants, exact eight-candidate flow, offline/browser
+implementation, and claim boundary for TIS contour reranking are in the
+[research note](docs/research/tonal-tension-reranking.en.md).
 
 The [architecture note](docs/neural-harmony-architecture.en.md) maps each cited
 idea to the implementation and separates it from repository-specific

@@ -177,6 +177,17 @@ export function validateGeneratorSettings(
       }
     }
   }
+  const tonalTension = settings.tonalTension as unknown;
+  if (
+    tonalTension !== undefined &&
+    (typeof tonalTension !== "object" || tonalTension === null ||
+      typeof (tonalTension as { enabled?: unknown }).enabled !== "boolean")
+  ) {
+    issues.push(error(
+      "settings.tonalTension.enabled",
+      "Tonal tension enabled must be boolean.",
+    ));
+  }
   if (settings.harmonicRhythm) {
     const rhythm = settings.harmonicRhythm;
     // Only positive integers reach the planner. Everything else falls through
@@ -684,6 +695,10 @@ export function validateComposition(composition: GeneratedComposition): Validati
 
   if (composition.sections) {
     const sections = composition.sections;
+    const tonalMarkerAllowed = composition.settings.tonalTension?.enabled === true
+      && composition.settings.functionalHarmony?.enabled === true
+      && composition.settings.progressionId === undefined
+      && composition.arrangementPlan === undefined;
     if (!sectionsTileBars(sections, composition.settings.bars)) {
       issues.push(
         error(
@@ -710,6 +725,13 @@ export function validateComposition(composition: GeneratedComposition): Validati
         normalizePitchClass(section.key);
       } catch {
         issues.push(error("sections.key", "Section key must be a supported pitch class.", { eventId: section.id }));
+      }
+      if (section.tonalTensionApplied === true && !tonalMarkerAllowed) {
+        issues.push(error(
+          "sections.tonalTensionApplied",
+          "TIS provenance requires enabled tonal tension and functional harmony without an arrangement plan.",
+          { eventId: section.id },
+        ));
       }
     }
   }

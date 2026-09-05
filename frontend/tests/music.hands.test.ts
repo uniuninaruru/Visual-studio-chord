@@ -32,7 +32,9 @@ const SEEDS = ["a", "b", "c", "d"];
 
 function piece(patch: Partial<GeneratorSettings>) {
   return generateComposition({
-    ...DEFAULT_GENERATOR_SETTINGS, bars: 16, ...patch,
+    ...DEFAULT_GENERATOR_SETTINGS, bars: 16,
+    tonalTension: { enabled: false },
+    ...patch,
   } as GeneratorSettings);
 }
 

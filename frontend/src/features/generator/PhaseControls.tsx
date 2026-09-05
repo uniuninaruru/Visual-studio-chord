@@ -47,6 +47,7 @@ function Toggle({
       </span>
       <input
         type="checkbox"
+        aria-label={label}
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
       />
@@ -244,6 +245,19 @@ export function PhaseControls({ settings, onPatch }: PhaseControlsProps) {
                 exploration: settings.functionalHarmony?.exploration ?? 0.35,
               },
             })}
+          />
+          <Toggle
+            label="セクション内の緊張カーブを整える"
+            description={!settings.functionalHarmony?.enabled
+              ? "機能和声をONにすると、各セクションで8候補を比べます。"
+              : settings.songForm?.form === undefined || settings.songForm.form === "none"
+                ? "曲のセクションを設定すると、各セクションで8候補を比べます。"
+                : settings.progressionId !== undefined
+                  ? "名前付き進行を選んだ場合は、この比較を休止してその進行を使います。"
+                  : "各セクションで理論的に成立する8候補を比べ、盛り上がりの形に近い進行を選びます。"
+                    + "セクション内の形を見ます。"}
+            checked={settings.tonalTension?.enabled ?? false}
+            onChange={(enabled) => onPatch({ tonalTension: { enabled } })}
           />
           <Toggle
             label="左手・右手のピアノボイシング"
