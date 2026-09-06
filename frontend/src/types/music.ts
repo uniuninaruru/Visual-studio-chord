@@ -673,6 +673,10 @@ export interface MelodySettings {
    * nothing longer.
    */
   variedNoteValues?: boolean;
+  /** Phrase-level composition; omitted keeps existing projects reproducible. */
+  phraseDesign?: boolean;
+  /** 0..1. How strongly later phrases retain their opening hook. */
+  hookStrength?: number;
 }
 
 export interface GeneratorSettings {

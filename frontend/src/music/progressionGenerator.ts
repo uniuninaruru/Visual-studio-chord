@@ -61,6 +61,8 @@ export interface ProgressionGeneratorSettings {
   tensions?: TensionSettings;
   /** Named progression to use instead of the seeded style pick. */
   progressionId?: string;
+  /** Optional palette for automatically chosen templates; explicit choices stay exact. */
+  templateColoration?: { seventhRate: number; seed: Seed };
   /**
    * Number of bars to fill, when it differs from `bars`. Used to generate one
    * section of a longer piece; sections are rarely 4, 8 or 16 bars.
@@ -213,9 +215,15 @@ function generateNamedProgression(
     settings.harmonicRhythm,
     settings.ppq,
   );
-  const steps = slots.map(
-    (_, index) => template.steps[index % template.steps.length] as ProgressionStep,
-  );
+  const palette = settings.templateColoration;
+  const templateSteps = template.steps.map((step, index): ProgressionStep => {
+    if (!palette || step.quality || step.alteration || step.role || settings.harmony?.complexity === "triads") return step;
+    const random = createSeededRandom(deriveSeed(palette.seed, template.id, "seventh", index));
+    return random.chance(palette.seventhRate)
+      ? { ...step, quality: getDiatonicSeventhChordDefinition(settings.key, settings.mode, step.degree).quality }
+      : step;
+  });
+  const steps = slots.map((_, index) => templateSteps[index % templateSteps.length] as ProgressionStep);
   const finalStep = steps.at(-1);
   const firstStep = steps[0];
   const finalIsAppliedDominant =
@@ -248,6 +256,7 @@ function generateNamedProgression(
         id: `chord-${slotIndex}-${idHash}`,
         previousNotes: chords[chords.length - 1]?.notes,
         voiceLeadingStrength: settings.harmony?.voiceLeadingStrength ?? 1,
+        ...(palette ? { tensionsFor: (quality: ChordQuality) => chooseTensions(quality, settings.tensions, palette.seed, slotIndex) } : {}),
       }),
     );
   }

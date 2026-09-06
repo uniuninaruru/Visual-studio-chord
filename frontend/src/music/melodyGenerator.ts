@@ -9,6 +9,7 @@ import {
   type SectionEvent,
 } from "../types/music";
 import { developMelodyWithMotif } from "./motifs";
+import { composePhraseMelody } from "./phraseComposer";
 import {
   skeletonNotesInBar,
   skeletonRegisterAt,
@@ -446,15 +447,15 @@ function scaleForBarOf(options: MelodyGeneratorOptions): (barIndex: number) => n
 }
 
 export function generateMelody(options: MelodyGeneratorOptions): NoteEvent[] {
-  const notes: NoteEvent[] = [];
+  const notes: NoteEvent[] = options.settings.melody.phraseDesign ? composePhraseMelody(options) : [];
   let state: MelodyState = { previousMidi: null, previousDelta: 0 };
-  for (let barIndex = 0; barIndex < options.settings.bars; barIndex += 1) {
+  for (let barIndex = 0; !options.settings.melody.phraseDesign && barIndex < options.settings.bars; barIndex += 1) {
     const result = generateMelodyBar(options, barIndex, state);
     notes.push(...result.notes);
     state = result.finalState;
   }
   const seed = options.seed ?? options.settings.seed;
-  const developed = developMelodyWithMotif(notes, {
+  const developed = options.settings.melody.phraseDesign ? notes : developMelodyWithMotif(notes, {
     settings: options.settings,
     chords: options.chords,
     resolvedStyle: options.resolvedStyle,
