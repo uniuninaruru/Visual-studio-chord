@@ -29,7 +29,7 @@ import { withHands } from "./hands";
 import { bassRegisterPitch } from "./compositionTracks";
 import { applySectionTransitions } from "./sectionTransitions";
 import type { BassRegisterSettings } from "../types/music";
-import type { ConcreteStylePresetId } from "./styles";
+import { CONCRETE_STYLE_IDS, type ConcreteStylePresetId } from "./styles";
 import { deriveSeed, hashSeed, seedToString } from "./random";
 import { getScalePitchClasses, midiToNoteName, pitchClassToSemitone } from "./scales";
 import { createBars, tickToBarIndex, ticksPerBar, ticksPerBeat } from "./time";
@@ -119,6 +119,8 @@ export const DEFAULT_GENERATOR_SETTINGS: Readonly<GeneratorSettings> = Object.fr
   melody: Object.freeze({
     ...MINIMAL_GENERATOR_SETTINGS.melody,
     variedNoteValues: true,
+    phraseDesign: true,
+    hookStrength: 0.75,
   }),
   harmony: Object.freeze({ ...DEFAULT_HARMONY_SETTINGS, complexity: "sevenths" as const }),
   tensions: Object.freeze({ enabled: true, rate: 0.35 }),
@@ -252,6 +254,7 @@ function compositionFingerprint(settings: GeneratorSettings): string {
     settings.melody.restRate,
     settings.melody.syncopation,
     settings.melody.leapProbability,
+    ...(settings.melody.phraseDesign ? ["phrase-design-v1", settings.melody.hookStrength ?? 0.75] : []),
     settings.harmony?.complexity ?? DEFAULT_HARMONY_SETTINGS.complexity,
     ...harmonyRateFingerprint,
     settings.motif?.enabled ?? DEFAULT_MOTIF_SETTINGS.enabled,
@@ -504,12 +507,27 @@ function progressionForSection(
 } {
   const sectionSeed = deriveSeed(settings.seed, "section", sectionIndex, section.kind);
   const effectiveProgressionId = settings.progressionId ?? section.progressionId;
+  const autoPalette = settings.melody.phraseDesign && !settings.progressionId;
+  const colorDraw = hashSeed(deriveSeed(settings.seed, "phrase-palette-v1")) / 0x1_0000_0000;
+  const colorRate = settings.style === "rock" || settings.style === "edm"
+    ? 0.05 + colorDraw * 0.35
+    : settings.style === "jazz" || settings.style === "lo-fi"
+      ? 0.5 + colorDraw * 0.4
+      : 0.05 + colorDraw * 0.85;
   const base = {
     ...settings,
     key: section.key,
     mode: section.mode,
     barCount,
     progressionId: effectiveProgressionId,
+    ...(autoPalette
+      ? {
+          templateColoration: {
+            seventhRate: colorRate,
+            seed: deriveSeed(settings.seed, "phrase-palette"),
+          },
+        }
+      : {}),
     seed: sectionSeed,
     ppq: PPQ,
   };
@@ -703,6 +721,11 @@ function generateSectionedChords(
 export function generateComposition(settings: GeneratorSettings): GeneratedComposition {
   assertValidGeneratorSettings(settings);
   const copiedSettings = copySettings(settings);
+  const phraseStyle = copiedSettings.melody.phraseDesign
+    ? copiedSettings.style === "random"
+      ? CONCRETE_STYLE_IDS[hashSeed(deriveSeed(copiedSettings.seed, "phrase-style")) % CONCRETE_STYLE_IDS.length]!
+      : copiedSettings.style
+    : undefined;
   const barTicks = ticksPerBar(copiedSettings.timeSignature, PPQ);
   const sections = planSections({
     key: copiedSettings.key,
@@ -714,15 +737,27 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
     polytonal: copiedSettings.songForm?.polytonal,
     melodyScale: copiedSettings.songForm?.melodyScale,
     variedThinSections: copiedSettings.songFormVariety?.variedThinSections,
+    style: phraseStyle,
   });
+  if (copiedSettings.melody.phraseDesign && copiedSettings.progressionId && sections) {
+    for (const section of sections) section.progressionId = copiedSettings.progressionId;
+  }
 
   // Without a song form this is the original single-span path, so existing
   // seeds keep producing byte-identical output.
   const sectionedProgression = sections
-    ? generateSectionedChords(copiedSettings, sections, barTicks)
+    ? generateSectionedChords(
+        { ...copiedSettings, style: phraseStyle ?? copiedSettings.style },
+        sections,
+        barTicks,
+      )
     : undefined;
   const progression = sectionedProgression
-    ?? generateProgression({ ...copiedSettings, ppq: PPQ });
+    ?? generateProgression({
+      ...copiedSettings,
+      style: phraseStyle ?? copiedSettings.style,
+      ppq: PPQ,
+    });
   // Before voicing, so the pivot is voiced with the rest rather than being an
   // island the four-part writer never saw.
   if (copiedSettings.pivotModulation?.enabled && sections) {
@@ -752,7 +787,7 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
       progression.chords,
       sections.map((section) => ({ startBar: section.startBar })),
       {
-        style: copiedSettings.style,
+        style: phraseStyle ?? copiedSettings.style,
         seed: copiedSettings.seed,
         mode: copiedSettings.mode,
         tonicSemitone: pitchClassToSemitone(copiedSettings.key),
@@ -767,7 +802,7 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
     progression.chords = revoiceInFourParts(progression.chords, {
       key: copiedSettings.key,
       mode: copiedSettings.mode,
-      style: copiedSettings.style,
+      style: phraseStyle ?? copiedSettings.style,
       profileName: copiedSettings.voiceLeading.profile,
       optimizeSequence: copiedSettings.voiceLeading.optimizeSequence,
     });
@@ -809,7 +844,7 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
       }
       : undefined;
     progression.chords = revoiceForMelody(progression.chords, notes, {
-      style: copiedSettings.style,
+      style: phraseStyle ?? copiedSettings.style,
       registerFor,
       melodyClearance: copiedSettings.bassRegister?.melodyClearance,
     });

@@ -255,6 +255,7 @@ export interface ComposerStoreActions {
   deleteNote(noteId: string): boolean;
   deleteNotes(noteIds: string[]): number;
   duplicateNotes(noteIds: string[], deltaTick?: number): string[];
+  pasteNotes(notes: readonly NoteEvent[], deltaTick?: number): string[];
   quantizeNotes(noteIds: string[], gridTick?: number): number;
   toggleBarLock(barIndex: number): void;
   toggleVoiceMute(voiceId: string): boolean;
@@ -2334,6 +2335,9 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
       moved.set(note.id, next);
       return next;
     }));
+    if ([...selected, ...moved.values()].some((note) =>
+      crossesLockedBar(composition, note.startTick, note.startTick + note.durationTick, state.lockedBars)
+    )) return 0;
     const bars = [
       ...selected.map((note) => note.barIndex),
       ...Array.from(moved.values(), (note) => note.barIndex),
@@ -2360,6 +2364,7 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
       1,
       Math.max(1, (barIndex + 1) * composition.ticksPerBar - boundedStart),
     );
+    if (crossesLockedBar(composition, boundedStart, boundedStart + boundedDuration, state.lockedBars)) return null;
     noteSerial += 1;
     const id = `note-user-${Date.now()}-${noteSerial}`;
     composition.notes = sortNotes([...composition.notes, {
@@ -2388,6 +2393,9 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     const ids = new Set(noteIds);
     const notes = state.draftComposition.notes.filter((item) => ids.has(item.id));
     if (notes.length === 0) return 0;
+    if (notes.some((note) => crossesLockedBar(
+      state.draftComposition, note.startTick, note.startTick + note.durationTick, state.lockedBars,
+    ))) return 0;
     const composition = clone(state.draftComposition);
     composition.notes = composition.notes.filter((item) => !ids.has(item.id));
     set(stateAfterComposition(state, composition, "delete-note", {
@@ -2401,6 +2409,11 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     const state = get();
     const ids = new Set(noteIds);
     const source = state.draftComposition.notes.filter((note) => ids.has(note.id));
+    return get().pasteNotes(source, deltaTick);
+  },
+
+  pasteNotes: (source, deltaTick) => {
+    const state = get();
     if (source.length === 0) return [];
     const composition = clone(state.draftComposition);
     const offset = Math.round(deltaTick ?? composition.ppq / 2);
@@ -2413,8 +2426,11 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
       }, { deltaTick: offset });
       added.push(duplicate);
     }
+    if (added.some((note) => crossesLockedBar(
+      composition, note.startTick, note.startTick + note.durationTick, state.lockedBars,
+    ))) return [];
     composition.notes = sortNotes([...composition.notes, ...added]);
-    const bars = [...source, ...added].map((note) => note.barIndex);
+    const bars = added.map((note) => note.barIndex);
     set(stateAfterComposition(state, composition, "duplicate-notes", {
       startBar: Math.min(...bars),
       endBar: Math.max(...bars) + 1,
@@ -2429,15 +2445,21 @@ export const useComposerStore = create<ComposerStore>()((set, get) => ({
     if (selected.length === 0) return 0;
     const composition = clone(state.draftComposition);
     const grid = clampInteger(gridTick ?? composition.ppq / 4, 1, composition.ticksPerBar);
+    const quantized: NoteEvent[] = [];
     composition.notes = sortNotes(composition.notes.map((note) => {
       if (!ids.has(note.id)) return note;
       const startTick = Math.round(note.startTick / grid) * grid;
       const durationTick = Math.max(grid, Math.round(note.durationTick / grid) * grid);
-      return movedNote(composition, note, { startTick, durationTick });
+      const next = movedNote(composition, note, { startTick, durationTick });
+      quantized.push(next);
+      return next;
     }));
+    if ([...selected, ...quantized].some((note) => crossesLockedBar(
+      composition, note.startTick, note.startTick + note.durationTick, state.lockedBars,
+    ))) return 0;
     set(stateAfterComposition(state, composition, "quantize-notes", {
-      startBar: Math.min(...selected.map((note) => note.barIndex)),
-      endBar: Math.max(...selected.map((note) => note.barIndex)) + 1,
+      startBar: Math.min(...[...selected, ...quantized].map((note) => note.barIndex)),
+      endBar: Math.max(...[...selected, ...quantized].map((note) => note.barIndex)) + 1,
     }));
     return selected.length;
   },

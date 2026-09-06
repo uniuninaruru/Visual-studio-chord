@@ -147,10 +147,14 @@ export function validateGeneratorSettings(
     restRate: melody.restRate,
     syncopation: melody.syncopation,
     leapProbability: melody.leapProbability,
+    ...(melody.hookStrength === undefined ? {} : { hookStrength: melody.hookStrength }),
   })) {
     if (!isProbability(value)) {
       issues.push(error(`settings.melody.${name}`, `${name} must be between 0 and 1.`));
     }
+  }
+  if (melody.phraseDesign !== undefined && typeof melody.phraseDesign !== "boolean") {
+    issues.push(error("settings.melody.phraseDesign", "Phrase design must be a boolean."));
   }
   if (settings.harmony) {
     if (!["triads", "sevenths", "advanced"].includes(settings.harmony.complexity)) {

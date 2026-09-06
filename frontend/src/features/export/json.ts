@@ -254,6 +254,8 @@ function isGeneratorSettingsWithBars(
     validMotif &&
     validTonalTension &&
     validArrangement &&
+    (melody.phraseDesign === undefined || typeof melody.phraseDesign === "boolean") &&
+    (melody.hookStrength === undefined || (isFiniteNumber(melody.hookStrength) && melody.hookStrength >= 0 && melody.hookStrength <= 1)) &&
     Number.isInteger(melody.minMidi) &&
     Number.isInteger(melody.maxMidi) &&
     (melody.minMidi as number) >= 0 &&

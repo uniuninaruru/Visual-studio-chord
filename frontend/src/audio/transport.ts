@@ -401,82 +401,28 @@ export class CompositionTransport {
           windowStart + this.schedulerStepTicks,
         );
 
-        // Scheduled from the rendered tracks, the same source MIDI export and
-        // the piano roll read, so what is heard is what is written out.
+        // Playback and MIDI share the same performed notes, including section
+        // dynamics. Every track is scheduled exactly once through its own voice.
         for (const track of this.renderedTracks) {
-          if (track.role === "melody") continue;
-          if (!this.trackIsAudible(track.id)) continue;
-          const synth = track.role === "bass" ? this.bassSynth : this.chordSynth;
-          for (const note of track.notes) {
-            if (note.startTick < windowStart || note.startTick >= windowEnd) {
-              continue;
-            }
-            const offset = secondsForTicks(
-              note.startTick - windowStart,
-              composition.settings.bpm,
-              composition.ppq,
-            );
-            const duration = secondsForTicks(
-              Math.min(note.durationTick * 0.94, this.loop.endTick - note.startTick),
-              composition.settings.bpm,
-              composition.ppq,
-            );
-            synth.triggerAttackRelease(
-              midiToFrequency(note.midi),
-              duration,
-              time + (note.startTick === windowStart ? 0 : offset),
-              // Reads the note's own velocity. The literals this replaced meant
-              // chord dynamics could never be heard however they were generated.
-              Math.max(0.08, Math.min(1, note.velocity / 127)),
-            );
-          }
-        }
-
-        if (this.trackIsAudible("track-melody")) for (const note of composition.notes) {
-          if (note.startTick < windowStart || note.startTick >= windowEnd) {
-            continue;
-          }
-          const offset = secondsForTicks(
-            note.startTick - windowStart,
-            composition.settings.bpm,
-            composition.ppq,
-          );
-          const duration = secondsForTicks(
-            Math.min(note.durationTick * 0.88, this.loop.endTick - note.startTick),
-            composition.settings.bpm,
-            composition.ppq,
-          );
-          this.melodySynth.triggerAttackRelease(
-            midiToFrequency(note.midi),
-            duration,
-            time + (note.startTick === windowStart ? 0 : offset),
-            Math.max(0.08, Math.min(1, note.velocity / 127)),
-          );
-        }
-
-        for (const voice of composition.voices ?? []) {
-          if (voice.muted || !this.trackIsAudible(`track-${voice.id}`)) continue;
-          const synth = this.voiceSynths.get(voice.id);
+          if (track.muted || !this.trackIsAudible(track.id)) continue;
+          const synth = track.role === "bass" ? this.bassSynth
+            : track.role === "chords" ? this.chordSynth
+            : track.role === "melody" ? this.melodySynth
+            : track.sourceVoiceId ? this.voiceSynths.get(track.sourceVoiceId) : undefined;
           if (!synth) continue;
-          for (const note of voice.notes) {
-            if (note.startTick < windowStart || note.startTick >= windowEnd) {
-              continue;
-            }
-            const offset = secondsForTicks(
-              note.startTick - windowStart,
-              composition.settings.bpm,
-              composition.ppq,
-            );
+          for (const note of track.notes) {
+            if (note.startTick < windowStart || note.startTick >= windowEnd) continue;
+            // An onset offset is not a note duration: clamping it to 25 ms
+            // exaggerated the groove and delayed notes just after the grid.
+            const offset = (note.startTick - windowStart) / composition.ppq * 60 / composition.settings.bpm;
             const duration = secondsForTicks(
-              Math.min(note.durationTick * 0.86, this.loop.endTick - note.startTick),
+              Math.min(note.durationTick, this.loop.endTick - note.startTick),
               composition.settings.bpm,
               composition.ppq,
             );
             synth.triggerAttackRelease(
-              midiToFrequency(note.midi),
-              duration,
-              time + (note.startTick === windowStart ? 0 : offset),
-              Math.max(0.06, Math.min(0.82, note.velocity / 127)),
+              midiToFrequency(note.midi), duration, time + offset,
+              Math.max(1 / 127, Math.min(1, note.velocity / 127)),
             );
           }
         }

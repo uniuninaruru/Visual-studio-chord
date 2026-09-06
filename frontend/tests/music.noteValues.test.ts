@@ -31,7 +31,8 @@ const SIXTEENTH = PPQ / 4;
 function piece(patch: Partial<GeneratorSettings>, varied: boolean) {
   return generateComposition({
     ...DEFAULT_GENERATOR_SETTINGS, bars: 16, ...patch,
-    melody: { ...DEFAULT_GENERATOR_SETTINGS.melody, variedNoteValues: varied },
+    // This switch belongs to the legacy per-bar engine. Phrase mode owns its vocabulary.
+    melody: { ...DEFAULT_GENERATOR_SETTINGS.melody, phraseDesign: false, variedNoteValues: varied },
   } as GeneratorSettings);
 }
 
@@ -63,7 +64,7 @@ describe("note values instead of an equal division", () => {
     const off = piece({ seed: "same" }, false);
     const absent = generateComposition({
       ...DEFAULT_GENERATOR_SETTINGS, bars: 16, seed: "same",
-      melody: { ...DEFAULT_GENERATOR_SETTINGS.melody, variedNoteValues: undefined },
+      melody: { ...DEFAULT_GENERATOR_SETTINGS.melody, phraseDesign: false, variedNoteValues: undefined },
     } as GeneratorSettings);
     expect(JSON.stringify(off.notes)).toBe(JSON.stringify(absent.notes));
   }, 30_000);

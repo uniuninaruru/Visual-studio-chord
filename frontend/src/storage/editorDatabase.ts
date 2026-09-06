@@ -74,8 +74,16 @@ export class EditorDatabase {
   private readonly localStorage: StorageLike | null;
   private databasePromise: Promise<IDBDatabase> | null = null;
   private indexedDBDisabled = false;
-  private readonly memory = new Map<string, string>();
+  // null is a tombstone: a failed durable delete must not resurrect old data.
+  private readonly memory = new Map<string, string | null>();
   private currentMode: EditorPersistenceMode;
+  private pendingMutation: Promise<void> = Promise.resolve();
+
+  private enqueueMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.pendingMutation.then(operation);
+    this.pendingMutation = result.then(() => undefined, () => undefined);
+    return result;
+  }
 
   constructor(options: EditorDatabaseOptions = {}) {
     this.indexedDBFactory = Object.hasOwn(options, "indexedDBFactory")
@@ -146,29 +154,34 @@ export class EditorDatabase {
     }
     return new Promise<T | null>((resolve) => {
       let request: IDBRequest<T>;
+      const failed = () => {
+        this.disableIndexedDB();
+        resolve(null);
+      };
       try {
         const transaction = database.transaction(this.objectStoreName, mode);
+        // Request success is provisional. Quota/commit failures can still abort
+        // the transaction after it, so only `complete` means durably saved.
+        transaction.oncomplete = () => {
+          this.currentMode = "indexedDB";
+          resolve(request.result);
+        };
+        transaction.onabort = failed;
+        transaction.onerror = failed;
         request = work(transaction.objectStore(this.objectStoreName));
       } catch {
-        this.disableIndexedDB();
-        resolve(null);
+        failed();
         return;
       }
-      request.onsuccess = () => {
-        this.currentMode = "indexedDB";
-        resolve(request.result);
-      };
-      request.onerror = () => {
-        // A quota or transaction failure is exactly the case this migration
-        // exists to escape, so it degrades instead of throwing at the caller.
-        this.disableIndexedDB();
-        resolve(null);
-      };
+      request.onerror = failed;
     });
   }
 
   /** Reads a record, falling through the same ladder writes use. */
   async read(key: string): Promise<string | null> {
+    await this.pendingMutation;
+    // A newer session-only write takes precedence over a stale durable copy.
+    if (this.memory.has(key)) return this.memory.get(key) ?? null;
     const stored = await this.withStore<string | undefined>("readonly", (store) =>
       store.get(key) as IDBRequest<string | undefined>);
     if (typeof stored === "string") return stored;
@@ -190,9 +203,13 @@ export class EditorDatabase {
    * session-only state in the status bar so nobody closes the tab believing
    * their work is saved.
    */
-  async write(key: string, value: string): Promise<EditorPersistenceMode> {
+  write(key: string, value: string): Promise<EditorPersistenceMode> {
+    return this.enqueueMutation(() => this.writeRecord(key, value));
+  }
+
+  private async writeRecord(key: string, value: string): Promise<EditorPersistenceMode> {
     const written = await this.withStore("readwrite", (store) => store.put(value, key));
-    if (written !== null || this.currentMode === "indexedDB") {
+    if (written !== null) {
       this.memory.set(key, value);
       return "indexedDB";
     }
@@ -211,9 +228,13 @@ export class EditorDatabase {
     return "memory";
   }
 
-  async remove(key: string): Promise<void> {
+  remove(key: string): Promise<void> {
+    return this.enqueueMutation(() => this.removeRecord(key));
+  }
+
+  private async removeRecord(key: string): Promise<void> {
+    this.memory.set(key, null);
     await this.withStore("readwrite", (store) => store.delete(key));
-    this.memory.delete(key);
     try {
       this.localStorage?.removeItem(key);
     } catch {
