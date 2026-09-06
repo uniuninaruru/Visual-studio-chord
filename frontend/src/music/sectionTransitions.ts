@@ -4,10 +4,23 @@ import type {
   HarmonyFunction,
   Mode,
   PitchClassName,
+  StylePresetId,
 } from "../types/music";
 import { deriveSeed, hashSeed, type Seed } from "./random";
 import { SCALE_INTERVALS, pitchClassToSemitone, semitoneToPitchClass } from "./scales";
 import { voiceChord } from "./chords";
+import {
+  getLocalCorpusProvider,
+  type ConditionalHarmonyEvidence,
+  type HarmonyStatisticsProvider,
+} from "./statisticalHarmony";
+import {
+  profileForStyle,
+  revoiceInFourParts,
+  scoreVoiceLeading,
+  type HarmonyContext,
+  type VoiceAssignment,
+} from "./voiceLeading";
 
 /**
  * Approach chords at a section boundary.
@@ -231,6 +244,271 @@ export function transitionProfileFor(style: string): TransitionProfile {
   return TRANSITION_PROFILES[style] ?? TRANSITION_PROFILES.pop as TransitionProfile;
 }
 
+export interface TransitionCandidateScore {
+  candidate: TransitionChord;
+  styleWeight: number;
+  /** Existing four-part score over outgoing -> candidate -> incoming. Lower is better. */
+  voiceLeadingCost: number;
+  /** Null for every candidate when corpus evidence is unavailable or invalid. */
+  corpus: {
+    /** Number of the two predictions backed by an observed order-2+ gram. */
+    supportedTransitions: number;
+    meanSurprisalBits: number;
+  } | null;
+}
+
+export interface TransitionCandidateRanking {
+  candidates: readonly TransitionCandidateScore[];
+  frontier: readonly TransitionCandidateScore[];
+  /** False means the corpus axis was excluded from every candidate. */
+  corpusAvailable: boolean;
+}
+
+interface TransitionRankingOptions {
+  style: StylePresetId;
+  mode: Mode;
+  tonicSemitone: number;
+  provider?: HarmonyStatisticsProvider;
+}
+
+function corpusToken(
+  chord: { root: PitchClassName; quality: ChordQuality },
+  tonicSemitone: number,
+): string {
+  const relative = ((pitchClassToSemitone(chord.root) - tonicSemitone) % 12 + 12) % 12;
+  return `${relative}:${chord.quality}`;
+}
+
+function validEvidence(
+  evidence: ConditionalHarmonyEvidence,
+  requestedTokens: readonly string[],
+): boolean {
+  const finite = [
+    evidence.rawConditionalProbability,
+    evidence.probability,
+    evidence.unigramCount,
+    evidence.exactGramCount,
+    evidence.contextCount,
+    evidence.orderUsed,
+    evidence.surprisalBits,
+  ].every(Number.isFinite);
+  if (!finite
+    || evidence.probability <= 0
+    || evidence.probability > 1
+    || evidence.rawConditionalProbability < 0
+    || evidence.rawConditionalProbability > 1
+    || evidence.surprisalBits < 0
+    || !Number.isSafeInteger(evidence.unigramCount)
+    || evidence.unigramCount < 0
+    || !Number.isSafeInteger(evidence.exactGramCount)
+    || evidence.exactGramCount < 0
+    || !Number.isSafeInteger(evidence.contextCount)
+    || evidence.contextCount < 0
+    || evidence.exactGramCount > evidence.contextCount
+    || !Number.isSafeInteger(evidence.orderUsed)
+    || evidence.orderUsed < 1
+    || evidence.orderUsed > Math.min(3, requestedTokens.length)
+    || (evidence.orderUsed >= 2 && evidence.contextCount === 0)
+    || typeof evidence.supported !== "boolean") {
+    return false;
+  }
+  const normalizedTokens = requestedTokens.slice(-3);
+  return evidence.tokens.length === normalizedTokens.length
+    && evidence.tokens.every((token, index) => token === normalizedTokens[index]);
+}
+
+function corpusScores(
+  outgoing: { root: PitchClassName; quality: ChordQuality },
+  incoming: { root: PitchClassName; quality: ChordQuality },
+  candidates: readonly TransitionChord[],
+  tonicSemitone: number,
+  injectedProvider?: HarmonyStatisticsProvider,
+): ReadonlyMap<TransitionTechnique, NonNullable<TransitionCandidateScore["corpus"]>> | null {
+  try {
+    // Provider creation is deliberately deferred until a boundary survives the
+    // unchanged rate and theory gates. A broken snapshot then degrades this
+    // whole comparison to theory + voice leading + style instead of taking the
+    // composition down or mixing partial evidence between candidates.
+    const provider = injectedProvider ?? getLocalCorpusProvider();
+    const outgoingToken = corpusToken(outgoing, tonicSemitone);
+    const incomingToken = corpusToken(incoming, tonicSemitone);
+    const result = new Map<TransitionTechnique, NonNullable<TransitionCandidateScore["corpus"]>>();
+    for (const candidate of candidates) {
+      const candidateToken = corpusToken(candidate, tonicSemitone);
+      const firstTokens = [outgoingToken, candidateToken];
+      const secondTokens = [outgoingToken, candidateToken, incomingToken];
+      const first = provider.probability(firstTokens);
+      const second = provider.probability(secondTokens);
+      if (!validEvidence(first, firstTokens) || !validEvidence(second, secondTokens)) return null;
+      const firstSurprisal = -Math.log2(first.probability);
+      const secondSurprisal = -Math.log2(second.probability);
+      if (!Number.isFinite(firstSurprisal) || !Number.isFinite(secondSurprisal)) return null;
+      result.set(candidate.technique, {
+        supportedTransitions: [first, second].filter(
+          (evidence) => evidence.orderUsed >= 2 && evidence.exactGramCount > 0,
+        ).length,
+        meanSurprisalBits: (firstSurprisal + secondSurprisal) / 2,
+      });
+    }
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+function assignment(notes: readonly number[]): VoiceAssignment {
+  if (notes.length !== 4 || notes.some((note) => !Number.isFinite(note))) {
+    throw new Error("Four-part revoicing did not produce four finite pitches.");
+  }
+  return {
+    bass: notes[0] as number,
+    tenor: notes[1] as number,
+    alto: notes[2] as number,
+    soprano: notes[3] as number,
+  };
+}
+
+const MAX_VOICE_SCORE_CACHE_ENTRIES = 512;
+const VOICE_SCORE_CACHE = new Map<string, number>();
+
+function scoreCandidateVoiceLeading(
+  outgoing: { root: PitchClassName; quality: ChordQuality },
+  candidate: TransitionChord,
+  incoming: { root: PitchClassName; quality: ChordQuality },
+  options: TransitionRankingOptions,
+): number {
+  const cacheKey = [
+    options.style,
+    options.mode,
+    options.tonicSemitone,
+    outgoing.root,
+    outgoing.quality,
+    candidate.root,
+    candidate.quality,
+    incoming.root,
+    incoming.quality,
+  ].join("|");
+  const cached = VOICE_SCORE_CACHE.get(cacheKey);
+  if (cached !== undefined) return cached;
+  const base = [outgoing, candidate, incoming].map((chord) => ({
+    root: chord.root,
+    quality: chord.quality,
+    ...voiceChord(chord.root, chord.quality),
+  }));
+  const key = semitoneToPitchClass(options.tonicSemitone);
+  const voiced = revoiceInFourParts(base, {
+    key,
+    mode: options.mode,
+    style: options.style,
+    optimizeSequence: true,
+  });
+  const profile = profileForStyle(options.style);
+  const contextFor = (chord: { root: string; quality: ChordQuality }): HarmonyContext => ({
+    key,
+    mode: options.mode,
+    root: chord.root,
+    quality: chord.quality,
+    tonicSemitone: options.tonicSemitone,
+  });
+  const first = scoreVoiceLeading(
+    assignment((voiced[0] as typeof base[number]).notes),
+    assignment((voiced[1] as typeof base[number]).notes),
+    contextFor(candidate),
+    profile,
+  ).total;
+  const second = scoreVoiceLeading(
+    assignment((voiced[1] as typeof base[number]).notes),
+    assignment((voiced[2] as typeof base[number]).notes),
+    contextFor(incoming),
+    profile,
+  ).total;
+  const total = first + second;
+  if (!Number.isFinite(total)) throw new Error("Four-part voice-leading score is not finite.");
+  if (VOICE_SCORE_CACHE.size >= MAX_VOICE_SCORE_CACHE_ENTRIES) {
+    const oldest = VOICE_SCORE_CACHE.keys().next().value;
+    if (oldest !== undefined) VOICE_SCORE_CACHE.delete(oldest);
+  }
+  VOICE_SCORE_CACHE.set(cacheKey, total);
+  return total;
+}
+
+function dominates(
+  left: TransitionCandidateScore,
+  right: TransitionCandidateScore,
+  corpusAvailable: boolean,
+): boolean {
+  const corpusNoWorse = !corpusAvailable || (
+    (left.corpus?.supportedTransitions ?? -1) >= (right.corpus?.supportedTransitions ?? -1)
+    && (left.corpus?.meanSurprisalBits ?? Number.POSITIVE_INFINITY)
+      <= (right.corpus?.meanSurprisalBits ?? Number.POSITIVE_INFINITY)
+  );
+  const corpusBetter = corpusAvailable && (
+    (left.corpus?.supportedTransitions ?? -1) > (right.corpus?.supportedTransitions ?? -1)
+    || (left.corpus?.meanSurprisalBits ?? Number.POSITIVE_INFINITY)
+      < (right.corpus?.meanSurprisalBits ?? Number.POSITIVE_INFINITY)
+  );
+  const voiceNoWorse = left.voiceLeadingCost <= right.voiceLeadingCost;
+  const styleNoWorse = left.styleWeight >= right.styleWeight;
+  const strictlyBetter = corpusBetter
+    || left.voiceLeadingCost < right.voiceLeadingCost
+    || left.styleWeight > right.styleWeight;
+  return corpusNoWorse && voiceNoWorse && styleNoWorse && strictlyBetter;
+}
+
+/**
+ * Scores theory-valid approaches and keeps only their Pareto frontier.
+ *
+ * Exposed so tests and future audit views can inspect the actual quantities;
+ * selection remains in `planTransition`, where the existing seeded style draw
+ * is applied only after dominated candidates have been removed.
+ */
+export function rankTransitionCandidates(
+  outgoing: { root: PitchClassName; quality: ChordQuality },
+  incoming: { root: PitchClassName; quality: ChordQuality },
+  options: TransitionRankingOptions,
+): TransitionCandidateRanking {
+  const profile = transitionProfileFor(options.style);
+  const outgoingSemitone = ((pitchClassToSemitone(outgoing.root) % 12) + 12) % 12;
+  const candidates = transitionsInto(incoming.root, incoming.quality, options.tonicSemitone)
+    .filter((candidate) => (profile.weights[candidate.technique] ?? 0) > 0)
+    .filter((candidate) => ((pitchClassToSemitone(candidate.root) % 12) + 12) % 12 !== outgoingSemitone);
+  if (candidates.length === 0) {
+    return { candidates: [], frontier: [], corpusAvailable: false };
+  }
+  const evidence = corpusScores(
+    outgoing,
+    incoming,
+    candidates,
+    options.tonicSemitone,
+    options.provider,
+  );
+  const corpusAvailable = evidence !== null;
+  const scores = candidates.map((candidate): TransitionCandidateScore => ({
+    candidate,
+    styleWeight: profile.weights[candidate.technique] ?? 0,
+    voiceLeadingCost: scoreCandidateVoiceLeading(outgoing, candidate, incoming, options),
+    corpus: evidence?.get(candidate.technique) ?? null,
+  }));
+  const frontier = scores.filter(
+    (candidate) => !scores.some(
+      (other) => other !== candidate && dominates(other, candidate, corpusAvailable),
+    ),
+  );
+  return { candidates: scores, frontier, corpusAvailable };
+}
+
+function rankedExplanation(
+  score: TransitionCandidateScore,
+  ranking: TransitionCandidateRanking,
+): string {
+  const comparison = `Auto rank: ${ranking.candidates.length} candidates, ${ranking.frontier.length} on the Pareto frontier`;
+  const voice = `four-part cost ${score.voiceLeadingCost.toFixed(2)}`;
+  if (!ranking.corpusAvailable || !score.corpus) {
+    return `${score.candidate.explanation} ${comparison}; theory-only corpus fallback (support and mean surprisal unavailable; voice-leading + style prior); ${voice}.`;
+  }
+  return `${score.candidate.explanation} ${comparison}; hybrid corpus support ${score.corpus.supportedTransitions}/2, mean surprisal ${score.corpus.meanSurprisalBits.toFixed(2)} bits; ${voice}.`;
+}
+
 /**
  * The approach chord for one boundary, or nothing.
  *
@@ -242,7 +520,14 @@ export function transitionProfileFor(style: string): TransitionProfile {
 export function planTransition(
   outgoing: { root: PitchClassName; quality: ChordQuality },
   incoming: { root: PitchClassName; quality: ChordQuality },
-  options: { style: string; seed: Seed; boundaryIndex: number; tonicSemitone: number },
+  options: {
+    style: StylePresetId;
+    seed: Seed;
+    boundaryIndex: number;
+    tonicSemitone: number;
+    mode: Mode;
+    provider?: HarmonyStatisticsProvider;
+  },
 ): TransitionChord | null {
   const profile = transitionProfileFor(options.style);
   const roll = hashSeed(deriveSeed(options.seed, "section-transition", options.boundaryIndex)) % 1000;
@@ -256,21 +541,21 @@ export function planTransition(
     return null;
   }
 
-  const candidates = transitionsInto(incoming.root, incoming.quality, options.tonicSemitone)
-    .filter((candidate) => (profile.weights[candidate.technique] ?? 0) > 0)
-    // An approach chord identical to the chord it replaces changes nothing.
-    .filter((candidate) => ((pitchClassToSemitone(candidate.root) % 12) + 12) % 12 !== outgoingSemitone);
-  if (candidates.length === 0) return null;
+  const ranking = rankTransitionCandidates(outgoing, incoming, options);
+  if (ranking.frontier.length === 0) return null;
 
-  const total = candidates.reduce(
-    (sum, candidate) => sum + (profile.weights[candidate.technique] ?? 0), 0,
+  const total = ranking.frontier.reduce(
+    (sum, score) => sum + score.styleWeight, 0,
   );
   let pick = hashSeed(deriveSeed(options.seed, "section-transition-pick", options.boundaryIndex)) % total;
-  for (const candidate of candidates) {
-    pick -= profile.weights[candidate.technique] ?? 0;
-    if (pick < 0) return candidate;
+  for (const score of ranking.frontier) {
+    pick -= score.styleWeight;
+    if (pick < 0) {
+      return { ...score.candidate, explanation: rankedExplanation(score, ranking) };
+    }
   }
-  return candidates[candidates.length - 1] as TransitionChord;
+  const last = ranking.frontier[ranking.frontier.length - 1] as TransitionCandidateScore;
+  return { ...last.candidate, explanation: rankedExplanation(last, ranking) };
 }
 
 export interface SectionBoundary {
@@ -293,7 +578,13 @@ export interface SectionBoundary {
 export function applySectionTransitions(
   chords: readonly ChordEvent[],
   boundaries: readonly SectionBoundary[],
-  options: { style: string; seed: Seed; mode: Mode; tonicSemitone: number; ticksPerBar: number },
+  options: {
+    style: StylePresetId;
+    seed: Seed;
+    mode: Mode;
+    tonicSemitone: number;
+    ticksPerBar: number;
+  },
 ): ChordEvent[] {
   if (chords.length === 0 || boundaries.length === 0) return [...chords];
 
@@ -317,12 +608,13 @@ export function applySectionTransitions(
       { root: outgoing.root, quality: outgoing.quality },
       { root: incoming.root, quality: incoming.quality },
       {
-      style: options.style,
-      seed: options.seed,
-      // Counted from the boundary's own bar, so adding a section elsewhere in
-      // the piece does not reshuffle every other boundary's choice.
-      boundaryIndex: boundary.startBar,
-      tonicSemitone: options.tonicSemitone,
+        style: options.style,
+        seed: options.seed,
+        // Counted from the boundary's own bar, so adding a section elsewhere in
+        // the piece does not reshuffle every other boundary's choice.
+        boundaryIndex: boundary.startBar,
+        tonicSemitone: options.tonicSemitone,
+        mode: options.mode,
       },
     );
     void order;

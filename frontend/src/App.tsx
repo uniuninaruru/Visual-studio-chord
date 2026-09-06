@@ -147,7 +147,7 @@ export default function App() {
   const [soloTrackId, setSoloTrackId] = useState<string | null>(null);
   const saveWarningRef = useRef<string | null>(null);
   const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>([]);
-  const [copiedNoteIds, setCopiedNoteIds] = useState<string[]>([]);
+  const [copiedNotes, setCopiedNotes] = useState<NoteEvent[]>([]);
   const [selectedChordId, setSelectedChordId] = useState<string | null>(null);
   const [chordEditorOpen, setChordEditorOpen] = useState(false);
   const [sectionChordEditorOpen, setSectionChordEditorOpen] = useState(false);
@@ -230,7 +230,7 @@ export default function App() {
   const statisticsTargetLabel = statisticsAnalysisScope
     ? `${statisticsAnalysisScope.startBar + 1}〜${statisticsAnalysisScope.endBar}小節`
     : "曲全体";
-  const validation = validateComposition(composition);
+  const validation = useMemo(() => validateComposition(composition), [composition]);
   const currentPreferenceFeatures = useMemo(
     () => extractPreferenceFeatures(composition),
     [composition],
@@ -719,7 +719,10 @@ export default function App() {
           setToast(store.redo() ? "Redoしました。再生位置は維持されます。" : "これ以上Redoできません。");
         }}
         onUpdateTiming={store.setUpdateTiming}
-        onExport={() => document.getElementById("export-panel")?.scrollIntoView({ behavior: "smooth" })}
+        onExport={() => {
+          setMobilePanel("inspector");
+          requestAnimationFrame(() => document.getElementById("export-panel")?.scrollIntoView({ behavior: "smooth" }));
+        }}
         onOpenMenu={() => setMenuOpen(true)}
       />
 
@@ -869,11 +872,13 @@ export default function App() {
                 if (id) setSelectedNoteIds([id]);
               }}
               onCopyNotes={() => {
-                setCopiedNoteIds([...selectedNoteIds]);
-                setToast(`${selectedNoteIds.length}個のノートをコピーしました。`);
+                const selected = new Set(selectedNoteIds);
+                const notes = composition.notes.filter((note) => selected.has(note.id)).map((note) => ({ ...note }));
+                setCopiedNotes(notes);
+                setToast(`${notes.length}個のノートをコピーしました。`);
               }}
               onPasteNotes={() => {
-                const ids = store.duplicateNotes(copiedNoteIds);
+                const ids = store.pasteNotes(copiedNotes);
                 setSelectedNoteIds(ids);
                 if (ids.length > 0) setToast(`${ids.length}個のノートを貼り付けました。`);
               }}
@@ -885,8 +890,8 @@ export default function App() {
                 if (count > 0) setToast(`${count}個のノートを1/16へクオンタイズしました。`);
               }}
               onDeleteNotes={handleDeleteNote}
-              canPaste={copiedNoteIds.length > 0}
-              clipboardNoteCount={copiedNoteIds.length}
+              canPaste={copiedNotes.length > 0}
+              clipboardNoteCount={copiedNotes.length}
               mutedTrackIds={mutedTrackIds}
               soloTrackId={soloTrackId}
               onToggleTrackMute={(trackId) => {

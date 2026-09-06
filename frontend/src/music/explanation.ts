@@ -313,7 +313,9 @@ export function explainChord(
   return { chordId: chord.id, symbol: chord.symbol, romanNumeral: chord.romanNumeral, bar, headline, reasons };
 }
 
-function explainSection(section: SectionEvent): SectionExplanation {
+function explainSection(
+  section: SectionEvent,
+): SectionExplanation {
   const template = section.progressionId
     ? getProgressionTemplate(section.progressionId)
     : undefined;
@@ -326,6 +328,12 @@ function explainSection(section: SectionEvent): SectionExplanation {
         + (template.numeric ? `（${template.numeric}）` : "")
         + "。",
       source: "このアプリの進行カタログ",
+    });
+  }
+  if (section.tonalTensionApplied === true) {
+    reasons.push({
+      text: "自動機能和声の8候補をTISの緊張カーブで比べ、セクションの盛り上がりに合うものを選びました。",
+      source: "Tonal Interval Space / Ebrahimzadeh et al. (2025)",
     });
   }
   if (section.transpose !== 0) {
@@ -380,7 +388,7 @@ export function explainComposition(
     for (const section of sections) {
       lines.push(
         `${section.startBar}〜${section.endBar}小節 ${section.label}: `
-        + section.reasons.map((reason) => reason.text).join(" "),
+        + section.reasons.map((reason) => `${reason.text}［${reason.source}］`).join(" "),
       );
     }
   }

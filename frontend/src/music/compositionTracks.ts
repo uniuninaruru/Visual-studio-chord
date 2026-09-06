@@ -11,6 +11,7 @@ import type {
 import { applyChordRhythm, rhythmFor } from "./chordRhythms";
 import { midiToNoteName } from "./scales";
 import { metricStrength, ticksPerBeat } from "./time";
+import { arrangePhraseTracks } from "./phraseAccompaniment";
 
 export type CompositionTrackRole =
   | "bass"
@@ -420,7 +421,7 @@ export function buildCompositionTracks(
     })),
   ];
 
-  return applySectionArc(tracks, composition);
+  return applySectionArc(arrangePhraseTracks(tracks, composition), composition);
 }
 
 /**

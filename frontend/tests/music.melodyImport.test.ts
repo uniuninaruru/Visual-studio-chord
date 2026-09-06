@@ -109,10 +109,16 @@ describe("harmonising an imported melody", () => {
   });
 
   it("takes the key from the melody unless it is told one", () => {
-    const melody = melodyOf(source({ key: "G" }));
-    expect(harmoniseInto(melody, DEFAULT_GENERATOR_SETTINGS, {}).key).toBe("G");
+    // Keep the fixture on the pre-TIS path: this assertion measures key
+    // inference, not the optional section reranker's choice of harmony.
+    const compatibilitySettings = {
+      ...DEFAULT_GENERATOR_SETTINGS,
+      tonalTension: { enabled: false },
+    } as GeneratorSettings;
+    const melody = melodyOf(source({ key: "G", tonalTension: { enabled: false } }));
+    expect(harmoniseInto(melody, compatibilitySettings, {}).key).toBe("G");
     // An explicit key overrides what the pitches suggest.
-    const forced = harmoniseInto(melody, DEFAULT_GENERATOR_SETTINGS, { key: "F", mode: "major" });
+    const forced = harmoniseInto(melody, compatibilitySettings, { key: "F", mode: "major" });
     expect(forced.key).toBe("F");
     expect(forced.composition.settings.key).toBe("F");
   });
