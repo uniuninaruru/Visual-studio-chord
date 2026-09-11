@@ -476,21 +476,21 @@ def check_models(project_root: Path, environment: dict[str, str]) -> dict[str, A
         )
     except OSError:
         models = []
-    corpus_present = "harmony-corpus-v1.json" in models
+    legacy_corpus_present = "harmony-corpus-v1.json" in models
     return make_check(
         "models",
         "ok",
-        "Empirical harmony corpus model is available."
-        if corpus_present
+        "Legacy POP909 corpus model is available for explicit research use."
+        if legacy_corpus_present
         else (
-            "Built-in deterministic theory model is available; corpus model is missing."
+            "Built-in deterministic theory model is available; no legacy corpus model is installed."
             if not models
             else f"Found {len(models)} local model file(s)."
         ),
         details={
             "directory": str(model_directory),
             "files": models[:50],
-            "corpusModelAvailable": corpus_present,
+            "legacyCorpusModelAvailable": legacy_corpus_present,
             "externalRequired": False,
         },
         action=None,

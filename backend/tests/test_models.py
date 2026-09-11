@@ -114,15 +114,39 @@ def _write_corpus_model(model_directory) -> None:
     )
 
 
-def test_auto_prefers_available_empirical_corpus_model(tmp_path) -> None:
+def test_auto_ignores_available_legacy_corpus_model(tmp_path, monkeypatch) -> None:
     model_directory = tmp_path / "models"
     _write_corpus_model(model_directory)
+    monkeypatch.setattr(models, "detect_device", lambda: _device())
+    monkeypatch.setattr(models, "_module_available", lambda name: False)
 
     manager = models.ModelManager("auto", model_directory=model_directory)
 
-    assert manager.active_model == models.CORPUS_MODEL_ID
+    # File presence must not silently opt the application into the retired
+    # POP909 model. Auto selection remains theory/accelerator-first.
+    assert manager.active_model == models.LOCAL_MODEL_ID
     assert manager.model_info(models.CORPUS_MODEL_ID, _device()).available is True
     assert manager.model_info(models.CORPUS_MODEL_ID, _device()).backend == "corpus"
+
+
+def test_optional_ranker_names_disclose_untrained_deterministic_baselines() -> None:
+    manager = models.ModelManager("linear")
+
+    assert manager.model_info(models.MLP_MODEL_ID, _device()).name == (
+        "Untrained deterministic pairwise MLP baseline"
+    )
+    assert manager.model_info(models.ONNX_MODEL_ID, _device()).name == (
+        "Untrained deterministic bundled ONNX pairwise baseline"
+    )
+
+
+def test_explicit_corpus_preference_still_loads_legacy_model(tmp_path) -> None:
+    model_directory = tmp_path / "models"
+    _write_corpus_model(model_directory)
+
+    manager = models.ModelManager("corpus", model_directory=model_directory)
+
+    assert manager.active_model == models.CORPUS_MODEL_ID
 
 
 def test_missing_explicit_corpus_model_falls_back_to_theory(tmp_path) -> None:

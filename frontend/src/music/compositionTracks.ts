@@ -12,6 +12,8 @@ import { applyChordRhythm, rhythmFor } from "./chordRhythms";
 import { midiToNoteName } from "./scales";
 import { metricStrength, ticksPerBeat } from "./time";
 import { arrangePhraseTracks } from "./phraseAccompaniment";
+import { buildJazzCompositionTracks } from "./jazzArrangement";
+import { jazzSettingsOf } from "./jazzProfiles";
 
 export type CompositionTrackRole =
   | "bass"
@@ -287,6 +289,9 @@ export function arpeggiateChord(
 export function buildCompositionTracks(
   composition: GeneratedComposition,
 ): CompositionTrack[] {
+  if (jazzSettingsOf(composition.settings)) {
+    return buildJazzCompositionTracks(composition);
+  }
   const bassNotes: NoteEvent[] = [];
   const chordNotes: NoteEvent[] = [];
   const arpeggioRate = composition.settings.arpeggio?.rate ?? DEFAULT_ARPEGGIO_RATE;

@@ -26,6 +26,14 @@ function settings(patch: Partial<GeneratorSettings> = {}): GeneratorSettings {
   };
 }
 
+const JAZZ_PROFILE = {
+  version: 1 as const,
+  style: "swing" as const,
+  form: "aaba" as const,
+  chromaticism: 0.35,
+  interaction: 0.6,
+};
+
 describe("independent section arrangement domain", () => {
   it("creates a deterministic Intro → A → B → C plan with 8-bar sources", () => {
     const first = createDefaultSectionArrangement(settings({ seed: "default-arrangement" }));
@@ -154,6 +162,108 @@ describe("independent section arrangement domain", () => {
     expect(assembled.ok && assembled.composition.sections?.map((section) => section.id)).toEqual([
       "i-c", "i-a", "i-a2",
     ]);
+  });
+
+  it("rejects dedicated Jazz sources when the assembly has switched to Legacy", () => {
+    const jazzBase = settings({
+      seed: "jazz-to-legacy-assembly",
+      style: "jazz",
+      jazz: { ...JAZZ_PROFILE },
+    });
+    const plan = createDefaultSectionArrangement(jazzBase);
+    const legacyBase = settings({
+      seed: jazzBase.seed,
+      style: "pop",
+    });
+    const assembled = assembleSectionArrangement(plan, legacyBase);
+    expect(assembled.ok).toBe(false);
+    expect(!assembled.ok && assembled.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "section.engine",
+        sectionId: "source-intro",
+        message: expect.stringContaining("Regenerate this section"),
+      }),
+    ]));
+  });
+
+  it("rejects Legacy sources when the assembly has switched to dedicated Jazz", () => {
+    const legacyBase = settings({ seed: "legacy-to-jazz-assembly", style: "pop" });
+    const plan = createDefaultSectionArrangement(legacyBase);
+    const jazzBase = settings({
+      seed: legacyBase.seed,
+      style: "jazz",
+      jazz: { ...JAZZ_PROFILE },
+    });
+    const assembled = assembleSectionArrangement(plan, jazzBase);
+    expect(assembled.ok).toBe(false);
+    expect(!assembled.ok && assembled.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "section.engine",
+        sectionId: "source-intro",
+        message: expect.stringContaining("Regenerate this section"),
+      }),
+    ]));
+  });
+
+  it("rejects a source generated with a different Jazz profile", () => {
+    const sourceBase = settings({
+      seed: "jazz-profile-mismatch",
+      style: "jazz",
+      jazz: { ...JAZZ_PROFILE },
+    });
+    const plan = createDefaultSectionArrangement(sourceBase);
+    const changedProfileBase = settings({
+      seed: sourceBase.seed,
+      style: "jazz",
+      jazz: { ...JAZZ_PROFILE, style: "bebop" },
+    });
+    const assembled = assembleSectionArrangement(plan, changedProfileBase);
+    expect(assembled.ok).toBe(false);
+    expect(!assembled.ok && assembled.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "section.jazzProfile",
+        sectionId: "source-intro",
+        message: expect.stringContaining("current Jazz Basic settings"),
+      }),
+    ]));
+  });
+
+  it("ignores a mismatched Jazz profile on an unreferenced source", () => {
+    const base = settings({
+      seed: "jazz-unreferenced-profile",
+      style: "jazz",
+      jazz: { ...JAZZ_PROFILE },
+    });
+    const plan = reconcileSectionLinks(
+      createDefaultSectionArrangement(base),
+      [{ id: "only-intro", sourceSectionId: "source-intro" }],
+    );
+    plan.sections = plan.sections.map((source) => source.design.id === "source-aMelo"
+      ? {
+          ...source,
+          material: {
+            ...source.material,
+            settings: {
+              ...source.material.settings,
+              jazz: { ...JAZZ_PROFILE, style: "bebop" },
+            },
+          },
+        }
+      : source);
+    const assembled = assembleSectionArrangement(plan, base);
+    expect(assembled.ok).toBe(true);
+  });
+
+  it("allows the same Jazz profile when the base form changes to assembled Free", () => {
+    const base = settings({
+      seed: "jazz-form-compatibility",
+      style: "jazz",
+      jazz: { ...JAZZ_PROFILE, form: "aaba" },
+    });
+    const plan = createDefaultSectionArrangement(base);
+    const assembled = assembleSectionArrangement(plan, base);
+    expect(assembled.ok).toBe(true);
+    if (assembled.ok) expect(assembled.composition.settings.jazz?.form).toBe("free");
   });
 
   it("keeps assembly lifecycle stable and increments revision only for real mutations", () => {
@@ -293,7 +403,7 @@ describe("independent section arrangement domain", () => {
       );
       expect(transition).toBeDefined();
       expect(transition?.explanation).toBe(resolved.explanation);
-      expect(resolved.explanation).toContain("hybrid corpus support");
+      expect(resolved.explanation).toContain("theory-only ranking");
       expect(resolved.explanation).toContain("four-part cost");
       verified = true;
     }

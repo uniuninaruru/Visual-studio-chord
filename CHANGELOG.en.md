@@ -7,6 +7,15 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Major update — Migration to the Jazz-first engine
+
+- New projects move to five dedicated profiles: Swing / Ballad / Bebop / Modern / Neo Soul. This is a separate harmony/melody/accompaniment path, not a rename of legacy `style: jazz`. Versioned jazz settings cover AABA / twelve-bar Blues / Modal / Free, chromatic approaches, and ensemble response.
+- Harmony, melody, bass, and comping share destinations: guide-tone resolutions, motifs and rests, and movement toward the next chord. PPQ 480, the 88-key range, and shared playback/display/MIDI tracks remain the contract. This does not add drum generation or a trained jazz model.
+- Remove implicit POP909 use from the browser provider, automatic section joins, and backend `auto` selection. With no empirical corpus, offer theory candidates without invented frequencies/probabilities. Explicit legacy providers, reproduction scripts, and fixtures remain separate; user data and weights are not deleted. Normal checks no longer require rebuilding the old snapshot.
+- Add optional `jazz: { version: 1, ... }` project settings. Older projects retain the legacy path when the field is absent; unknown versions/styles/forms, non-finite values, and out-of-range values are rejected. Add 12 to ordinary bar counts; Blues uses 12 / 24 / 48 bars.
+- Document beginner style/form controls separately from developer contracts, references, and limitations in both READMEs. Authored theory profiles are not learned performance weights or proven listening-quality improvements.
+- The [English architecture note](docs/research/jazz-first-engine.en.md) and [Japanese version](docs/research/jazz-first-engine.ja.md) describe the Berklee, Impro-Visor, swing-research, and future Weimar-evaluation boundaries. Earlier POP909 entries below describe prior work on this branch, not the new default engine.
+
 ### Added — TIS bar-level tension reranking
 
 - Added optional `tonalTension` settings, enabled in shipped defaults and absent/off in `MINIMAL_GENERATOR_SETTINGS` for compatibility. Each newly evaluated automatic group/section compares eight theory-valid candidates: candidate 0 is the planner catalog baseline with its original section seed, and candidates 1–7 explicitly use functional harmony. Compatible repeated sections reuse the cached result instead of making eight new evaluations. Top-level explicit progressions bypass this reranking path; assembled arrangements do not enter the path at all and are generated/assembled through their own source pipeline.

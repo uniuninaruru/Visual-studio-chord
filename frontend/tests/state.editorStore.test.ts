@@ -776,6 +776,10 @@ describe("useComposerStore", () => {
   });
 
   it("publishes validated external previews without mutating draft, playback, or history", async () => {
+    // This test is about the external-preview transaction boundary. Keep the
+    // source explicitly legacy so its candidate exercises the existing
+    // chord-preview invariants rather than the jazz renderer's track policy.
+    useComposerStore.getState().reset({ seed: "preview-legacy", jazz: null });
     useComposerStore.getState().setSelectedRange({ startBar: 0, endBar: 1 });
     expect(await useComposerStore.getState().generatePreviewVariations({
       target: "chords",
@@ -836,7 +840,9 @@ describe("useComposerStore", () => {
 describe("direct chord timeline edits", () => {
   beforeEach(() => {
     localStorage.clear();
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    // Advanced-chord relationship fixtures are legacy-only by design; opt out
+    // explicitly instead of making the store's fresh jazz default disappear.
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "direct-chord",
       bars: 4,
@@ -1055,7 +1061,7 @@ describe("direct chord timeline edits", () => {
     expect(moved).toMatchObject({ startTick: 0, durationTick: duration });
     expectExactChordCoverage();
 
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
     });
@@ -1066,7 +1072,7 @@ describe("direct chord timeline edits", () => {
     expectExactChordCoverage();
     expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
 
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
     });
@@ -1090,7 +1096,7 @@ describe("direct chord timeline edits", () => {
       .toBe(next.durationTick + first.durationTick / 2);
     expectExactChordCoverage();
 
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
     });
@@ -1099,7 +1105,7 @@ describe("direct chord timeline edits", () => {
     expectExactChordCoverage();
     expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
 
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
     });
@@ -1129,7 +1135,7 @@ describe("direct chord timeline edits", () => {
     expect(useComposerStore.getState().resizeChord(first.id, first.durationTick / 2)).toBe(false);
     expect(snapshot()).toEqual(before);
 
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
     });
@@ -1139,7 +1145,7 @@ describe("direct chord timeline edits", () => {
     expect(useComposerStore.getState().moveChord(absorberCase.id, 3_840)).toBe(false);
     expect(snapshot()).toEqual(before);
 
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
     });
@@ -1149,7 +1155,7 @@ describe("direct chord timeline edits", () => {
     expect(useComposerStore.getState().moveChord(targetCase.id, 3_840)).toBe(false);
     expect(snapshot()).toEqual(before);
 
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
     });
@@ -1159,7 +1165,7 @@ describe("direct chord timeline edits", () => {
     expect(useComposerStore.getState().resizeChord(consumedCase.id, 3_840)).toBe(false);
     expect(snapshot()).toEqual(before);
 
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
     });
@@ -1204,7 +1210,7 @@ describe("direct chord timeline edits", () => {
       .find((chord) => chord.id === secondary.secondary.id)?.targetDegree).toBeUndefined();
     expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
 
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
     });
@@ -1214,7 +1220,7 @@ describe("direct chord timeline edits", () => {
       .find((chord) => chord.id === neo.transformed.id)?.transformation).toBeUndefined();
     expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
 
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
     });
@@ -1322,7 +1328,7 @@ describe("direct chord timeline edits", () => {
     expect(chords.filter((chord) => chord.specialKind === "secondaryDominant")).toHaveLength(1);
     expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
 
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
     });
@@ -1334,7 +1340,7 @@ describe("direct chord timeline edits", () => {
       .toBe(splitFixture.secondary.targetDegree);
     expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
 
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
     });
@@ -1356,7 +1362,7 @@ describe("direct chord timeline edits", () => {
     expect(chords.find((chord) => chord.startTick === 2_400)?.transformation).toBeUndefined();
     expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
 
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
     });
@@ -1370,7 +1376,7 @@ describe("direct chord timeline edits", () => {
       .every((chord) => chord.transformation === undefined)).toBe(true);
     expect(validateComposition(useComposerStore.getState().draftComposition).errors).toEqual([]);
 
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "direct-chord", bars: 4, songForm: { form: "none" }, harmonicRhythm: { changesPerBar: 1 },
     });
@@ -1463,7 +1469,7 @@ describe("direct chord timeline edits", () => {
     expect(state.draftComposition.sections?.find((section) => section.id === untouchedSection.id)
       ?.progressionId).toBe(untouchedSection.progressionId);
 
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "section-edit", bars: 16, songForm: { form: "verseChorus" },
       tonalTension: { enabled: false },
@@ -1488,7 +1494,7 @@ describe("direct chord timeline edits", () => {
     expect(state.draftComposition.sections?.find((section) => section.id === editUntouchedSection.id)
       ?.progressionId).toBe(editUntouchedSection.progressionId);
 
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "section-delete", bars: 16, songForm: { form: "verseChorus" },
       tonalTension: { enabled: false },
@@ -1505,7 +1511,7 @@ describe("direct chord timeline edits", () => {
     expect(useComposerStore.getState().draftComposition.sections?.find((section) => section.id === deleteSection.id)
       ?.progressionId).toBeUndefined();
 
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "section-split", bars: 16, songForm: { form: "verseChorus" },
       tonalTension: { enabled: false },
@@ -1522,7 +1528,7 @@ describe("direct chord timeline edits", () => {
     expect(useComposerStore.getState().draftComposition.sections?.find((section) => section.id === splitSection.id)
       ?.progressionId).toBeUndefined();
 
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "section-move", bars: 16, songForm: { form: "verseChorus" },
       tonalTension: { enabled: false },
@@ -1547,7 +1553,7 @@ describe("direct chord timeline edits", () => {
     expect(state.draftComposition.sections?.find((section) => section.id === moveUntouchedSection.id)
       ?.progressionId).toBe(moveUntouchedSection.progressionId);
 
-    useComposerStore.getState().reset({ seed: "direct-chord-tests" });
+    useComposerStore.getState().reset({ seed: "direct-chord-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "section-resize", bars: 16, songForm: { form: "verseChorus" },
       tonalTension: { enabled: false },
@@ -1604,7 +1610,9 @@ describe("direct chord timeline edits", () => {
 describe("applying a progression to the piece", () => {
   beforeEach(() => {
     localStorage.clear();
-    useComposerStore.getState().reset({ seed: "apply-tests" });
+    // This block asserts legacy progression/TIS metadata semantics. The
+    // dedicated jazz pipeline has its own form and progression contract.
+    useComposerStore.getState().reset({ seed: "apply-tests", jazz: null });
     useComposerStore.getState().generateComposition({
       seed: "apply", bars: 16, tonalTension: { enabled: false },
     });

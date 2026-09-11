@@ -375,6 +375,7 @@ export function SectionArrangementBuilder({
     : null;
 
   const primaryDisabled = status === "current" || blockers.length > 0;
+  const jazzSectionWorkflow = plan?.sections.some((source) => source.material.settings.jazz !== undefined) ?? false;
 
   return (
     <section className="lane-section section-arrangement-builder" aria-labelledby="section-arrangement-title">
@@ -413,6 +414,11 @@ export function SectionArrangementBuilder({
             <span><strong>合計 {totalBars} / 128 小節</strong></span>
             <span>{statusLabel}</span>
           </div>
+          {jazzSectionWorkflow && (
+            <p className="field-hint section-jazz-notice">
+              Jazz専用パイプラインを使うパーツは、各パーツの8 / 16 / 24 / 32小節グリッドに合わせてプロファイルを継承します。AABA / 12-bar bluesではなく、組み立て後はFreeフォームとして保存します。下の旧スタイル選択は無効です。
+            </p>
+          )}
           <div id="section-arrangement-content" hidden={!expanded}>
           <div className="section-arrangement-steps" aria-label="セクション作成の手順">
             <span className="is-active">1 パーツを作る</span>
@@ -513,9 +519,19 @@ export function SectionArrangementBuilder({
                       </label>
                       <label className="field">
                         <span>スタイル</span>
-                        <select aria-label={`${ROLE_LABELS[design.role]}のスタイル`} value={design.style} onChange={(event) => updateDesign(source, { style: event.target.value as StylePresetId })}>
+                        <select
+                          aria-label={`${ROLE_LABELS[design.role]}のスタイル`}
+                          value={design.style}
+                          disabled={source.material.settings.jazz !== undefined}
+                          onChange={(event) => updateDesign(source, { style: event.target.value as StylePresetId })}
+                        >
                           {[...Object.keys(STYLE_PRESETS) as StylePresetId[], "random" as const].map((style) => <option key={style} value={style}>{STYLE_LABELS[style]}</option>)}
                         </select>
+                        {source.material.settings.jazz !== undefined && (
+                          <small className="section-template-description">
+                            Jazzプロファイルは生成設定から継承します。旧スタイルを変えるにはBasicでLegacyへ切り替えてください。
+                          </small>
+                        )}
                       </label>
                     </div>
                   </details>

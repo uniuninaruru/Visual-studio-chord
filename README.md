@@ -5,6 +5,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version: 0.5.0](https://img.shields.io/badge/version-0.5.0-6f42c1.svg)](CHANGELOG.md)
 
+> **開発ブランチの大規模更新: Jazz-first engine（未リリース）**
+> 新規プロジェクトをジャズ中心の生成へ移行します。Swing / Ballad / Bebop / Modern /
+> Neo Soulを選び、コード・メロディ・ベースを共通の和声計画から作ります。
+> POP909は標準の生成・順位付けに不要です。学習済みジャズモデルを追加したわけでは
+> ありません。[使い方と設計・一次資料](docs/research/jazz-first-engine.ja.md)。
+> 下記の公開サイトはデプロイ済み版です。このブランチの変更が反映済みとは限りません。
+
 ## 🎹 インストール不要。ブラウザで開くだけです！！　2026/08/02
 
 ### → **[https://uniuninaruru.github.io/Visual-studio-chord/](https://uniuninaruru.github.io/Visual-studio-chord/)**
@@ -54,6 +61,32 @@
 4. 気に入らない小節だけ選び、コードまたはメロディを作り直す
 5. **Export**からMIDIを書き出す
 
+### ジャズを最初に作る
+
+新しく始めるとジャズ生成が選ばれます。まず**Swing**で生成してPlayを押してください。
+ゆったりなら**Ballad**、細かく動く旋律なら**Bebop**、余白を使うなら**Modern**、
+シンコペーションと厚い響きなら**Neo Soul**を選びます。
+
+フォームは曲の組み立て方です。**AABA**は似た部分を戻しながら途中に別の展開を入れ、
+**Blues**は12小節単位、**Modal**はモードを中心に、**Free**は自由なフレーズで作ります。
+Bluesでは12 / 24 / 48小節を使います。設定を変更しても、生成を押すまで現在の曲は
+変わりません。以前のJSONは旧設定のまま読み込み、勝手にジャズへ変換しません。
+
+ブラウザだけで使え、モデルの取得やGPU設定は不要です。生成する基本編成はメロディ、
+コード／右手、ベース／左手です。今回はドラム演奏の自動生成を追加していません。
+
+Advancedではメロディの音域・密度・休符率・ベロシティを調整できます。旧方式の
+借用和音率やPhase A〜Dの詳細設定を新方式へそのまま重ねることはせず、使われない
+項目には理由を表示します。それらを使う場合は**旧プリセットへ切り替え**を選びます。
+ジャズへ戻す明示的な切り替えも用意しています。
+
+イントロやAメロ等の独立パーツは、生成設定のJazzプロフィールを使って8 / 16 / 24 /
+32小節で作れます。好きな順番に組み立てる場合はFreeフォームになります。
+この経路では旧Pop / Rock等のパーツ別スタイル選択は無効です。パーツごとの専用Jazz
+スタイル選択はまだありません。
+途中で生成方式やJazzプロフィールを変えた場合は、使うパーツを現在の設定で再生成して
+から結合してください。異なる方式の素材を黙って混ぜることはしません。
+
 さらに次の操作も画面から利用できます。
 
 - Bass / Left Hand、Chords / Right Hand、MelodyをDAWのようなトラックで確認
@@ -101,27 +134,32 @@
 6. **1曲にまとめる**までは完成曲を上書きしません。並びに入っている未反映パーツがあると結合できません。失敗しても現在の曲は保持され、成功後もUndoで戻せます。
 7. 結合後は**完成曲の構成**をクリックしてパート全体を選択し、範囲やloopを決められます。再生、全trackのMIDI、JSONにも反映されます。スマートフォンでは横スクロール中も、見えているパート名が残ります。
 
-同じKey / Scaleの`Auto`接続は、理論上有効な候補だけを、POP909の局所的な2-step
-条件付き証拠、既存の最適化4声voice-leading、現在のstyle priorで比較します。どれか
-1つの点数だけで決めず、Pareto frontierからseed付きで選びます。統計が利用できない
-場合は全候補からcorpus観点を外して安全に続行し、選択根拠を説明文へ残します。強制
-`Direct` / `Dominant` / `Pivot`の意味は変わりません。計算と限界は
+同じKey / Scaleの`Auto`接続は、理論上有効な候補だけを、既存の最適化4声
+voice-leadingとstyle priorで比較します。標準ではPOP909の条件付き確率を使いません。
+どれか1つの点数だけで決めず、Pareto frontierからseed付きで選び、選択根拠を
+説明文へ残します。強制`Direct` / `Dominant` / `Pivot`の意味は変わりません。
+以前のcorpus対応の計算と限界は
 [`docs/research/section-transition-ranking.ja.md`](docs/research/section-transition-ranking.ja.md)
 に記録しています。
 
-### 統計から次のコードを探す
+### 理論から次のコードを探す
 
-Workspace Toolsの**統計**タブでは、現在の曲全体または選択範囲をPOP909のローカル統計と照らし合わせられます。**定番**は頻度の高い候補、**バランス**は定番度と意外性の中間、**意外**は観測済みの低頻度候補を出します。表示する**直接観測頻度**はその文脈で実際に出た割合、**補間推定確率**は直接観測に短い文脈と全体傾向を組み合わせた値です。どちらも音楽的な良さの点数ではありません。出現数は曲数ではなく反復を含む出現回数で、統計が順位付けするのはroot+qualityです。voicing、tension、inversionは理論・編曲側で決まります。
+Workspace Toolsのコード候補パネルは、標準では**理論モード**です。実測ジャズ統計を
+まだ導入していないため、頻度・確率・サプライズ値を捏造せず、理論に基づく候補と
+理由を表示します。音楽的な良さを保証する点数ではありません。
 
 候補の**試聴**は曲を変更せず、適用は明示的に選択した1つのコードだけを対象にし、開始tickと長さを維持します。コードを選んでいないと曲全体を解析し、曲末候補を試聴できますが、適用ボタンは無効です。ロックされた小節にも適用できません。適用後はUndoで戻せます。
 
-統計の出典はアプリに含まれるPOP909由来のコンパクトなブラウザ3-gramスナップショットです（909曲、1,131 tonal sequences、93,904 tokens）。Hooktheoryへ接続したり、サイトの統計やデータをコピーしたりする機能ではありません。計算式と限界は[`docs/research/statistical-chord-advisor.ja.md`](docs/research/statistical-chord-advisor.ja.md)にまとめています。
+POP909由来の旧3-gramスナップショットと再現手順は研究用として残りますが、通常の
+アプリは暗黙に読み込みません。Hooktheoryへ接続して統計を取得する機能でもありません。
+旧版の計算式は[`docs/research/statistical-chord-advisor.ja.md`](docs/research/statistical-chord-advisor.ja.md)、
+現在の境界は[ジャズエンジン設計](docs/research/jazz-first-engine.ja.md)を参照してください。
 
-技術者向けには、別のMcGill Billboard注釈を使った外部評価もあります。3-gramはその
+技術者向けには、旧3-gramを別のMcGill Billboard注釈で検証した外部評価もあります。3-gramはその
 外部コーパス全体での予測とTop-kを改善しましたが、セクション境界では一様な改善を
 確認できませんでした。この結果は音楽が良くなること、聴感が上がること、画面の候補
 全体が改善することを保証しません。通常の曲作りに外部データを取得する必要はなく、
-詳しい範囲と再現手順は[`docs/research/mcgill-billboard-external-evaluation.ja.md`](docs/research/mcgill-billboard-external-evaluation.ja.md)を参照してください。
+詳しい範囲と再現手順は[`docs/research/mcgill-billboard-external-evaluation.ja.md`](docs/research/mcgill-billboard-external-evaluation.ja.md)を参照してください。これは新ジャズエンジンの評価ではありません。
 
 ## 2. 起動方法を選ぶ
 
@@ -374,10 +412,10 @@ APIを使えるため、手元の信頼できるネットワーク専用です�
 
 ### ブラウザだけで使う
 
-バックエンドを起動しなくても、生成・編集・再生・MIDI書き出し・好み学習は
-すべて使えます。使えなくなるのは次の2つだけです。
+バックエンドを起動しなくても、ジャズ生成・編集・再生・MIDI書き出し・ブラウザの
+好み学習を使えます。バックエンドが必要なのは、明示的に選ぶ次の追加機能です。
 
-- 909曲の経験則モデルによる**候補の並べ替え**（曲の中身ではなく、A/B/Cの表示順）
+- サーバー側rankerによる**候補の並べ替え**（旧corpus実験を含む任意設定）
 - ニューラル和声プレビュー（もともとcheckpoint未同梱で使えません）
 
 ## スクリーンショット
@@ -390,6 +428,15 @@ APIを使えるため、手元の信頼できるネットワーク専用です�
 ---
 
 # Part 2：技術者向けリファレンス
+
+## 次期大規模更新: Jazz-first engine
+
+`GeneratorSettings.jazz` の有無で新規ジャズ経路と旧プロジェクト互換経路を区別します。
+和声の到達点、旋律の解決、次和音を参照する低音、旋律に応答する伴奏を、同じ
+整数tick／共通トラック定義へまとめます。POP909は標準依存から外し、研究用の明示的な
+読み込みと分離します。設定契約、一次資料の採用範囲、学習済みモデルではないこと、
+検証と聴感評価の違いは[日本語設計書](docs/research/jazz-first-engine.ja.md)と
+[English design](docs/research/jazz-first-engine.en.md)に記録しています。
 
 ## v0.5.0の位置づけ
 
@@ -410,8 +457,8 @@ v0.4.0では、論文と実装計画に基づくニューラル和声プレビ�
 `HarmonyForge-BiMask`、非同期API v2、cancel、checkpoint検証、
 CUDA / Apple Metal（MPS）/ CPU adapterを実装しています。
 
-ただし、**学習済みcheckpointは同梱していません**。通常の利用では、909曲の
-コード注釈から学習した経験則モデルと、論文に基づく制約探索を使用します。
+ただし、**学習済みcheckpointは同梱していません**。当時の経験則corpus経路は
+現在は明示的に選ぶ旧研究機能です。新しい通常生成はブラウザ内のジャズ理論エンジンです。
 開発用mockは明示的に有効化した場合だけ使用でき、画面とAPIの両方で
 「MOCK・未学習」と表示されます。
 
@@ -431,7 +478,7 @@ CUDA / Apple Metal（MPS）/ CPU adapterを実装しています。
 届かせるには、設計から見直す必要があります。
 
 **アプリの機能そのものは、これで欠けたりしません。** コード進行とメロディの生成、
-編集、再生、MIDI書き出しはすべて音楽理論エンジンと経験則モデルで動いており、
+編集、再生、MIDI書き出しは音楽理論エンジンだけで動作でき、
 ニューラル機能はもともと「あれば加わる」位置づけでした。今できることは
 今までどおり全部できます。
 
@@ -1005,37 +1052,37 @@ freeform pointer move/resizeは未実装です。
 
 | 層 | 方式 |
 | --- | --- |
-| 制約付き生成 | 決定的な音楽理論エンジン（終止・適用和音の実根音解決・スケール・ボイスリーディング・モチーフ） |
-| 経験則モデル | POP909の909曲、1,131調性区間、93,904コードトークンから学習した1〜5次の調和言語モデル |
+| 標準生成 | ブラウザ内の決定的なジャズ理論エンジン。`jazz`設定のない旧データは旧生成経路 |
+| 旧経験則モデル（明示選択） | POP909の909曲、1,131調性区間、93,904コードトークンから学習した1〜5次の調和言語モデル。新ジャズ経路の標準依存ではない |
 | ニューラル和声preview | HarmonyForge-BiMask。学習済み・checksum検証済みcheckpointを別途配置した場合だけ利用可能 |
 | 好み調整 | 候補を特徴量化し、Like / Dislike / Favorite / A-B選択から更新した重みでランキング |
 | 実行環境 | ローカル推論バックエンドを任意選択（`MTC_INFERENCE_MODEL` = `auto` / `corpus` / `linear` / `mlp` / `onnx` / `mock-deterministic`） |
 
-現行の経験則モデルは、正式データを直接書き換える生成モデルではありません。
-音楽理論エンジンが複数の安全な候補を作り、コーパス尤度と個人の好みで並べます。
-これにより、頻出するという理由だけで未解決ドミナントや声部交差を採用することを
-防ぎます。
+通常の生成は理論エンジンで完結し、候補の並べ替えと個人の好み学習を分離しています。
+旧corpusを明示的に選んだ場合も、尤度は候補順位に使うだけで正式な曲へ勝手に
+書き込みません。学習済みジャズ重み、実曲の頻度、音楽品質を意味する表示にはしません。
 
-推論の安全なフォールバックは次のとおりです。
+生成と推論の経路は次のように分かれます。
 
 ```text
-学習済みHarmonyForge: CUDA
-  → 対応Apple SiliconではMetal/MPS、その他ではCPU
-    → 経験則コーパスランキング
-      → ブラウザ軽量ランキング
-        → 音楽理論だけの決定的生成
+基本生成: ブラウザ内ジャズ理論（サーバー不要）
+候補順位: 任意のサーバーranker → ブラウザranker → 理論だけの候補
+研究preview: 対応アクセラレーター → 許可時CPU → 失敗通知／通常生成を継続
+旧POP909 corpus: 明示選択時のみ（上記の暗黙fallbackには含めない）
 ```
 
 これは全deviceを1台で順番に実行するという意味ではありません。各platformで
 利用可能なnative deviceを実演算で検証し、失敗時は許可されたCPUまたは既存経路へ
-移ります。`auto` は、学習済みのコーパスモデルが存在する場合、学習されていない
-開発用MLP / ONNX rankerより先に選びます。GPUが存在するだけで音楽品質が上がった
-とは判定しません。
+移ります。rankerの`auto`は利用可能なアクセラレーターのONNX / MLP adapterを検証し、
+利用できなければCPUのlinear rankerを使います。これは学習済みジャズモデルの選択では
+ありません。`harmony-corpus-v1.json`が存在しても自動選択しません。GPUが存在する
+だけで音楽品質が上がったとは判定しません。
 
-### 経験則モデルを再学習する
+### 旧経験則モデルを再現する（任意の研究機能）
 
-追跡済みモデルはそのまま利用できます。POP909を別の場所へcheckoutし、
-集計モデルを再現する場合は次を実行します。
+新ジャズエンジンには不要です。過去の実験のためPOP909を別の場所へcheckoutし、
+集計モデルを再現する場合だけ次を実行します。利用する場合はバックエンドで
+`MTC_INFERENCE_MODEL=corpus`を明示します。
 
 ```bash
 python3 scripts/train-harmony-corpus.py \
@@ -1056,9 +1103,9 @@ python3 scripts/train-harmony-corpus.py \
   担うローカルホストです。モデル容量にアプリ独自の上限は設けません。
 - **スマートフォン / タブレット**: 同じLAN上のデスクトップへ接続します。
   画面は再生、生成、候補比較、評価を優先しますが、ランキング自体は
-  デスクトップ上の同じ高品質モデルを使用します。
+  接続時はデスクトップで選んだ同じrankerを使用します。未接続ならブラウザ内で続行します。
 - **オフライン**: セットアップ済みなら、外部CDNやクラウド推論なしで
-  生成・再生・編集・保存・コーパスランキングを継続できます。
+  ジャズ生成・再生・編集・保存・ブラウザランキングを継続できます。
 
 今後は容量、モデルサイズ、ダウンロード量、クライアント計算量を主要な採否基準に
 しません。高品質モデルは`MODEL_DIRECTORY`へ置き、Gitへ巨大バイナリを直接含めず、
@@ -1069,8 +1116,9 @@ python3 scripts/train-harmony-corpus.py \
 ```mermaid
 flowchart TD
     UI["React / TypeScript<br/>Draft・Committed・History"] --> V1["API v1<br/>health / rank / preferences"]
+    UI --> JAZZ["Browser jazz engine<br/>harmony → melody → shared tracks"]
     UI --> V2["API v2<br/>Harmony preview jobs / cancel / manifest"]
-    V1 --> CORPUS["POP909 n-gram / deterministic rankers"]
+    V1 --> RANK["Deterministic rankers<br/>legacy corpus only when explicitly selected"]
     V2 --> REGISTRY{"allowlist済みmodel registry"}
     REGISTRY -->|trained + checksum valid| MODEL["HarmonyForge-BiMask<br/>104,567,874 parameters"]
     REGISTRY -->|explicit development mode| MOCK["MOCK / untrained fixture"]

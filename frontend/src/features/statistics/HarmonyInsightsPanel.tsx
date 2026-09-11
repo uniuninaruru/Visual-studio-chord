@@ -19,13 +19,15 @@ export interface HarmonyInsightsPanelProps {
 }
 
 const PROFILES: readonly { id: StatisticalProfile; label: string; hint: string }[] = [
-  { id: "familiar", label: "定番", hint: "頻度の高い候補" },
-  { id: "balanced", label: "バランス", hint: "定番度と意外性" },
-  { id: "adventurous", label: "意外", hint: "観測済みの低頻度候補" },
+  { id: "familiar", label: "滑らか", hint: "ボイスリーディングの移動コストが低い候補" },
+  { id: "balanced", label: "バランス", hint: "滑らかさと変化のバランス" },
+  { id: "adventurous", label: "変化", hint: "理論上有効な変化の大きい候補" },
 ];
 
-function percent(value: number): string {
-  return `${(Number.isFinite(value) ? value * 100 : 0).toFixed(1)}%`;
+function percent(value: number | null): string {
+  return value === null || !Number.isFinite(value)
+    ? "—"
+    : `${(value * 100).toFixed(1)}%`;
 }
 
 function rangeText(range: BarRange | null): string {
@@ -69,7 +71,7 @@ export function HarmonyInsightsPanel({
     : lockedTargetBars.length > 0
       ? "対象コードのロックされた小節を解除してから適用"
       : null;
-  const transitionPercent = (value: number): string => insights.transitionCount > 0
+  const transitionPercent = (value: number | null): string => insights.transitionCount > 0
     ? percent(value)
     : "—";
 
@@ -85,19 +87,33 @@ export function HarmonyInsightsPanel({
             置換対象: <strong>{selectedChord ? `${targetBarLabel} ${selectedChord.symbol}` : "未選択（候補は試聴のみ）"}</strong>
           </p>
         </div>
-        <span className="harmony-insights-source">POP909 / ブラウザ3-gram</span>
+        <span className="harmony-insights-source">ローカル音楽診断</span>
       </header>
 
       <div className="harmony-insights-provenance" role="note">
-        <strong>根拠:</strong> POP909 909曲・1,131 tonal sequences・93,904 tokens。<br />
-        直接観測頻度はこの文脈で実際に現れた割合、補間推定確率は直接観測に短い文脈と全体傾向を組み合わせた推定値です。どちらも良さの点数ではありません。出現数は曲数ではなく、コーパス内の反復を含む出現回数です。統計で比べるのはコードの根音と種類だけです。音の並べ方・テンション・転回形は適用後に編集できます。
+        {insights.empiricalStatisticsAvailable && insights.provenance ? (
+          <>
+            <strong>経験的根拠:</strong> {insights.source}。<br />
+            直接観測頻度と補間推定確率は、入力された統計プロバイダーの値です。どちらも音楽的な良さの点数ではありません。統計で比べるのはコードの根音と種類だけです。音の並べ方・テンション・転回形は適用後に編集できます。
+          </>
+        ) : (
+          <>
+            <strong>経験的統計:</strong> 実曲コーパスは読み込まれていません。遷移の頻度や確率は表示せず、内蔵のコード理論・ボイスリーディング・スタイル診断だけを表示します。
+          </>
+        )}
       </div>
 
       <div className="harmony-insights-metrics" aria-label="統計指標">
-        <div><strong>{transitionPercent(insights.geometricMeanConditionalProbability)}</strong><span>遷移の補間推定確率・幾何平均</span></div>
-        <div><strong>{insights.transitionCount > 0 ? `${insights.meanSurprisalBits.toFixed(2)} bit` : "—"}</strong><span>平均サプライズ（低いほど頻出）</span></div>
+        <div><strong>{transitionPercent(insights.geometricMeanConditionalProbability)}</strong><span>遷移の経験的確率（コーパス未読込時は—）</span></div>
+        <div><strong>{insights.meanSurprisalBits === null ? "—" : insights.transitionCount > 0 ? `${insights.meanSurprisalBits.toFixed(2)} bit` : "—"}</strong><span>平均サプライズ（コーパス未読込時は—）</span></div>
         <div><strong>{transitionPercent(insights.supportedTransitionRate)}</strong><span>観測済み遷移率</span></div>
         <div><strong>{percent(insights.complexChordRate)}</strong><span>複雑度（3軸合成）</span></div>
+        <div><strong>{percent(insights.extensionRate)}</strong><span>拡張音・テンション率</span></div>
+        <div><strong>{percent(insights.nonDiatonicRate)}</strong><span>非ダイアトニック率</span></div>
+        <div><strong>{percent(insights.advancedQualityRate)}</strong><span>高度なコード品質率</span></div>
+        <div><strong>{percent(insights.guideToneCoverageRate)}</strong><span>ガイドトーン算出可能率</span></div>
+        <div><strong>{percent(insights.guideToneStepwiseMotionRate)}</strong><span>ガイドトーン順次進行率</span></div>
+        <div><strong>{insights.melodyOnsetsPerBar.toFixed(1)}</strong><span>旋律オンセット密度（小節あたり）</span></div>
         <div><strong>{percent(insights.durationWeightedMelodyNonChordTension)}</strong><span>旋律の非コード音（長さ加重）</span></div>
         <div><strong>{percent(insights.actualBassStepwiseMotionRate)}</strong><span>実ベースの順次進行</span></div>
         <div><strong>{percent(insights.syncopationRate)}</strong><span>旋律シンコペーション</span></div>
@@ -144,7 +160,9 @@ export function HarmonyInsightsPanel({
                 </div>
                 <p>{suggestion.reasons.join(" / ")}</p>
                 <small>
-                  補間推定確率 {(suggestion.probability * 100).toFixed(2)}%・直接観測頻度 {(suggestion.rawConditionalProbability * 100).toFixed(2)}%・{suggestion.exactGramCount}出現 / {suggestion.orderUsed === 1 ? `コーパス総token ${suggestion.contextCount}出現` : `文脈${suggestion.contextCount}出現`}・{suggestion.orderUsed}-gram・サプライズ {suggestion.surprisalBits.toFixed(2)} bit
+                  {suggestion.probability === null
+                    ? `経験的頻度なし・${suggestion.source}・ボイスリーディングコスト ${suggestion.voiceLeadingCost.toFixed(2)}`
+                    : `補間推定確率 ${(suggestion.probability * 100).toFixed(2)}%・直接観測頻度 ${((suggestion.rawConditionalProbability ?? 0) * 100).toFixed(2)}%・${suggestion.exactGramCount ?? 0}出現 / ${suggestion.orderUsed === 1 ? `コーパス総token ${suggestion.contextCount ?? 0}出現` : `文脈${suggestion.contextCount ?? 0}出現`}・${suggestion.orderUsed}-gram・サプライズ ${(suggestion.surprisalBits ?? 0).toFixed(2)} bit`}
                 </small>
                 <div className="harmony-insights-actions">
                   <button
