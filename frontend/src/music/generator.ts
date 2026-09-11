@@ -39,6 +39,11 @@ import {
   rankTonalCandidates,
 } from "./tonalTension";
 import { energyAtBar, planSectionEnergy } from "./tensionCurve";
+import {
+  generateJazzComposition,
+  jazzSettingsForGenerator,
+  regenerateJazzRange,
+} from "./jazzEngine";
 
 export const DEFAULT_HARMONY_SETTINGS: Readonly<Required<HarmonySettings>> = Object.freeze({
   complexity: "triads",
@@ -720,6 +725,8 @@ function generateSectionedChords(
 
 export function generateComposition(settings: GeneratorSettings): GeneratedComposition {
   assertValidGeneratorSettings(settings);
+  const jazz = jazzSettingsForGenerator(settings);
+  if (jazz) return generateJazzComposition(settings, jazz);
   const copiedSettings = copySettings(settings);
   const phraseStyle = copiedSettings.melody.phraseDesign
     ? copiedSettings.style === "random"
@@ -1070,6 +1077,8 @@ export function regenerateRange(
   if (!["subtle", "moderate", "strong"].includes(strength)) {
     throw new RangeError("Unsupported regeneration strength.");
   }
+  const jazz = jazzSettingsForGenerator(settings);
+  if (jazz) return regenerateJazzRange(composition, settings, range, options);
   const respectLocks = options.respectLocks ?? true;
   const locked = new Set(respectLocks ? composition.lockedBars : []);
   const shouldReplace = (barIndex: number): boolean =>

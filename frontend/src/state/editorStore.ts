@@ -41,6 +41,7 @@ import type {
   ProgressionStep,
   GeneratedComposition,
   GeneratorSettings,
+  JazzSettings,
   NoteEvent,
   RegenerationOptions,
   SectionEvent,
@@ -73,6 +74,7 @@ import {
   type StoragePersistenceMode,
 } from "../storage";
 import { generatePreferred, type PreferenceGuidance } from "../preference/generation";
+import { DEFAULT_JAZZ_SETTINGS } from "../music/jazzProfiles";
 
 export type PlaybackStatus = "stopped" | "playing" | "paused";
 export type UpdateTiming = "immediate" | "nextBeat" | "nextBar" | "nextLoop";
@@ -109,10 +111,12 @@ export interface HistoryEntry {
 
 export type GeneratorSettingsPatch = Omit<
   Partial<GeneratorSettings>,
-  "melody" | "harmony"
+  "melody" | "harmony" | "jazz"
 > & {
   melody?: Partial<GeneratorSettings["melody"]>;
   harmony?: Partial<NonNullable<GeneratorSettings["harmony"]>>;
+  /** Partial updates are merged; `null` is the explicit legacy switch. */
+  jazz?: Partial<JazzSettings> | null;
 };
 
 /**
@@ -309,6 +313,7 @@ function settingsWithPatch(
   current: GeneratorSettings,
   patch: GeneratorSettingsPatch = {},
 ): GeneratorSettings {
+  const { jazz: jazzPatch, ...scalarPatch } = patch;
   const harmony = patch.harmony
     ? {
         complexity: patch.harmony.complexity ?? current.harmony?.complexity ?? "triads",
@@ -322,18 +327,40 @@ function settingsWithPatch(
           patch.harmony.voiceLeadingStrength ?? current.harmony?.voiceLeadingStrength,
       }
     : current.harmony;
-  return {
+  const next = {
     ...current,
-    ...patch,
+    ...scalarPatch,
     harmony,
     melody: {
       ...current.melody,
       ...patch.melody,
     },
   };
+  if (jazzPatch !== undefined) {
+    if (jazzPatch === null) {
+      // Deleting the key matters: old projects must remain legacy after a
+      // normal patch, and JSON/storage code distinguishes absent from null.
+      delete next.jazz;
+    } else {
+      next.jazz = {
+        version: jazzPatch.version ?? current.jazz?.version ?? 1,
+        style: jazzPatch.style ?? current.jazz?.style ?? "swing",
+        form: jazzPatch.form ?? current.jazz?.form ?? "aaba",
+        chromaticism: jazzPatch.chromaticism ?? current.jazz?.chromaticism ?? 0.35,
+        interaction: jazzPatch.interaction ?? current.jazz?.interaction ?? 0.6,
+      };
+    }
+  } else if (current.jazz !== undefined) {
+    // Re-materialize the nested object so callers cannot mutate store state
+    // through a patch object retained by a component.
+    next.jazz = { ...current.jazz };
+  } else {
+    delete next.jazz;
+  }
+  return next;
 }
 
-const EDITOR_BAR_COUNTS = [4, 8, 16, 24, 32, 48] as const;
+const EDITOR_BAR_COUNTS = [4, 8, 12, 16, 24, 32, 48] as const;
 
 function isEditorBarCount(value: number): value is (typeof EDITOR_BAR_COUNTS)[number] {
   return EDITOR_BAR_COUNTS.includes(value as (typeof EDITOR_BAR_COUNTS)[number]);
@@ -1009,7 +1036,12 @@ function makeHistoryEntry(
 }
 
 function freshState(settingsPatch: GeneratorSettingsPatch = {}): ComposerStoreState {
-  const settings = settingsWithPatch(clone(DEFAULT_GENERATOR_SETTINGS), settingsPatch);
+  const freshDefaults = clone({
+    ...DEFAULT_GENERATOR_SETTINGS,
+    style: "jazz" as const,
+    jazz: DEFAULT_JAZZ_SETTINGS,
+  });
+  const settings = settingsWithPatch(freshDefaults, settingsPatch);
   const composition = buildComposition(settings);
   const history = [makeHistoryEntry(composition, "generate", null)];
   return {

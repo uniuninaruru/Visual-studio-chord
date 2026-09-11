@@ -1,6 +1,7 @@
 import type {
   GeneratedComposition,
   GeneratorSettings,
+  JazzSettings,
   PitchClassName,
   SectionArrangementPlan,
   ValidationResult,
@@ -9,6 +10,7 @@ import { handsAreConsistent } from "../../music/hands";
 import { normalizePitchClass } from "../../music/scales";
 import { validateSectionArrangement } from "../../music/sectionArrangement";
 import { validateComposition } from "../../music/validation";
+import { isJazzSettings as isJazzSettingsShape } from "../../music/jazzProfiles";
 
 export const COMPOSITION_JSON_FORMAT = "music-theory-composer";
 export const COMPOSITION_JSON_VERSION = 1;
@@ -88,6 +90,19 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+/** Strict structural guard for the versioned dedicated-jazz settings block. */
+function isJazzSettings(value: unknown): value is JazzSettings {
+  if (!isRecord(value) || !isJazzSettingsShape(value)) return false;
+  return (
+    isFiniteNumber(value.chromaticism)
+    && value.chromaticism >= 0
+    && value.chromaticism <= 1
+    && isFiniteNumber(value.interaction)
+    && value.interaction >= 0
+    && value.interaction <= 1
+  );
+}
+
 function isOptionalProbability(
   value: Record<string, unknown>,
   field: string,
@@ -106,7 +121,7 @@ function registerUnique(values: Set<string>, value: string): boolean {
   return true;
 }
 
-const ORDINARY_EDITOR_BAR_COUNTS = [4, 8, 16, 24, 32, 48] as const;
+const ORDINARY_EDITOR_BAR_COUNTS = [4, 8, 12, 16, 24, 32, 48] as const;
 const ARRANGEMENT_BAR_COUNTS = [40, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128] as const;
 
 function isGeneratorSettingsWithBars(
@@ -157,9 +172,21 @@ function isGeneratorSettingsWithBars(
     (typeof value.seed !== "string" && typeof value.seed !== "number") ||
     (typeof value.seed === "number" && !Number.isFinite(value.seed)) ||
     (typeof value.seed === "string" && value.seed.length === 0) ||
+    (value.jazz !== undefined && !isJazzSettings(value.jazz)) ||
     (value.progressionId !== undefined && typeof value.progressionId !== "string") ||
     (value.tonalTension !== undefined && !isRecord(value.tonalTension)) ||
     !isRecord(value.melody)
+  ) {
+    return false;
+  }
+
+  // Blues is the one jazz form whose bar grid has an intrinsic contract. Keep
+  // malformed persisted projects out of the editor even when they bypass the
+  // JSON import path (localStorage hydration uses this structural guard).
+  if (
+    isJazzSettings(value.jazz)
+    && value.jazz.form === "blues"
+    && ![12, 24, 48].includes(value.bars as number)
   ) {
     return false;
   }

@@ -1,5 +1,10 @@
 # Hybrid Pareto ranking for automatic section transitions
 
+> After the Jazz-first update, ordinary `Auto` joins do not use a corpus axis.
+> The hybrid path below requires an explicitly supplied corpus provider. Default
+> ranking keeps the same Pareto procedure for voice leading and style prior.
+> [Current design](jazz-first-engine.en.md).
+
 Status: **implemented design**. This applies only to choosing one inserted chord
 for an `Auto` join between sections with the same Key / Scale. Statistical
 evidence cannot legalize a theory-invalid candidate, and the meanings of forced

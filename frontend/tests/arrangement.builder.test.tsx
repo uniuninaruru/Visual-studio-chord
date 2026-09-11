@@ -93,6 +93,32 @@ describe("SectionArrangementBuilder", () => {
     expect(host.textContent).toContain("3 1曲にまとめる");
   });
 
+  it("makes inherited jazz source styles explicit and keeps legacy source styles editable", () => {
+    const jazzPlan = createDefaultSectionArrangement({
+      ...DEFAULT_GENERATOR_SETTINGS,
+      style: "jazz",
+      jazz: {
+        version: 1,
+        style: "swing",
+        form: "aaba",
+        chromaticism: 0.35,
+        interaction: 0.6,
+      },
+      seed: "arrangement-builder-jazz",
+    });
+    render({ plan: jazzPlan });
+    const jazzStyle = host.querySelector<HTMLSelectElement>("select[aria-label='Introのスタイル']");
+    expect(jazzStyle?.disabled).toBe(true);
+    expect(host.textContent).toContain("Jazzプロファイルは生成設定から継承します");
+    expect(host.textContent).toContain("Freeフォームとして保存します");
+
+    const legacy = planFixture();
+    render({ plan: legacy });
+    const legacyStyle = host.querySelector<HTMLSelectElement>("select[aria-label='Introのスタイル']");
+    expect(legacyStyle?.disabled).toBe(false);
+    expect(host.textContent).not.toContain("Jazzプロファイルは生成設定から継承します");
+  });
+
   it("filters templates by mode and sends a compatible template atomically", () => {
     const fixture = planFixture();
     fixture.sections[0]!.design.templateId = "intro-hook";

@@ -947,6 +947,22 @@ summary:focus-visible {
   line-height: 1.5;
 }
 
+.legacy-settings-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.legacy-controls-notice {
+  margin-bottom: 12px;
+}
+
+.jazz-legacy-switch {
+  margin-top: 2px;
+  text-align: left;
+}
+
 .phase-controls {
   padding: 17px 12px;
   border-bottom: 1px solid var(--color-border-subtle);

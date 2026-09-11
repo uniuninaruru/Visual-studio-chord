@@ -467,7 +467,7 @@ describe("hybrid transition ranking", () => {
         });
       }
       expect(planned, label).not.toBeNull();
-      expect(planned?.explanation, label).toContain("theory-only corpus fallback");
+      expect(planned?.explanation, label).toContain("theory-only ranking");
       expect(planned?.explanation, label).toMatch(/Auto rank: \d+ candidates, \d+ on the Pareto frontier/);
       expect(planned?.explanation, label).toMatch(/four-part cost -?\d+\.\d{2}/);
     }

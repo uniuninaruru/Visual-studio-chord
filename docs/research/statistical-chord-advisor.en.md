@@ -1,5 +1,10 @@
 # Statistical chord advisor: design research
 
+> Legacy corpus research record. The Jazz-first update removes implicit POP909
+> loading; the default UI offers theory candidates. The frequency calculations
+> below require an explicitly supplied provider snapshot and are not training
+> or evaluation results for the new jazz engine. [Current design](jazz-first-engine.en.md).
+
 Updated: 2026-08-24
 
 ## Conclusion
