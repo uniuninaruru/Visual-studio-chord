@@ -29,6 +29,7 @@ import {
   pitchClassToSemitone,
 } from "./scales";
 import { ticksPerBar, ticksPerBeat } from "./time";
+import { isJazzSettings as isJazzSettingsShape } from "./jazzProfiles";
 
 export interface GeneratorValidationOptions {
   /** Arrangement assembly is the only caller allowed to use 40..128 bars. */
@@ -84,14 +85,14 @@ export function validateGeneratorSettings(
     issues.push(error("settings.timeSignature", "Time signature must be 4/4, 3/4, or 6/8."));
   }
   const allowedBars = options.allowArrangementBars
-    ? [4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128]
-    : [4, 8, 16, 24, 32, 48];
+    ? [4, 8, 12, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128]
+    : [4, 8, 12, 16, 24, 32, 48];
   if (!allowedBars.includes(settings.bars)) {
     issues.push(error(
       "settings.bars",
       options.allowArrangementBars
-        ? "Bar count must be one of 4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, or 128."
-        : "Bar count must be one of 4, 8, 16, 24, 32, or 48.",
+        ? "Bar count must be one of 4, 8, 12, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, or 128."
+        : "Bar count must be one of 4, 8, 12, 16, 24, 32, or 48.",
     ));
   }
   if (
@@ -108,6 +109,39 @@ export function validateGeneratorSettings(
     ].includes(settings.style)
   ) {
     issues.push(error("settings.style", "Style must be a supported Phase 1 preset."));
+  }
+
+  // The field is an explicit versioned enclosure so a future jazz contract
+  // cannot be guessed by an older app.  Keeping this check here (in addition
+  // to the JSON boundary) also protects callers that build settings in code.
+  const jazz = settings.jazz as unknown;
+  if (jazz !== undefined) {
+    const isObject = typeof jazz === "object" && jazz !== null && !Array.isArray(jazz);
+    const jazzRecord = isObject ? jazz as Record<string, unknown> : undefined;
+    const validJazzShape = jazzRecord !== undefined && isJazzSettingsShape(jazzRecord);
+    if (
+      !jazzRecord
+      || !validJazzShape
+      || !isProbability(jazzRecord.chromaticism)
+      || !isProbability(jazzRecord.interaction)
+    ) {
+      issues.push(
+        error(
+          "settings.jazz",
+          "Jazz settings require version 1, a supported style/form, and chromaticism and interaction values between 0 and 1.",
+        ),
+      );
+    } else if (
+      jazzRecord.form === "blues"
+      && ![12, 24, 48].includes(settings.bars)
+    ) {
+      issues.push(
+        error(
+          "settings.jazz.form",
+          "The 12-bar blues form requires 12, 24, or 48 bars. Choose one of those bar counts before generating.",
+        ),
+      );
+    }
   }
   if (
     (typeof settings.seed !== "string" && typeof settings.seed !== "number") ||
@@ -147,10 +181,14 @@ export function validateGeneratorSettings(
     restRate: melody.restRate,
     syncopation: melody.syncopation,
     leapProbability: melody.leapProbability,
+    ...(melody.hookStrength === undefined ? {} : { hookStrength: melody.hookStrength }),
   })) {
     if (!isProbability(value)) {
       issues.push(error(`settings.melody.${name}`, `${name} must be between 0 and 1.`));
     }
+  }
+  if (melody.phraseDesign !== undefined && typeof melody.phraseDesign !== "boolean") {
+    issues.push(error("settings.melody.phraseDesign", "Phrase design must be a boolean."));
   }
   if (settings.harmony) {
     if (!["triads", "sevenths", "advanced"].includes(settings.harmony.complexity)) {
@@ -176,6 +214,17 @@ export function validateGeneratorSettings(
         );
       }
     }
+  }
+  const tonalTension = settings.tonalTension as unknown;
+  if (
+    tonalTension !== undefined &&
+    (typeof tonalTension !== "object" || tonalTension === null ||
+      typeof (tonalTension as { enabled?: unknown }).enabled !== "boolean")
+  ) {
+    issues.push(error(
+      "settings.tonalTension.enabled",
+      "Tonal tension enabled must be boolean.",
+    ));
   }
   if (settings.harmonicRhythm) {
     const rhythm = settings.harmonicRhythm;
@@ -684,6 +733,10 @@ export function validateComposition(composition: GeneratedComposition): Validati
 
   if (composition.sections) {
     const sections = composition.sections;
+    const tonalMarkerAllowed = composition.settings.tonalTension?.enabled === true
+      && composition.settings.functionalHarmony?.enabled === true
+      && composition.settings.progressionId === undefined
+      && composition.arrangementPlan === undefined;
     if (!sectionsTileBars(sections, composition.settings.bars)) {
       issues.push(
         error(
@@ -710,6 +763,13 @@ export function validateComposition(composition: GeneratedComposition): Validati
         normalizePitchClass(section.key);
       } catch {
         issues.push(error("sections.key", "Section key must be a supported pitch class.", { eventId: section.id }));
+      }
+      if (section.tonalTensionApplied === true && !tonalMarkerAllowed) {
+        issues.push(error(
+          "sections.tonalTensionApplied",
+          "TIS provenance requires enabled tonal tension and functional harmony without an arrangement plan.",
+          { eventId: section.id },
+        ));
       }
     }
   }

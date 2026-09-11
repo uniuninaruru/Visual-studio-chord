@@ -2,10 +2,13 @@ import { useState } from "react";
 import type { BackendConnection } from "../../api/inferenceClient";
 import { Icon } from "../../components/Icon";
 import { DEFAULT_HARMONY_SETTINGS } from "../../music";
+import { DEFAULT_JAZZ_SETTINGS } from "../../music/jazzProfiles";
 import type { GeneratorSettingsPatch } from "../../state";
 import type {
   BarCount,
   GeneratorSettings,
+  JazzSettings,
+  JazzStyleId,
   Mode,
   PitchClassName,
   StylePresetId,
@@ -40,6 +43,14 @@ const STYLES: Array<{ value: StylePresetId; label: string }> = [
   { value: "random", label: "Random" },
 ];
 
+const JAZZ_STYLES: Array<{ value: JazzStyleId; label: string }> = [
+  { value: "swing", label: "スウィング / Swing" },
+  { value: "ballad", label: "バラード / Ballad" },
+  { value: "bebop", label: "ビバップ / Bebop" },
+  { value: "modern", label: "モダン / Modern" },
+  { value: "neoSoul", label: "ネオソウル / Neo-Soul" },
+];
+
 interface SettingsPanelProps {
   settings: GeneratorSettings;
   backend: BackendConnection;
@@ -62,6 +73,8 @@ export function SettingsPanel({
   onMobileClose,
 }: SettingsPanelProps) {
   const [activeTab, setActiveTab] = useState<"basic" | "advanced" | "developer">("basic");
+  const jazzSettings = settings.jazz ?? DEFAULT_JAZZ_SETTINGS;
+  const jazzEnabled = settings.jazz !== undefined;
   const motif = settings.motif ?? { enabled: false, lengthBars: 1, transformationRate: 0.65 };
   const harmony = {
     complexity: settings.harmony?.complexity ?? DEFAULT_HARMONY_SETTINGS.complexity,
@@ -117,7 +130,27 @@ export function SettingsPanel({
       </div>
 
       <section className="settings-section" hidden={activeTab !== "basic"}>
-        <div className="section-label">ハーモニー</div>
+        <div className="section-label">{jazzEnabled ? "Jazz theory / offline" : "ハーモニー"}</div>
+        {!jazzEnabled && <>
+          <label className="field">
+            <span>作曲方式</span>
+            <select aria-label="作曲方式" value={settings.melody.phraseDesign ? "phrase" : "classic"}
+              onChange={(event) => onPatch({ melody: { phraseDesign: event.target.value === "phrase", hookStrength: settings.melody.hookStrength ?? 0.75 } })}>
+              <option value="phrase">フレーズ主導 · 主題と応答</option>
+              <option value="classic">従来の生成</option>
+            </select>
+            <span className="field-hint">{settings.melody.phraseDesign
+              ? "短い主題を育て、サビで再び聴かせます。設定は生成時に反映されます。"
+              : "以前の曲を再現する方式です。新しい生成を試すには「フレーズ主導」を選んで生成してください。"}</span>
+          </label>
+          {settings.melody.phraseDesign && <label className="field range-field">
+            <span>フックのまとまり <strong>{Math.round((settings.melody.hookStrength ?? 0.75) * 100)}%</strong></span>
+            <input aria-label="フックのまとまり" type="range" min="0" max="1" step="0.05"
+              value={settings.melody.hookStrength ?? 0.75}
+              onChange={(event) => onPatch({ melody: { hookStrength: Number(event.target.value) } })} />
+            <span className="field-hint">低いほど自由に展開し、高いほど主題の形を保ちます。</span>
+          </label>}
+        </>}
         <div className="field-grid two-columns">
           <label className="field">
             <span>キー</span>
@@ -147,18 +180,110 @@ export function SettingsPanel({
           </label>
         </div>
 
-        <label className="field">
-          <span>スタイル / ムード</span>
-          <select
-            aria-label="スタイル"
-            value={settings.style}
-            onChange={(event) => onPatch({ style: event.target.value as StylePresetId })}
-          >
-            {STYLES.map((style) => (
-              <option key={style.value} value={style.value}>{style.label}</option>
-            ))}
-          </select>
-        </label>
+        {jazzEnabled ? (
+          <>
+            <label className="field">
+              <span>ジャズスタイル / Jazz style</span>
+              <select
+                aria-label="ジャズスタイル"
+                value={jazzSettings.style}
+                onChange={(event) => onPatch({
+                  jazz: { ...jazzSettings, style: event.target.value as JazzStyleId },
+                })}
+              >
+                {JAZZ_STYLES.map((style) => (
+                  <option key={style.value} value={style.value}>{style.label}</option>
+                ))}
+              </select>
+              <span className="field-hint">5つのプロファイルはオフラインのジャズ理論ルールで動作します。</span>
+            </label>
+            <label className="field">
+              <span>フォーム / Form</span>
+              <select
+                aria-label="ジャズフォーム"
+                value={jazzSettings.form}
+                onChange={(event) => {
+                  const form = event.target.value as JazzSettings["form"];
+                  onPatch({
+                    jazz: { ...jazzSettings, form },
+                    ...(form === "blues" && ![12, 24, 48].includes(settings.bars)
+                      ? { bars: 12 as BarCount }
+                      : {}),
+                  });
+                }}
+              >
+                <option value="aaba">AABA</option>
+                <option value="blues">12-bar blues</option>
+                <option value="modal">Modal</option>
+                <option value="free">Free</option>
+              </select>
+              <span className="field-hint">
+                {jazzSettings.form === "blues"
+                  ? "12小節ブルース。小節数は12 / 24 / 48のみです。"
+                  : "曲の骨格を選びます。生成前に設定として保存されます。"}
+              </span>
+            </label>
+            <label className="field range-field">
+              <span>クロマティシズム / Chromaticism <strong>{Math.round(jazzSettings.chromaticism * 100)}%</strong></span>
+              <input
+                aria-label="クロマティシズム"
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={jazzSettings.chromaticism}
+                onChange={(event) => onPatch({ jazz: { ...jazzSettings, chromaticism: Number(event.target.value) } })}
+              />
+              <span className="field-hint">低いほどダイアトニック、高いほどアプローチ音や半音の彩りが増えます。</span>
+            </label>
+            <label className="field range-field">
+              <span>バンドの掛け合い / Interaction <strong>{Math.round(jazzSettings.interaction * 100)}%</strong></span>
+              <input
+                aria-label="バンドの掛け合い"
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={jazzSettings.interaction}
+                onChange={(event) => onPatch({ jazz: { ...jazzSettings, interaction: Number(event.target.value) } })}
+              />
+              <span className="field-hint">低いほど独立したコンピング、高いほどリードの余白を聴いて応答します。</span>
+            </label>
+            <button
+              className="text-button jazz-legacy-switch"
+              type="button"
+              onClick={() => onPatch({ jazz: null })}
+            >
+              旧プリセット（Legacy generation）へ切り替え
+            </button>
+          </>
+        ) : (
+          <label className="field">
+            <span>スタイル / ムード</span>
+            <select
+              aria-label="スタイル"
+              value={settings.style}
+              onChange={(event) => {
+                const style = event.target.value as StylePresetId;
+                onPatch(style === "jazz"
+                  ? { style, jazz: DEFAULT_JAZZ_SETTINGS }
+                  : { style });
+              }}
+            >
+              {STYLES.map((style) => (
+                <option key={style.value} value={style.value}>{style.label}</option>
+              ))}
+            </select>
+            <span className="field-hint">Jazzを選ぶと専用プロファイル設定へ切り替わります。旧プロジェクトは従来方式のままです。</span>
+            <button
+              className="text-button jazz-engine-switch"
+              type="button"
+              onClick={() => onPatch({ style: "jazz", jazz: DEFAULT_JAZZ_SETTINGS })}
+            >
+              ジャズ生成へ切り替え / Use jazz engine
+            </button>
+          </label>
+        )}
       </section>
 
       <section className="settings-section" hidden={activeTab !== "basic"}>
@@ -196,19 +321,29 @@ export function SettingsPanel({
               value={settings.bars}
               onChange={(event) => onPatch({ bars: Number(event.target.value) as BarCount })}
             >
-              <option value={4}>4 bars</option>
-              <option value={8}>8 bars</option>
-              <option value={16}>16 bars</option>
+              <option value={4} disabled={jazzSettings?.form === "blues"}>4 bars</option>
+              <option value={8} disabled={jazzSettings?.form === "blues"}>8 bars</option>
+              <option value={12}>12 bars</option>
+              <option value={16} disabled={jazzSettings?.form === "blues"}>16 bars</option>
               <option value={24}>24 bars</option>
-              <option value={32}>32 bars</option>
+              <option value={32} disabled={jazzSettings?.form === "blues"}>32 bars</option>
               <option value={48}>48 bars</option>
             </select>
+            {jazzSettings?.form === "blues" && (
+              <span className="field-hint">12-bar bluesでは12 / 24 / 48小節だけ選べます。</span>
+            )}
           </label>
         </div>
       </section>
 
       <section className="settings-section" hidden={activeTab !== "advanced"}>
         <div className="section-label">ハーモニー / メロディ</div>
+        {jazzEnabled && (
+          <p className="field-hint legacy-controls-notice">
+            Jazz専用パイプラインでは、下記の旧ハーモニー・モチーフ用コントロールは使われません。キー / モード / BPM / 拍子 / 小節数と、メロディの音域・密度・休符・ベロシティは有効です。
+          </p>
+        )}
+        <fieldset disabled={jazzEnabled} className="legacy-settings-fieldset">
         <label className="field">
           <span>コードの複雑さ</span>
           <select
@@ -307,6 +442,7 @@ export function SettingsPanel({
             100% = 前のコードからの移動を最小化、0% = 前のコードを考慮しない。
           </span>
         </label>
+        </fieldset>
         <label className="field range-field">
           <span>密度 <strong>{Math.round(settings.melody.density * 100)}%</strong></span>
           <input
@@ -320,6 +456,32 @@ export function SettingsPanel({
           />
         </label>
         <label className="field range-field">
+          <span>休符率 <strong>{Math.round(settings.melody.restRate * 100)}%</strong></span>
+          <input
+            aria-label="休符率"
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={settings.melody.restRate}
+            onChange={(event) => onPatch({ melody: { restRate: Number(event.target.value) } })}
+          />
+          <span className="field-hint">Jazzのラインに余白を作ります。バラードではスタイル側の余白も加わります。</span>
+        </label>
+        <label className="field range-field">
+          <span>ベロシティ <strong>{settings.melody.velocity}</strong></span>
+          <input
+            aria-label="メロディベロシティ"
+            type="range"
+            min="1"
+            max="127"
+            step="1"
+            value={settings.melody.velocity}
+            onChange={(event) => onPatch({ melody: { velocity: Number(event.target.value) } })}
+          />
+          <div className="range-scale"><span>1</span><span>127</span></div>
+        </label>
+        <label className="field range-field">
           <span>シンコペーション <strong>{Math.round(settings.melody.syncopation * 100)}%</strong></span>
           <input
             aria-label="シンコペーション"
@@ -328,8 +490,10 @@ export function SettingsPanel({
             max="1"
             step="0.05"
             value={settings.melody.syncopation}
+            disabled={jazzEnabled}
             onChange={(event) => onPatch({ melody: { syncopation: Number(event.target.value) } })}
           />
+          {jazzEnabled && <span className="field-hint">Jazzスタイルのアーティキュレーションが決めるため、この旧設定は無効です。</span>}
         </label>
         <label className="field range-field">
           <span>跳躍量 <strong>{Math.round(settings.melody.leapProbability * 100)}%</strong></span>
@@ -340,8 +504,10 @@ export function SettingsPanel({
             max="1"
             step="0.05"
             value={settings.melody.leapProbability}
+            disabled={jazzEnabled}
             onChange={(event) => onPatch({ melody: { leapProbability: Number(event.target.value) } })}
           />
+          {jazzEnabled && <span className="field-hint">Jazzスタイルのフレーズ規則が決めるため、この旧設定は無効です。</span>}
         </label>
         <label className="field range-field">
           <span>コードトーン率 <strong>{Math.round(settings.melody.chordToneRate * 100)}%</strong></span>
@@ -352,8 +518,10 @@ export function SettingsPanel({
             max="1"
             step="0.05"
             value={settings.melody.chordToneRate}
+            disabled={jazzEnabled}
             onChange={(event) => onPatch({ melody: { chordToneRate: Number(event.target.value) } })}
           />
+          {jazzEnabled && <span className="field-hint">Jazzのガイドトーン規則が決めるため、この旧設定は無効です。</span>}
         </label>
         <div className="field-grid two-columns">
           <label className="field">
@@ -394,6 +562,7 @@ export function SettingsPanel({
             aria-label="モチーフ展開"
             type="checkbox"
             checked={motif.enabled}
+            disabled={jazzEnabled}
             onChange={(event) => onPatch({ motif: { ...motif, enabled: event.target.checked } })}
           />
         </label>
@@ -404,6 +573,7 @@ export function SettingsPanel({
               <select
                 aria-label="モチーフ長"
                 value={motif.lengthBars}
+                disabled={jazzEnabled}
                 onChange={(event) => onPatch({
                   motif: { ...motif, lengthBars: Number(event.target.value) as 1 | 2 },
                 })}
@@ -421,6 +591,7 @@ export function SettingsPanel({
                 max="1"
                 step="0.05"
                 value={motif.transformationRate}
+                disabled={jazzEnabled}
                 onChange={(event) => onPatch({
                   motif: { ...motif, transformationRate: Number(event.target.value) },
                 })}
@@ -431,7 +602,16 @@ export function SettingsPanel({
       </section>
 
       <div hidden={activeTab !== "advanced"}>
-        <PhaseControls settings={settings} onPatch={onPatch} />
+        {jazzEnabled ? (
+          <section className="phase-controls legacy-controls-notice" aria-label="Jazz controls notice">
+            <div className="section-label">Jazz専用設定</div>
+            <p className="field-hint">
+              このパイプラインはBasicのJazz style / Form / Chromaticism / Interactionに加えて、キー・モード・BPM・拍子・小節数とAdvancedのメロディ音域・密度・休符率・ベロシティを使用します。旧ハーモニー詳細を使いたい場合は、Basicの切替で旧プリセットへ戻してください。
+            </p>
+          </section>
+        ) : (
+          <PhaseControls settings={settings} onPatch={onPatch} />
+        )}
       </div>
 
       <section className="settings-section seed-section" hidden={activeTab !== "basic"}>

@@ -7,6 +7,22 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Major update — Migration to the Jazz-first engine
+
+- New projects move to five dedicated profiles: Swing / Ballad / Bebop / Modern / Neo Soul. This is a separate harmony/melody/accompaniment path, not a rename of legacy `style: jazz`. Versioned jazz settings cover AABA / twelve-bar Blues / Modal / Free, chromatic approaches, and ensemble response.
+- Harmony, melody, bass, and comping share destinations: guide-tone resolutions, motifs and rests, and movement toward the next chord. PPQ 480, the 88-key range, and shared playback/display/MIDI tracks remain the contract. This does not add drum generation or a trained jazz model.
+- Remove implicit POP909 use from the browser provider, automatic section joins, and backend `auto` selection. With no empirical corpus, offer theory candidates without invented frequencies/probabilities. Explicit legacy providers, reproduction scripts, and fixtures remain separate; user data and weights are not deleted. Normal checks no longer require rebuilding the old snapshot.
+- Add optional `jazz: { version: 1, ... }` project settings. Older projects retain the legacy path when the field is absent; unknown versions/styles/forms, non-finite values, and out-of-range values are rejected. Add 12 to ordinary bar counts; Blues uses 12 / 24 / 48 bars.
+- Document beginner style/form controls separately from developer contracts, references, and limitations in both READMEs. Authored theory profiles are not learned performance weights or proven listening-quality improvements.
+- The [English architecture note](docs/research/jazz-first-engine.en.md) and [Japanese version](docs/research/jazz-first-engine.ja.md) describe the Berklee, Impro-Visor, swing-research, and future Weimar-evaluation boundaries. Earlier POP909 entries below describe prior work on this branch, not the new default engine.
+
+### Added — TIS bar-level tension reranking
+
+- Added optional `tonalTension` settings, enabled in shipped defaults and absent/off in `MINIMAL_GENERATOR_SETTINGS` for compatibility. Each newly evaluated automatic group/section compares eight theory-valid candidates: candidate 0 is the planner catalog baseline with its original section seed, and candidates 1–7 explicitly use functional harmony. Compatible repeated sections reuse the cached result instead of making eight new evaluations. Top-level explicit progressions bypass this reranking path; assembled arrangements do not enter the path at all and are generated/assembled through their own source pipeline.
+- Independently implemented the TIS primitives from Bernardes (2016) / Navarro-Cáceres (2020) and the Ebrahimzadeh et al. (2025) profile: coefficients `1.58`, `30.3`, `2.71`, chord-distance normalizer `64.8757`, and Pearson or flatness fallback, entirely dependency-free in the browser. Candidates remain under the existing cadence/grammar generator; `style: random` candidates share candidate 0's resolved style. Dissonance uses exact `sqrt(sum(weights^2))`; parity with the reference's rounded maximum is not claimed.
+- Added truthful `tonalTensionApplied` section provenance: catalog winners retain both catalog and TIS explanations, functional winners remove the catalog ID, and range regeneration makes no section-wide TIS claim, removing the marker only when a section has at least one actually replaced unlocked bar. Repeated planner groups share stream/style/selected index and reuse compatible results; a top-level named progression is applied to every song-form section and bypasses TIS. Audible dedupe includes tick timing, duration, and sorted sounding MIDI data, preserving voicing/doubling differences. The section-local pre-voicing target is not a guarantee about the final post-pivot/transition/hand-assignment/revoiced sound.
+- This is not a Transformer or trained model, and does not include the 2020 hierarchical-tree term. Listening improvement for this app is not yet proven. Equations, tick weighting, determinism, candidate-0 failure fallback, references, and limitations are documented in [`docs/research/tonal-tension-reranking.en.md`](docs/research/tonal-tension-reranking.en.md) and the Japanese version.
+
 ### Major update — Statistical chord advisor
 
 - Added an offline-first statistical advisor inspired by conditional-frequency, familiarity, novelty, and surprisal concepts. It uses only the already tracked local POP909 model: no Hooktheory data, scrape, copied dump, or external provider is bundled or used for training.
@@ -14,6 +30,12 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 - The pure engine matches the backend's data-weighted interpolation/backoff and reports raw observed conditional frequency separately from interpolated probability, plus exact gram/context support, surprisal bits, and stable familiar/balanced/adventurous profiles. Candidates come from validated existing progression templates, so popularity cannot legalize invalid harmony.
 - The 統計 tab shows whole-piece or selected-range aggregate metrics (interpolated probability, surprisal, supported transitions, complexity, duration-weighted melody tension, stepwise bass motion, and syncopation), while raw observed frequency is shown in candidate details. Suggestions can be auditioned and explicitly applied to one selected chord only; with no selected chord, the whole piece is analyzed but never overwritten. During playback, undoing before the next boundary also clears the pending indicator when the audible content is restored.
 - Formulas, sources, API/terms analysis, corpus limitations, provider boundary, and test plan are documented in [`docs/research/statistical-chord-advisor.en.md`](docs/research/statistical-chord-advisor.en.md) and the Japanese version.
+
+### Major update — Auditable automatic section-transition ranking
+
+- Same-Key / Scale `Auto` joins compare only existing theory-valid candidates using destination-tonic-relative POP909 2-gram/3-gram evidence, the existing optimized four-part voice-leading cost, and the style-profile weight. A seeded weighted choice is made within the Pareto frontier; the seed cannot revive a dominated candidate.
+- Provider exceptions, non-finite values, out-of-range probabilities, and invalid counts/orders trigger a fail-closed fallback that removes the corpus view for every candidate. Forced Direct / Dominant / Pivot, the existing rate gate, prepared-dominant behavior, timeline, IDs, and seed determinism are unchanged. The explanation records candidate/frontier counts, corpus support/surprisal, four-part cost, and fallback state.
+- Design, primary sources, the boundary to the McGill external evaluation, and non-claims are documented in [`docs/research/section-transition-ranking.en.md`](docs/research/section-transition-ranking.en.md) and the Japanese version.
 
 ### Investigated — McGill Billboard external evaluation
 

@@ -29,11 +29,21 @@ import { withHands } from "./hands";
 import { bassRegisterPitch } from "./compositionTracks";
 import { applySectionTransitions } from "./sectionTransitions";
 import type { BassRegisterSettings } from "../types/music";
-import type { ConcreteStylePresetId } from "./styles";
+import { CONCRETE_STYLE_IDS, type ConcreteStylePresetId } from "./styles";
 import { deriveSeed, hashSeed, seedToString } from "./random";
 import { getScalePitchClasses, midiToNoteName, pitchClassToSemitone } from "./scales";
 import { createBars, tickToBarIndex, ticksPerBar, ticksPerBeat } from "./time";
 import { assertValidGeneratorSettings } from "./validation";
+import {
+  audibleProgressionIdentity,
+  rankTonalCandidates,
+} from "./tonalTension";
+import { energyAtBar, planSectionEnergy } from "./tensionCurve";
+import {
+  generateJazzComposition,
+  jazzSettingsForGenerator,
+  regenerateJazzRange,
+} from "./jazzEngine";
 
 export const DEFAULT_HARMONY_SETTINGS: Readonly<Required<HarmonySettings>> = Object.freeze({
   complexity: "triads",
@@ -114,6 +124,8 @@ export const DEFAULT_GENERATOR_SETTINGS: Readonly<GeneratorSettings> = Object.fr
   melody: Object.freeze({
     ...MINIMAL_GENERATOR_SETTINGS.melody,
     variedNoteValues: true,
+    phraseDesign: true,
+    hookStrength: 0.75,
   }),
   harmony: Object.freeze({ ...DEFAULT_HARMONY_SETTINGS, complexity: "sevenths" as const }),
   tensions: Object.freeze({ enabled: true, rate: 0.35 }),
@@ -141,6 +153,7 @@ export const DEFAULT_GENERATOR_SETTINGS: Readonly<GeneratorSettings> = Object.fr
   dynamics: Object.freeze({ enabled: true }),
   harmonicRhythm: Object.freeze({ cadentialAcceleration: true }),
   functionalHarmony: Object.freeze({ enabled: true }),
+  tonalTension: Object.freeze({ enabled: true }),
   phraseGrammar: Object.freeze({ enabled: true }),
   melodicSkeleton: Object.freeze({ enabled: true }),
   groove: Object.freeze({ enabled: true, template: "laidBack" as const, amount: 0.5 }),
@@ -171,6 +184,7 @@ function copySettings(settings: GeneratorSettings): GeneratorSettings {
     functionalHarmony: settings.functionalHarmony
       ? { ...settings.functionalHarmony }
       : undefined,
+    tonalTension: settings.tonalTension ? { ...settings.tonalTension } : undefined,
     voiceLeading: settings.voiceLeading ? { ...settings.voiceLeading } : undefined,
     bassRegister: settings.bassRegister ? { ...settings.bassRegister } : undefined,
     dynamics: settings.dynamics ? { ...settings.dynamics } : undefined,
@@ -245,6 +259,7 @@ function compositionFingerprint(settings: GeneratorSettings): string {
     settings.melody.restRate,
     settings.melody.syncopation,
     settings.melody.leapProbability,
+    ...(settings.melody.phraseDesign ? ["phrase-design-v1", settings.melody.hookStrength ?? 0.75] : []),
     settings.harmony?.complexity ?? DEFAULT_HARMONY_SETTINGS.complexity,
     ...harmonyRateFingerprint,
     settings.motif?.enabled ?? DEFAULT_MOTIF_SETTINGS.enabled,
@@ -331,6 +346,7 @@ function compositionFingerprint(settings: GeneratorSettings): string {
     ...(settings.functionalHarmony?.enabled
       ? ["functional-harmony", settings.functionalHarmony.exploration ?? 0]
       : []),
+    ...(settings.tonalTension?.enabled ? ["tonal-tension"] : []),
     ...(settings.melodicSkeleton?.enabled ? ["melodic-skeleton"] : []),
     ...(settings.pivotModulation?.enabled ? ["pivot-modulation"] : []),
     ...(settings.groove?.enabled
@@ -470,28 +486,210 @@ function closeStrandedAppliedDominants(
   return chords;
 }
 
+/**
+ * Selects one functional-harmony section progression against its planned
+ * energy contour. Candidate zero is intentionally generated with the exact
+ * section seed used by the pre-reranking path, so every guard and failure path
+ * can return it byte-for-byte. The other seven candidates use independent
+ * derived streams, but retain candidate zero's resolved concrete style when a
+ * caller chose the `random` style preset. Cadence is allowed to differ: each
+ * candidate is still produced by the existing cadence-aware generator.
+ */
+function progressionForSection(
+  settings: GeneratorSettings,
+  section: SectionEvent,
+  sectionIndex: number,
+  barCount: number,
+  durationTick: number,
+  sections: readonly SectionEvent[],
+  energyPlans: ReturnType<typeof planSectionEnergy>,
+  selectedByGroup: Map<string, GroupSelection>,
+  styleByGroup: Map<string, ConcreteStylePresetId>,
+  allowTonalRerank: boolean,
+): {
+  result: ReturnType<typeof generateProgression>;
+  section: SectionEvent;
+} {
+  const sectionSeed = deriveSeed(settings.seed, "section", sectionIndex, section.kind);
+  const effectiveProgressionId = settings.progressionId ?? section.progressionId;
+  const autoPalette = settings.melody.phraseDesign && !settings.progressionId;
+  const colorDraw = hashSeed(deriveSeed(settings.seed, "phrase-palette-v1")) / 0x1_0000_0000;
+  const colorRate = settings.style === "rock" || settings.style === "edm"
+    ? 0.05 + colorDraw * 0.35
+    : settings.style === "jazz" || settings.style === "lo-fi"
+      ? 0.5 + colorDraw * 0.4
+      : 0.05 + colorDraw * 0.85;
+  const base = {
+    ...settings,
+    key: section.key,
+    mode: section.mode,
+    barCount,
+    progressionId: effectiveProgressionId,
+    ...(autoPalette
+      ? {
+          templateColoration: {
+            seventhRate: colorRate,
+            seed: deriveSeed(settings.seed, "phrase-palette"),
+          },
+        }
+      : {}),
+    seed: sectionSeed,
+    ppq: PPQ,
+  };
+  const baselineSection = { ...section, ...(settings.progressionId !== undefined
+    ? { progressionId: effectiveProgressionId }
+    : {}) };
+
+  // Planner-selected catalog IDs are the candidate-zero baseline, not explicit
+  // user material. A top-level named progression bypasses this path. Assembled
+  // arrangements do not invoke this sectioned reranker; their source material
+  // is generated independently and assembled later.
+  const rerankEnabled =
+    allowTonalRerank
+    && settings.tonalTension?.enabled
+    && settings.functionalHarmony?.enabled
+    && settings.progressionId === undefined;
+  if (!rerankEnabled) {
+    const candidateZero = generateProgression(base);
+    return { result: candidateZero, section: baselineSection };
+  }
+
+  const groupKey = effectiveProgressionId ?? section.id;
+  const cachedSelection = selectedByGroup.get(groupKey);
+  // Repeated sections with the same planner progression are a restatement,
+  // not a new beam. Reuse the selected local result before even generating an
+  // unused candidate-zero baseline; this makes the cache a true result reuse.
+  if (
+    cachedSelection !== undefined
+    && cachedSelection.barCount === barCount
+    && cachedSelection.key === section.key
+    && cachedSelection.mode === section.mode
+  ) {
+    const appliedSection: SectionEvent = { ...section, tonalTensionApplied: true };
+    if (cachedSelection.originalIndex !== 0) delete appliedSection.progressionId;
+    return { result: cachedSelection.result, section: appliedSection };
+  }
+
+  const candidateZero = generateProgression(base);
+  try {
+    const beam = [{ chords: candidateZero.chords, originalIndex: 0, result: candidateZero }];
+    const groupStyle = cachedSelection?.style
+      ?? styleByGroup.get(groupKey)
+      ?? candidateZero.resolvedStyle;
+    styleByGroup.set(groupKey, groupStyle);
+    for (let candidateIndex = 1; candidateIndex < 8; candidateIndex += 1) {
+      const result = generateProgression({
+        ...base,
+        // Pin random-style candidates to candidate zero's resolved style so
+        // reranking explores harmonic streams rather than changing idiom.
+        style: groupStyle,
+        progressionId: undefined,
+        // Repeated planner groups share the same functional candidate
+        // streams; candidate zero still keeps its exact section-index seed.
+        seed: deriveSeed(settings.seed, "tis-beam", groupKey, candidateIndex),
+      });
+      beam.push({ chords: result.chords, originalIndex: candidateIndex, result });
+    }
+
+    const seen = new Set<string>();
+    const unique = beam.filter((candidate) => {
+      const identity = audibleProgressionIdentity(candidate.chords);
+      if (seen.has(identity)) return false;
+      seen.add(identity);
+      return true;
+    });
+    if (unique.length < 2) return { result: candidateZero, section: baselineSection };
+
+    const target = Array.from({ length: barCount }, (_, localBar) =>
+      energyAtBar(sections, energyPlans, section.startBar + localBar));
+    if (target.some((value): value is null => value === null) || target.some((value) =>
+      value !== null && !Number.isFinite(value))) {
+      return { result: candidateZero, section: baselineSection };
+    }
+    const targetValues = target.map((value) => value as number);
+    const ranked = rankTonalCandidates(unique, {
+      key: section.key,
+      mode: section.mode,
+      ticksPerBar: durationTick,
+      bars: barCount,
+      target: targetValues,
+    });
+    const metricSucceeded = ranked.curves.length === unique.length && ranked.curves.every((curve) =>
+      curve.length === barCount && curve.every((value) => Number.isFinite(value)));
+    if (!metricSucceeded) return { result: candidateZero, section: baselineSection };
+    const cachedOriginalIndex = cachedSelection?.originalIndex;
+    const selected = cachedOriginalIndex === undefined
+      ? unique[ranked.selectedIndex]
+      : unique.find((candidate) => candidate.originalIndex === cachedOriginalIndex);
+    if (!selected) return { result: candidateZero, section: baselineSection };
+    if (cachedOriginalIndex === undefined) {
+      selectedByGroup.set(groupKey, {
+        originalIndex: ranked.selectedOriginalIndex,
+        result: selected.result,
+        style: groupStyle,
+        barCount,
+        key: section.key,
+        mode: section.mode,
+      });
+    }
+    const appliedSection: SectionEvent = { ...section, tonalTensionApplied: true };
+    if (selected.originalIndex !== 0) delete appliedSection.progressionId;
+    return { result: selected.result, section: appliedSection };
+  } catch {
+    // TIS is a preference, never a composition-wide failure. In particular,
+    // malformed metric inputs must leave the already generated candidate zero
+    // untouched.
+    return { result: candidateZero, section: baselineSection };
+  }
+}
+
+interface GroupSelection {
+  originalIndex: number;
+  result: ReturnType<typeof generateProgression>;
+  style: ConcreteStylePresetId;
+  barCount: number;
+  key: SectionEvent["key"];
+  mode: SectionEvent["mode"];
+}
+
 function generateSectionedChords(
   settings: GeneratorSettings,
   sections: readonly SectionEvent[],
   durationTick: number,
-): { chords: ChordEvent[]; degrees: number[]; cadence: CadenceType; resolvedStyle: ConcreteStylePresetId } {
+  allowTonalRerank = true,
+): {
+  chords: ChordEvent[];
+  degrees: number[];
+  cadence: CadenceType;
+  resolvedStyle: ConcreteStylePresetId;
+  sections: SectionEvent[];
+} {
   const chords: ChordEvent[] = [];
+  const outputSections: SectionEvent[] = [];
   let cadence: CadenceType = "loop";
   let resolvedStyle: ConcreteStylePresetId | null = null;
+  // Compute the complete plan before evaluating any section so reranking is
+  // independent of loop order and uses the same energy source as the UI.
+  const energyPlans = planSectionEnergy(sections);
+  const selectedByGroup = new Map<string, GroupSelection>();
+  const styleByGroup = new Map<string, ConcreteStylePresetId>();
 
   for (const [index, section] of sections.entries()) {
     const barCount = section.endBar - section.startBar;
-    const result = generateProgression({
-      ...settings,
-      key: section.key,
-      mode: section.mode,
+    const selection = progressionForSection(
+      settings,
+      section,
+      index,
       barCount,
-      progressionId: section.progressionId,
-      // Each section draws from its own seed stream so one section's content
-      // cannot shift when a neighbour changes length.
-      seed: deriveSeed(settings.seed, "section", index, section.kind),
-      ppq: PPQ,
-    });
+      durationTick,
+      sections,
+      energyPlans,
+      selectedByGroup,
+      styleByGroup,
+      allowTonalRerank,
+    );
+    outputSections.push(selection.section);
+    const result = selection.result;
     resolvedStyle ??= result.resolvedStyle;
     // The piece's cadence is the one it actually ends on.
     cadence = result.cadence;
@@ -521,12 +719,20 @@ function generateSectionedChords(
     degrees: closedChords.map((chord) => chord.degree),
     cadence,
     resolvedStyle: resolvedStyle ?? "pop",
+    sections: outputSections,
   };
 }
 
 export function generateComposition(settings: GeneratorSettings): GeneratedComposition {
   assertValidGeneratorSettings(settings);
+  const jazz = jazzSettingsForGenerator(settings);
+  if (jazz) return generateJazzComposition(settings, jazz);
   const copiedSettings = copySettings(settings);
+  const phraseStyle = copiedSettings.melody.phraseDesign
+    ? copiedSettings.style === "random"
+      ? CONCRETE_STYLE_IDS[hashSeed(deriveSeed(copiedSettings.seed, "phrase-style")) % CONCRETE_STYLE_IDS.length]!
+      : copiedSettings.style
+    : undefined;
   const barTicks = ticksPerBar(copiedSettings.timeSignature, PPQ);
   const sections = planSections({
     key: copiedSettings.key,
@@ -538,13 +744,27 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
     polytonal: copiedSettings.songForm?.polytonal,
     melodyScale: copiedSettings.songForm?.melodyScale,
     variedThinSections: copiedSettings.songFormVariety?.variedThinSections,
+    style: phraseStyle,
   });
+  if (copiedSettings.melody.phraseDesign && copiedSettings.progressionId && sections) {
+    for (const section of sections) section.progressionId = copiedSettings.progressionId;
+  }
 
   // Without a song form this is the original single-span path, so existing
   // seeds keep producing byte-identical output.
-  const progression = sections
-    ? generateSectionedChords(copiedSettings, sections, barTicks)
-    : generateProgression({ ...copiedSettings, ppq: PPQ });
+  const sectionedProgression = sections
+    ? generateSectionedChords(
+        { ...copiedSettings, style: phraseStyle ?? copiedSettings.style },
+        sections,
+        barTicks,
+      )
+    : undefined;
+  const progression = sectionedProgression
+    ?? generateProgression({
+      ...copiedSettings,
+      style: phraseStyle ?? copiedSettings.style,
+      ppq: PPQ,
+    });
   // Before voicing, so the pivot is voiced with the rest rather than being an
   // island the four-part writer never saw.
   if (copiedSettings.pivotModulation?.enabled && sections) {
@@ -574,7 +794,7 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
       progression.chords,
       sections.map((section) => ({ startBar: section.startBar })),
       {
-        style: copiedSettings.style,
+        style: phraseStyle ?? copiedSettings.style,
         seed: copiedSettings.seed,
         mode: copiedSettings.mode,
         tonicSemitone: pitchClassToSemitone(copiedSettings.key),
@@ -589,7 +809,7 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
     progression.chords = revoiceInFourParts(progression.chords, {
       key: copiedSettings.key,
       mode: copiedSettings.mode,
-      style: copiedSettings.style,
+      style: phraseStyle ?? copiedSettings.style,
       profileName: copiedSettings.voiceLeading.profile,
       optimizeSequence: copiedSettings.voiceLeading.optimizeSequence,
     });
@@ -631,7 +851,7 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
       }
       : undefined;
     progression.chords = revoiceForMelody(progression.chords, notes, {
-      style: copiedSettings.style,
+      style: phraseStyle ?? copiedSettings.style,
       registerFor,
       melodyClearance: copiedSettings.bassRegister?.melodyClearance,
     });
@@ -678,7 +898,7 @@ export function generateComposition(settings: GeneratorSettings): GeneratedCompo
     notes,
     ...(voices.length > 0 ? { voices } : {}),
     lockedBars: [],
-    ...(sections ? { sections } : {}),
+    ...(sectionedProgression ? { sections: sectionedProgression.sections } : {}),
   };
 }
 
@@ -857,15 +1077,38 @@ export function regenerateRange(
   if (!["subtle", "moderate", "strong"].includes(strength)) {
     throw new RangeError("Unsupported regeneration strength.");
   }
+  const jazz = jazzSettingsForGenerator(settings);
+  if (jazz) return regenerateJazzRange(composition, settings, range, options);
   const respectLocks = options.respectLocks ?? true;
   const locked = new Set(respectLocks ? composition.lockedBars : []);
   const shouldReplace = (barIndex: number): boolean =>
     barIndex >= range.startBar && barIndex < range.endBar && !locked.has(barIndex);
+  // A provenance marker is only truthful while the settings still describe
+  // the TIS path that produced it.  This is deliberately independent from the
+  // regeneration target: a melody-only rewrite may change the settings and
+  // must not leave a marker that the validator would reject.
+  const tonalMarkerAllowed = settings.tonalTension?.enabled === true
+    && settings.functionalHarmony?.enabled === true
+    && settings.progressionId === undefined
+    && composition.arrangementPlan === undefined;
+  const clearTonalMarkers = (sections: readonly SectionEvent[]): SectionEvent[] =>
+    sections.map((section) => {
+      const copy = { ...section };
+      delete copy.tonalTensionApplied;
+      return copy;
+    });
   const hasReplaceableBar = Array.from(
     { length: composition.settings.bars },
     (_, barIndex) => barIndex,
   ).some(shouldReplace);
-  if (!hasReplaceableBar) return composition;
+  if (!hasReplaceableBar) {
+    if (tonalMarkerAllowed || !composition.sections) return composition;
+    return {
+      ...composition,
+      settings: copySettings(settings),
+      sections: clearTonalMarkers(composition.sections),
+    };
+  }
   const replaceableBars = Array.from(
     { length: composition.settings.bars },
     (_, barIndex) => barIndex,
@@ -887,18 +1130,46 @@ export function regenerateRange(
   let chords = composition.chords;
   let cadence = composition.cadence;
   let resolvedStyle = composition.resolvedStyle;
+  let regeneratedSections = tonalMarkerAllowed
+    ? composition.sections
+    : composition.sections
+      ? clearTonalMarkers(composition.sections)
+      : undefined;
 
   if (target === "all" || target === "chords") {
     // A sectioned piece must be regenerated section by section, or the new
     // chords arrive in the composition's opening key and land inside a section
     // that has modulated away from it.
-    const progression = composition.sections
+    const sectionedProgression = composition.sections
       ? generateSectionedChords(
           variationSettings,
           composition.sections,
           composition.ticksPerBar,
+          // A range rewrite may produce a hybrid section, so keep the saved
+          // section's candidate and provenance rather than claiming that a
+          // fresh section-wide TIS evaluation was applied.
+          false,
         )
-      : generateProgression({ ...variationSettings, ppq: composition.ppq });
+      : undefined;
+    const progression = sectionedProgression
+      ?? generateProgression({ ...variationSettings, ppq: composition.ppq });
+    if (sectionedProgression && composition.sections && tonalMarkerAllowed) {
+      regeneratedSections = composition.sections.map((existing) => {
+        // A raw range overlap is not enough: a section whose every selected
+        // bar is locked (or whose subtle pass selects no bar there) did not
+        // actually replace any chord and retains its previous provenance.
+        const replacedInSection = Array.from(
+          { length: Math.max(0, existing.endBar - existing.startBar) },
+          (_, offset) => existing.startBar + offset,
+        ).some(shouldReplaceForStrength);
+        if (!replacedInSection || existing.tonalTensionApplied === undefined) {
+          return { ...existing };
+        }
+        const copy = { ...existing };
+        delete copy.tonalTensionApplied;
+        return copy;
+      });
+    }
     chords = replaceChordBars(
       composition.chords,
       progression.chords,
@@ -983,6 +1254,7 @@ export function regenerateRange(
     notes,
     ...(voices.length > 0 ? { voices } : { voices: undefined }),
     lockedBars: [...composition.lockedBars],
+    ...(regeneratedSections ? { sections: regeneratedSections } : {}),
   };
 }
 

@@ -5,6 +5,8 @@ coverage/
 test-results/
 playwright-report/
 blob-report/
+/artifacts/phrase-comparison/
+/artifacts/jazz-generation-comparison/
 .DS_Store
 *.log
 

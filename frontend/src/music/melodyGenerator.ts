@@ -9,6 +9,7 @@ import {
   type SectionEvent,
 } from "../types/music";
 import { developMelodyWithMotif } from "./motifs";
+import { composePhraseMelody } from "./phraseComposer";
 import {
   skeletonNotesInBar,
   skeletonRegisterAt,
@@ -33,6 +34,8 @@ import {
 } from "./scales";
 import { STYLE_PRESETS, type ConcreteStylePresetId } from "./styles";
 import { metricStrength, ticksPerBar } from "./time";
+import { generateJazzMelody } from "./jazzMelody";
+import { jazzSettingsOf } from "./jazzProfiles";
 
 export interface MelodyGeneratorOptions {
   settings: GeneratorSettings;
@@ -446,15 +449,29 @@ function scaleForBarOf(options: MelodyGeneratorOptions): (barIndex: number) => n
 }
 
 export function generateMelody(options: MelodyGeneratorOptions): NoteEvent[] {
-  const notes: NoteEvent[] = [];
+  const jazz = jazzSettingsOf(options.settings);
+  if (jazz) {
+    // The dedicated jazz provider owns the canonical lead timing, including
+    // swing. Route generation and partial regeneration through that same
+    // timed output instead of sending it through the legacy motif pipeline.
+    return generateJazzMelody({
+      settings: options.settings,
+      jazz,
+      chords: options.chords,
+      sections: options.sections,
+      ppq: options.ppq ?? PPQ,
+      seed: options.seed,
+    });
+  }
+  const notes: NoteEvent[] = options.settings.melody.phraseDesign ? composePhraseMelody(options) : [];
   let state: MelodyState = { previousMidi: null, previousDelta: 0 };
-  for (let barIndex = 0; barIndex < options.settings.bars; barIndex += 1) {
+  for (let barIndex = 0; !options.settings.melody.phraseDesign && barIndex < options.settings.bars; barIndex += 1) {
     const result = generateMelodyBar(options, barIndex, state);
     notes.push(...result.notes);
     state = result.finalState;
   }
   const seed = options.seed ?? options.settings.seed;
-  const developed = developMelodyWithMotif(notes, {
+  const developed = options.settings.melody.phraseDesign ? notes : developMelodyWithMotif(notes, {
     settings: options.settings,
     chords: options.chords,
     resolvedStyle: options.resolvedStyle,

@@ -96,23 +96,29 @@ describe("harmonising an imported melody", () => {
     // Refusing an odd length would reject most real files and truncating one
     // would silently drop the end of the tune, so the last bars are left empty
     // -- visible, and editable.
-    const allowed = [4, 8, 16, 24, 32, 48];
-    for (const bars of [4, 8, 16, 32] as const) {
+    const allowed = [4, 8, 12, 16, 24, 32, 48];
+    for (const bars of [4, 8, 12, 16, 32] as const) {
       const result = harmoniseInto(melodyOf(source({ bars })), DEFAULT_GENERATOR_SETTINGS, {});
       expect(allowed, String(bars)).toContain(result.bars);
       expect(result.bars, String(bars)).toBeGreaterThanOrEqual(bars);
     }
 
-    // A melody one tick into its ninth bar takes sixteen, not nine.
-    const overhang = [{ midi: 60, startTick: 0, durationTick: 1920 * 8 + 1 }];
+    // A melody one tick into its thirteenth bar takes sixteen, not thirteen.
+    const overhang = [{ midi: 60, startTick: 0, durationTick: 1920 * 12 + 1 }];
     expect(harmoniseInto(overhang, DEFAULT_GENERATOR_SETTINGS, {}).bars).toBe(16);
   });
 
   it("takes the key from the melody unless it is told one", () => {
-    const melody = melodyOf(source({ key: "G" }));
-    expect(harmoniseInto(melody, DEFAULT_GENERATOR_SETTINGS, {}).key).toBe("G");
+    // Keep the fixture on the pre-TIS path: this assertion measures key
+    // inference, not the optional section reranker's choice of harmony.
+    const compatibilitySettings = {
+      ...DEFAULT_GENERATOR_SETTINGS,
+      tonalTension: { enabled: false },
+    } as GeneratorSettings;
+    const melody = melodyOf(source({ key: "G", tonalTension: { enabled: false } }));
+    expect(harmoniseInto(melody, compatibilitySettings, {}).key).toBe("G");
     // An explicit key overrides what the pitches suggest.
-    const forced = harmoniseInto(melody, DEFAULT_GENERATOR_SETTINGS, { key: "F", mode: "major" });
+    const forced = harmoniseInto(melody, compatibilitySettings, { key: "F", mode: "major" });
     expect(forced.key).toBe("F");
     expect(forced.composition.settings.key).toBe("F");
   });

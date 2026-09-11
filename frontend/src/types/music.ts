@@ -35,13 +35,12 @@ export type Mode =
   | "mixolydian";
 export type TimeSignature = "4/4" | "3/4" | "6/8";
 /**
- * Normal editor bar counts plus the multiples used by the section arranger.
- * The settings UI intentionally continues to expose only the original set;
- * the wider range exists so an assembled composition still has a truthful
- * `settings.bars` value.
+ * Normal editor bar counts (including a 12-bar blues) plus the multiples used
+ * by the section arranger. The wider range exists so an assembled
+ * composition still has a truthful `settings.bars` value.
  */
 export type BarCount =
-  | 4 | 8 | 16 | 24 | 32 | 40 | 48 | 56 | 64 | 72 | 80 | 88 | 96 | 104 | 112 | 120 | 128;
+  | 4 | 8 | 12 | 16 | 24 | 32 | 40 | 48 | 56 | 64 | 72 | 80 | 88 | 96 | 104 | 112 | 120 | 128;
 
 export type SectionArrangementLength = 8 | 16 | 24 | 32;
 export type SectionArrangementRole = "intro" | "aMelo" | "bMelo" | "cMelo";
@@ -66,6 +65,24 @@ export type StylePresetId =
   | "ballad"
   | "game-music"
   | "random";
+
+/**
+ * The five idiomatic profiles in the dedicated jazz pipeline.  This is kept
+ * separate from StylePresetId: `style: "jazz"` remains the compatibility
+ * marker understood by the legacy generator and by existing project files.
+ */
+export type JazzStyleId = "swing" | "ballad" | "bebop" | "modern" | "neoSoul";
+
+/** User-facing controls for the offline jazz-theory generator. */
+export interface JazzSettings {
+  version: 1;
+  style: JazzStyleId;
+  form: "aaba" | "blues" | "modal" | "free";
+  /** 0..1. Amount of chromatic colour and approach motion. */
+  chromaticism: number;
+  /** 0..1. Amount of call-and-response / ensemble interaction. */
+  interaction: number;
+}
 
 export type CadenceType =
   | "authentic"
@@ -232,6 +249,8 @@ export interface SectionEvent {
   melodyScale?: MelodyScaleName;
   /** Named progression this section was built from. */
   progressionId?: string;
+  /** True only when the TIS beam was evaluated for this section. */
+  tonalTensionApplied?: true;
 }
 
 /**
@@ -465,6 +484,17 @@ export interface FunctionalHarmonySettings {
   exploration?: number;
 }
 
+/**
+ * Bar-level Tonal Interval Space reranking for automatic functional sections.
+ *
+ * This is intentionally a single compatibility-safe switch. The browser
+ * computes the symbolic profile locally; no model weights or network service
+ * are involved.
+ */
+export interface TonalTensionSettings {
+  enabled: boolean;
+}
+
 /** Phrase grammar. Off keeps the original fixed-length phrasing. */
 export interface PhraseGrammarSettings {
   enabled: boolean;
@@ -660,6 +690,10 @@ export interface MelodySettings {
    * nothing longer.
    */
   variedNoteValues?: boolean;
+  /** Phrase-level composition; omitted keeps existing projects reproducible. */
+  phraseDesign?: boolean;
+  /** 0..1. How strongly later phrases retain their opening hook. */
+  hookStrength?: number;
 }
 
 export interface GeneratorSettings {
@@ -673,6 +707,12 @@ export interface GeneratorSettings {
   melody: MelodySettings;
   /** Optional so Phase 1 JSON and callers remain compatible. */
   harmony?: HarmonySettings;
+  /**
+   * Presence selects the dedicated jazz pipeline. It is deliberately
+   * optional so legacy projects remain behaviour-compatible when they do not
+   * carry this field.
+   */
+  jazz?: JazzSettings;
   /** Optional so Phase 1 JSON and callers remain compatible. */
   motif?: MotifSettings;
   /**
@@ -707,6 +747,8 @@ export interface GeneratorSettings {
    * expanding a degree template. Omitted keeps the template behaviour.
    */
   functionalHarmony?: FunctionalHarmonySettings;
+  /** Optional TIS contour reranking for generated sections. */
+  tonalTension?: TonalTensionSettings;
   /**
    * Voices chords as four independent parts, applying part-writing rules
    * weighted by style. Omitted keeps the original note-set voicer.

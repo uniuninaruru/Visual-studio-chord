@@ -6,6 +6,23 @@
 
 ## 未リリース
 
+### 大規模アップデート — Jazz-first engineへの移行
+
+- 新規プロジェクトの生成を、Swing / Ballad / Bebop / Modern / Neo Soulの5プロフィールへ移行します。旧`style: jazz`の名称変更ではなく、専用の和声・旋律・伴奏経路です。AABA / 12-bar Blues / Modal / Free、半音接近、アンサンブル応答を版付き`jazz`設定として扱います。
+- 和声の着地点を旋律・ベース・コード伴奏で共有し、ガイドトーンへの解決、モチーフと休符、次和音へ向かう低音を設計します。PPQ 480、88鍵範囲、再生・表示・MIDIの共通トラック定義を維持します。ドラム生成や学習済みジャズモデルを追加したとは主張しません。
+- POP909をブラウザの標準provider、セクション自動接続、バックエンドの暗黙的な`auto`選択から外します。コーパス不在時は理論候補を提示し、架空の頻度・確率を表示しません。旧研究の明示的なprovider、モデル再現スクリプト、fixtureは別経路として残し、ユーザーのデータ・重みを削除しません。通常チェックは旧スナップショットの再生成を必須にしません。
+- 保存形式へ任意の`jazz: { version: 1, ... }`を追加し、旧プロジェクトは不在のまま互換経路で読み込みます。不明な版・style・form・非有限値・範囲外値を拒否します。通常の小節数へ12を追加し、Bluesは12 / 24 / 48小節とします。
+- 初心者向けのスタイル・フォーム操作と、技術者向けの契約・一次資料・限界をREADMEの日本語／英語に分けて記載します。プロフィールは作成者定義の理論パラメータで、実演奏データから学習した重みや実証済みの聴感改善とは区別します。
+- アーキテクチャとBerklee、Impro-Visor、スウィング研究、将来のWeimar評価の位置づけは[日本語](docs/research/jazz-first-engine.ja.md) / [English](docs/research/jazz-first-engine.en.md)に記録します。以下のPOP909関連項目はこのブランチで先に行った旧経路の履歴であり、現在の標準生成を説明するものではありません。
+
+### 追加 — TISによるセクション緊張カーブ再順位付け
+
+- `tonalTension`設定を追加し、出荷時は有効、互換用の`MINIMAL_GENERATOR_SETTINGS`では不在/OFFとしました。新しく評価するautomatic group/sectionごとに、plannerのcatalog baseline（候補0）+機能和声候補7個の8候補を、候補0の従来seedを保ったまま比較します。同じgroupの互換する反復sectionはcached resultを再利用し、8候補の新規評価を繰り返しません。top-levelの明示的な名前付き進行はこの再順位付け経路をバイパスし、組立済みarrangementはこの経路へ入らず独立したsource pipelineで生成・assembleします。
+- Bernardes (2016) / Navarro-Cáceres (2020)のTIS原理と、Ebrahimzadeh et al. (2025)プロフィールの重み（`1.58`, `30.3`, `2.71`）、chord距離定数`64.8757`、Pearsonまたはflatness fallbackを、依存なしのブラウザ内TypeScriptとして独立実装しました。8候補は既存のcadence / grammar検証を通り、`style: random`では候補0の解決済みstyleを共有します。dissonanceは厳密な`sqrt(sum(weights^2))`で正規化し、参照実装の丸め値とのbit単位一致は主張しません。
+- `tonalTensionApplied` markerで正常評価済みsectionを説明へ反映し、候補0勝利時はcatalog理由とTIS理由を併記、機能和声候補勝利時はcatalog IDを外します。partial regenerationはsection-wide適用を主張せず候補0を使い、実際にunlocked barを1つ以上置換したsectionだけmarkerを外して未接触・全locked sectionのmetadataを保ちます。voicing/doubling/tick位置を含むsounding identityで誤dedupeを防ぎます。反復planner groupはcandidate stream/style/選択indexを共有し、互換長の反復結果を再利用します。
+- top-levelの名前付き進行はsong formの全sectionへ実際に適用され、TISをバイパスします。section-localな事前voicing曲線のため、後段pivot／transition／左右手割当／再voicing後の最終出音がtargetと一致する保証はありません。
+- TISはTransformerでも学習済み重みでもなく、2020年の階層木項を含みません。このアプリでの聴感改善も未証明です。式、tick加重、決定性、例外時の候補0 fallback、一次資料と限界は [`docs/research/tonal-tension-reranking.ja.md`](docs/research/tonal-tension-reranking.ja.md) と英語版に記録しています。
+
 ### 大規模アップデート — 統計コードアドバイザー
 
 - Hooktheoryの考え方（条件付きの出現傾向、定番度、意外性、サプライズ）を、外部サイトへ接続せず、追跡済みのPOP909ローカルモデルだけで実装しました。Hooktheoryのデータ、スクレイピング結果、重みはコピー・同梱・学習利用していません。
@@ -13,6 +30,12 @@
 - 統計エンジンはバックエンドのデータ加重補間／backoffと一致し、POP909の直接観測頻度と補間推定確率を分けて、gram件数、文脈件数、サプライズbitも提示します。理論検証を通過した既存テンプレート候補だけをmaterializeし、統計人気で不正な和声を合法化しません。
 - 「統計」タブに、曲全体または選択範囲の集計指標（補間推定確率、サプライズ、観測済み遷移、複雑度、旋律の非コード音、ベース順次進行、シンコペーション）と、候補詳細の直接観測頻度、定番／バランス／意外プロファイルを追加しました。候補は試聴と明示的な1コード適用だけで、コード未選択時に曲全体を自動変更しません。再生中に次の境界前でUndoした場合も、pending表示を取り消して現在の再生内容と一致させます。
 - 詳細な数式、出典、API利用条件の分析、データバイアス、provider境界、テスト計画は [`docs/research/statistical-chord-advisor.ja.md`](docs/research/statistical-chord-advisor.ja.md) と英語版に記録しています。
+
+### 大規模アップデート — セクション自動接続の監査可能な順位付け
+
+- 同一Key / Scaleの`Auto`接続は、既存の理論候補だけを、接続先tonic相対のPOP909 2-gram / 3-gram証拠、既存の最適化4声voice-leading cost、style profile weightで比較し、Pareto frontier内からseed付きweighted choiceを行います。支配された候補をseedで復活させません。
+- corpus providerの例外、非有限値、範囲外確率、不正なcount / orderでは、全候補からcorpus観点を外すfail-closed fallbackを使います。強制Direct / Dominant / Pivot、既存のrate gate、準備済みdominant、timeline、ID、seed決定性は変更しません。説明文には候補数、frontier数、corpus support / surprisal、4声cost、fallbackを記録します。
+- 設計、一次資料、McGill外部評価との境界、非主張事項は [`docs/research/section-transition-ranking.ja.md`](docs/research/section-transition-ranking.ja.md) と英語版に記録しています。
 
 ### 調査 — McGill Billboard外部評価
 

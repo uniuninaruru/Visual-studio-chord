@@ -66,7 +66,7 @@ class EnvironmentDiagnosticsTests(unittest.TestCase):
         checks = [diagnostics.make_check("node", "error", "missing")]
         self.assertEqual(diagnostics.summarize(checks), ("blocked", 1))
 
-    def test_empirical_corpus_model_is_reported_separately(self) -> None:
+    def test_legacy_corpus_model_is_reported_for_explicit_use(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             model_directory = Path(directory) / "large-models"
             model_directory.mkdir()
@@ -81,8 +81,8 @@ class EnvironmentDiagnosticsTests(unittest.TestCase):
             )
 
             self.assertEqual(check["status"], "ok")
-            self.assertTrue(check["details"]["corpusModelAvailable"])
-            self.assertIn("Empirical harmony corpus", check["summary"])
+            self.assertTrue(check["details"]["legacyCorpusModelAvailable"])
+            self.assertIn("Legacy POP909 corpus", check["summary"])
 
     def test_installed_metadata_without_importable_cli_is_an_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
