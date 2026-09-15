@@ -202,10 +202,10 @@ describe("the last two settings of the sabi", () => {
    */
   const SABI_SEEDS = ["sabi", "a", "b", "c", "d", "e"];
 
-  function pooled(read: (composed: GeneratedComposition, kind: SectionKind) => number[]) {
+  function pooled(read: (composed: GeneratedComposition, kind: SectionKind) => number[], phraseDesign = true) {
     const collected = new Map<SectionKind, number[]>();
     for (const seed of SABI_SEEDS) {
-      const composed = generateComposition(settings({ bars: 48, seed }));
+      const composed = generateComposition(settings({ bars: 48, seed, melody: { ...DEFAULT_GENERATOR_SETTINGS.melody, phraseDesign } }));
       // Once per kind, not once per section: read() already gathers every
       // section of the kind it is given, so walking the sections would count a
       // verse twice for having two of them.
@@ -242,7 +242,9 @@ describe("the last two settings of the sabi", () => {
         return bar >= section.startBar && bar < section.endBar;
       })
       .map(rightHandMidpoint));
-  });
+  // This numeric calibration is for the original melody/voicing distribution.
+  // Phrase mode's lead-register arc has its own test in music.phraseComposer.
+  }, false);
 
   it("plays the 落ちサビ quieter than anything else in the piece", () => {
     // Quieter than the intro, not merely quieter than the chorus. A drop that

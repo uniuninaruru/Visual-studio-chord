@@ -241,6 +241,7 @@ describe("independent section arrangement domain", () => {
     const dominant = assembleSectionArrangement(dominantPlan, base);
     expect(dominant.ok).toBe(true);
     expect(dominant.ok && dominant.resolvedLinks.every((link) => link.technique === "secondaryDominant")).toBe(true);
+    expect(dominant.ok && dominant.resolvedLinks.every((link) => !link.explanation.includes("Auto rank:"))).toBe(true);
 
     const pivotPlan = {
       ...plan,
@@ -274,6 +275,29 @@ describe("independent section arrangement domain", () => {
     }, base);
     expect(sameKeyPivot.ok).toBe(false);
     expect(!sameKeyPivot.ok && sameKeyPivot.issues.some((item) => item.code === "link.pivotSameKey")).toBe(true);
+  });
+
+  it("carries auto-ranking evidence into the resolved link and transition chord", () => {
+    let verified = false;
+    for (let index = 0; index < 12 && !verified; index += 1) {
+      const base = settings({ seed: `link-ranking-${index}`, style: "jazz" });
+      const result = assembleSectionArrangement(createDefaultSectionArrangement(base), base);
+      expect(result.ok).toBe(true);
+      if (!result.ok) continue;
+      const resolved = result.resolvedLinks.find(
+        (link) => link.mode === "auto" && link.explanation.includes("Auto rank:"),
+      );
+      if (!resolved) continue;
+      const transition = result.composition.chords.find(
+        (chord) => chord.id === `${resolved.linkId}:transition`,
+      );
+      expect(transition).toBeDefined();
+      expect(transition?.explanation).toBe(resolved.explanation);
+      expect(resolved.explanation).toContain("hybrid corpus support");
+      expect(resolved.explanation).toContain("four-part cost");
+      verified = true;
+    }
+    expect(verified, "no seeded auto link inserted an auditable transition").toBe(true);
   });
 
   it("uses truthful common-tone versus voice-leading labels and protects transition windows", () => {

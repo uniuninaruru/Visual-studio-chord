@@ -366,6 +366,22 @@ describe("CompositionTransport", () => {
     expect(counterSynth?.triggerAttackRelease).toHaveBeenCalledTimes(1);
     expect(counterSynth?.triggerAttackRelease.mock.calls[0]?.[0]).toBeCloseTo(195.998, 3);
     expect(mutedSynth?.triggerAttackRelease).not.toHaveBeenCalled();
+    // Additional voices used to also leak into the chord synth, doubling them.
+    expect(audioMocks.synths.reduce((count, synth) => count + synth.triggerAttackRelease.mock.calls.length, 0)).toBe(1);
+  });
+
+  it("retains sub-25ms groove offsets instead of pushing them to 25ms", async () => {
+    const snapshot = composition();
+    snapshot.chords = [];
+    snapshot.notes = [{ ...snapshot.notes[0]!, startTick: 5, durationTick: 240 }];
+    const transport = new CompositionTransport();
+    transport.configure(snapshot, { startTick: 0, endTick: snapshot.totalTicks });
+    await transport.play();
+    audioMocks.transport.getTicksAtTime.mockReturnValue(0);
+    audioMocks.scheduler?.(1);
+    const call = audioMocks.synths[1]!.triggerAttackRelease.mock.calls[0]!;
+    expect(call[2]).toBeCloseTo(1 + 5 / snapshot.ppq * 60 / snapshot.settings.bpm, 8);
+    expect(call[1]).toBeCloseTo(240 / snapshot.ppq * 60 / snapshot.settings.bpm, 8);
   });
 });
 

@@ -32,7 +32,9 @@ const SEEDS = ["a", "b", "c", "d"];
 
 function piece(patch: Partial<GeneratorSettings>) {
   return generateComposition({
-    ...DEFAULT_GENERATOR_SETTINGS, bars: 16, ...patch,
+    ...DEFAULT_GENERATOR_SETTINGS, bars: 16,
+    tonalTension: { enabled: false },
+    ...patch,
   } as GeneratorSettings);
 }
 
@@ -147,7 +149,7 @@ describe("choosing what the left hand holds", () => {
     // The tracks read the decision instead of re-deriving it. Re-deriving was
     // the bug: the split point does not exist, because the partner sits above
     // some of the right hand.
-    const composed = piece({ seed: "tracks", style: "jazz", bassRegister: { enabled: true, shell: true } });
+    const composed = piece({ seed: "tracks", style: "jazz", groove: { enabled: false, template: "straight" }, bassRegister: { enabled: true, shell: true } });
     const tracks = buildCompositionTracks(composed);
     const bass = tracks.find((track) => track.role === "bass")!;
     const chords = tracks.find((track) => track.role === "chords")!;
@@ -165,7 +167,7 @@ describe("choosing what the left hand holds", () => {
     // The register has already been applied where the hands were decided.
     // Applying it again in the track builder would move a partner below its own
     // limit and undo the interval that made it playable there.
-    const composed = piece({ seed: "twice", style: "pop", bassRegister: { enabled: true, shell: true } });
+    const composed = piece({ seed: "twice", style: "pop", groove: { enabled: false, template: "straight" }, bassRegister: { enabled: true, shell: true } });
     const bass = buildCompositionTracks(composed).find((track) => track.role === "bass")!;
     for (const chord of composed.chords) {
       const left = chord.leftHand ?? [];
@@ -330,6 +332,8 @@ describe("aiming under the melody", () => {
       for (const seed of ["a", "b", "c"]) {
         for (const chord of piece({
           seed, style, bassRegister: { enabled: true, shell: true, melodyClearance: clearance },
+          // Hold the melodic register distribution constant to measure this legacy option.
+          melody: { ...DEFAULT_GENERATOR_SETTINGS.melody, phraseDesign: false },
         }).chords) {
           total += 1;
           const left = chord.leftHand ?? [];

@@ -158,6 +158,7 @@ function isGeneratorSettingsWithBars(
     (typeof value.seed === "number" && !Number.isFinite(value.seed)) ||
     (typeof value.seed === "string" && value.seed.length === 0) ||
     (value.progressionId !== undefined && typeof value.progressionId !== "string") ||
+    (value.tonalTension !== undefined && !isRecord(value.tonalTension)) ||
     !isRecord(value.melody)
   ) {
     return false;
@@ -183,6 +184,8 @@ function isGeneratorSettingsWithBars(
     value.motif.transformationRate >= 0 &&
     value.motif.transformationRate <= 1
   );
+  const validTonalTension = value.tonalTension === undefined ||
+    typeof value.tonalTension.enabled === "boolean";
   const arrangement = value.arrangement;
   const validArrangement = arrangement === undefined || (
     isRecord(arrangement) &&
@@ -249,7 +252,10 @@ function isGeneratorSettingsWithBars(
   return (
     validHarmony &&
     validMotif &&
+    validTonalTension &&
     validArrangement &&
+    (melody.phraseDesign === undefined || typeof melody.phraseDesign === "boolean") &&
+    (melody.hookStrength === undefined || (isFiniteNumber(melody.hookStrength) && melody.hookStrength >= 0 && melody.hookStrength <= 1)) &&
     Number.isInteger(melody.minMidi) &&
     Number.isInteger(melody.maxMidi) &&
     (melody.minMidi as number) >= 0 &&
@@ -340,6 +346,10 @@ function isFlatGeneratedComposition(
     if (!Array.isArray(value.sections) || value.sections.length === 0) return false;
     const sectionIds = new Set<string>();
     let cursor = 0;
+    const tonalMarkerAllowed = settings.tonalTension?.enabled === true
+      && settings.functionalHarmony?.enabled === true
+      && settings.progressionId === undefined
+      && !Object.prototype.hasOwnProperty.call(value, "arrangementPlan");
     for (const section of value.sections) {
       if (
         !isRecord(section) ||
@@ -361,7 +371,9 @@ function isFlatGeneratedComposition(
           (typeof section.melodyMode !== "string" || !sectionModes.includes(section.melodyMode))) ||
         (section.melodyScale !== undefined &&
           (typeof section.melodyScale !== "string" || !melodyScales.includes(section.melodyScale))) ||
-        (section.progressionId !== undefined && typeof section.progressionId !== "string")
+        (section.progressionId !== undefined && typeof section.progressionId !== "string") ||
+        (section.tonalTensionApplied !== undefined && section.tonalTensionApplied !== true) ||
+        (section.tonalTensionApplied === true && !tonalMarkerAllowed)
       ) {
         return false;
       }

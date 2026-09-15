@@ -1441,6 +1441,7 @@ describe("direct chord timeline edits", () => {
   it("clears progression names only in sections touched by direct edits", () => {
     useComposerStore.getState().generateComposition({
       seed: "section-add", bars: 16, songForm: { form: "verseChorus" },
+      tonalTension: { enabled: false },
     });
     let state = useComposerStore.getState();
     const sections = state.draftComposition.sections ?? [];
@@ -1465,6 +1466,7 @@ describe("direct chord timeline edits", () => {
     useComposerStore.getState().reset({ seed: "direct-chord-tests" });
     useComposerStore.getState().generateComposition({
       seed: "section-edit", bars: 16, songForm: { form: "verseChorus" },
+      tonalTension: { enabled: false },
     });
     state = useComposerStore.getState();
     const editSections = state.draftComposition.sections ?? [];
@@ -1489,6 +1491,7 @@ describe("direct chord timeline edits", () => {
     useComposerStore.getState().reset({ seed: "direct-chord-tests" });
     useComposerStore.getState().generateComposition({
       seed: "section-delete", bars: 16, songForm: { form: "verseChorus" },
+      tonalTension: { enabled: false },
     });
     state = useComposerStore.getState();
     const deleteSection = state.draftComposition.sections?.find((section) => section.progressionId);
@@ -1505,6 +1508,7 @@ describe("direct chord timeline edits", () => {
     useComposerStore.getState().reset({ seed: "direct-chord-tests" });
     useComposerStore.getState().generateComposition({
       seed: "section-split", bars: 16, songForm: { form: "verseChorus" },
+      tonalTension: { enabled: false },
     });
     state = useComposerStore.getState();
     const splitSection = state.draftComposition.sections?.find((section) => section.progressionId);
@@ -1521,6 +1525,7 @@ describe("direct chord timeline edits", () => {
     useComposerStore.getState().reset({ seed: "direct-chord-tests" });
     useComposerStore.getState().generateComposition({
       seed: "section-move", bars: 16, songForm: { form: "verseChorus" },
+      tonalTension: { enabled: false },
     });
     state = useComposerStore.getState();
     const moveSections = state.draftComposition.sections ?? [];
@@ -1545,6 +1550,7 @@ describe("direct chord timeline edits", () => {
     useComposerStore.getState().reset({ seed: "direct-chord-tests" });
     useComposerStore.getState().generateComposition({
       seed: "section-resize", bars: 16, songForm: { form: "verseChorus" },
+      tonalTension: { enabled: false },
     });
     state = useComposerStore.getState();
     const resizeSections = state.draftComposition.sections ?? [];
@@ -1599,7 +1605,9 @@ describe("applying a progression to the piece", () => {
   beforeEach(() => {
     localStorage.clear();
     useComposerStore.getState().reset({ seed: "apply-tests" });
-    useComposerStore.getState().generateComposition({ seed: "apply", bars: 16 });
+    useComposerStore.getState().generateComposition({
+      seed: "apply", bars: 16, tonalTension: { enabled: false },
+    });
   });
 
   const STEPS = [
@@ -1689,6 +1697,47 @@ describe("applying a progression to the piece", () => {
     }, "royal-road");
     expect((useComposerStore.getState().draftComposition.sections ?? [])[0]!.progressionId)
       .toBe("royal-road");
+  });
+
+  it("clears TIS provenance when a direct edit or progression rewrite touches it", () => {
+    useComposerStore.getState().generateComposition({
+      seed: "tis-marker-edit",
+      bars: 16,
+      songForm: { form: "verseChorus" },
+      functionalHarmony: { enabled: true },
+      tonalTension: { enabled: true },
+    });
+    let state = useComposerStore.getState();
+    let sections = state.draftComposition.sections ?? [];
+    const marked = sections.find((section) => section.tonalTensionApplied === true);
+    expect(marked, "no TIS-marked section").toBeDefined();
+    if (!marked) return;
+    const target = state.draftComposition.chords.find(
+      (chord) => chord.startTick >= marked.startBar * state.draftComposition.ticksPerBar
+        && chord.startTick < marked.endBar * state.draftComposition.ticksPerBar,
+    )!;
+    expect(state.editChord(target.id, "F#")).toBe(true);
+    sections = useComposerStore.getState().draftComposition.sections ?? [];
+    expect(sections.find((section) => section.id === marked.id)?.tonalTensionApplied).toBeUndefined();
+
+    useComposerStore.getState().generateComposition({
+      seed: "tis-marker-progression",
+      bars: 16,
+      songForm: { form: "verseChorus" },
+      functionalHarmony: { enabled: true },
+      tonalTension: { enabled: true },
+    });
+    state = useComposerStore.getState();
+    sections = state.draftComposition.sections ?? [];
+    const progressionMarked = sections.find((section) => section.tonalTensionApplied === true);
+    expect(progressionMarked, "no TIS-marked section for progression rewrite").toBeDefined();
+    if (!progressionMarked) return;
+    useComposerStore.getState().applyProgression([{ degree: 1 }], {
+      startBar: progressionMarked.startBar,
+      endBar: progressionMarked.endBar,
+    });
+    expect((useComposerStore.getState().draftComposition.sections ?? [])
+      .find((section) => section.id === progressionMarked.id)?.tonalTensionApplied).toBeUndefined();
   });
 
   it("does not name a section the rewrite only partly covers", () => {

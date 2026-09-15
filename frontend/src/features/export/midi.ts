@@ -33,7 +33,9 @@ export function exportCompositionMidi(
   const includeChords = options.includeChords ?? true;
   const includeMelody = options.includeMelody ?? true;
   const includeAdditionalVoices = options.includeAdditionalVoices ?? true;
-  const chordVelocity = clampVelocity(options.chordVelocity ?? 0.62);
+  const chordVelocity = options.chordVelocity === undefined
+    ? undefined
+    : clampVelocity(options.chordVelocity);
   const tickRatio = midi.header.ppq / composition.ppq;
   const tracks = buildCompositionTracks(composition);
 
@@ -45,49 +47,21 @@ export function exportCompositionMidi(
     measures: 0,
   });
 
-  if (includeChords) {
-    for (const source of tracks.slice(0, 2)) {
-      const chordTrack = midi.addTrack();
-      chordTrack.name = source.name;
-      chordTrack.channel = source.midiChannel;
-      for (const note of source.notes) {
-        chordTrack.addNote({
-          midi: note.midi,
-          ticks: Math.round(note.startTick * tickRatio),
-          durationTicks: Math.max(1, Math.round(note.durationTick * tickRatio)),
-          velocity: chordVelocity,
-        });
-      }
-    }
-  }
-
-  if (includeMelody) {
-    const melodyTrack = midi.addTrack();
-    melodyTrack.name = "Melody";
-    melodyTrack.channel = 2;
-    for (const note of composition.notes) {
-      melodyTrack.addNote({
+  // Playback and export consume the same performance: groove, articulation,
+  // voicing and section dynamics must survive the trip to a DAW.
+  for (const source of tracks) {
+    const accompaniment = source.role === "bass" || source.role === "chords";
+    if (accompaniment ? !includeChords : source.role === "melody" ? !includeMelody : !includeAdditionalVoices) continue;
+    const track = midi.addTrack();
+    track.name = source.name;
+    track.channel = source.midiChannel;
+    for (const note of source.notes) {
+      track.addNote({
         midi: note.midi,
         ticks: Math.round(note.startTick * tickRatio),
         durationTicks: Math.max(1, Math.round(note.durationTick * tickRatio)),
-        velocity: midiVelocity(note.velocity),
+        velocity: accompaniment && chordVelocity !== undefined ? chordVelocity : midiVelocity(note.velocity),
       });
-    }
-  }
-
-  if (includeAdditionalVoices) {
-    for (const voice of tracks.slice(3)) {
-      const track = midi.addTrack();
-      track.name = voice.name;
-      track.channel = voice.midiChannel;
-      for (const note of voice.notes) {
-        track.addNote({
-          midi: note.midi,
-          ticks: Math.round(note.startTick * tickRatio),
-          durationTicks: Math.max(1, Math.round(note.durationTick * tickRatio)),
-          velocity: midiVelocity(note.velocity),
-        });
-      }
     }
   }
 

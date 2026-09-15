@@ -684,7 +684,7 @@ function transitionCandidate(
   link: SectionLinkConfig,
   previous: SectionSourceDefinition,
   incoming: SectionSourceDefinition,
-  options: { style: string },
+  options: { style: StylePresetId },
 ): { transition: TransitionChord | null; pivot?: ReturnType<typeof findPivotChords>[number]; technique: SectionLinkTechnique; label: string; explanation: string } | { error: SectionArrangementIssue } {
   const from = previous.material.chords.at(-1);
   const to = incoming.material.chords[0];
@@ -735,6 +735,7 @@ function transitionCandidate(
       seed: link.seed,
       boundaryIndex: 0,
       tonicSemitone: pitchClassToSemitone(toKey),
+      mode: incoming.design.mode,
     },
   );
   return planned
