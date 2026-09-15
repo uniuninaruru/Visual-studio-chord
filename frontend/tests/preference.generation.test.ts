@@ -26,7 +26,12 @@ import type { GeneratedComposition, GeneratorSettings } from "../src/types/music
  */
 
 function settingsFor(seed: string, bars = 16): GeneratorSettings {
-  return { ...DEFAULT_GENERATOR_SETTINGS, bars, seed } as GeneratorSettings;
+  return {
+    ...DEFAULT_GENERATOR_SETTINGS,
+    bars,
+    seed,
+    tonalTension: { enabled: false },
+  } as GeneratorSettings;
 }
 
 /** One measurable that varies across seeds, standing in for taste. */

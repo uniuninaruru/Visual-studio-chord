@@ -118,6 +118,24 @@ export function SettingsPanel({
 
       <section className="settings-section" hidden={activeTab !== "basic"}>
         <div className="section-label">ハーモニー</div>
+        <label className="field">
+          <span>作曲方式</span>
+          <select aria-label="作曲方式" value={settings.melody.phraseDesign ? "phrase" : "classic"}
+            onChange={(event) => onPatch({ melody: { phraseDesign: event.target.value === "phrase", hookStrength: settings.melody.hookStrength ?? 0.75 } })}>
+            <option value="phrase">フレーズ主導 · 主題と応答</option>
+            <option value="classic">従来の生成</option>
+          </select>
+          <span className="field-hint">{settings.melody.phraseDesign
+            ? "短い主題を育て、サビで再び聴かせます。設定は生成時に反映されます。"
+            : "以前の曲を再現する方式です。新しい生成を試すには「フレーズ主導」を選んで生成してください。"}</span>
+        </label>
+        {settings.melody.phraseDesign && <label className="field range-field">
+          <span>フックのまとまり <strong>{Math.round((settings.melody.hookStrength ?? 0.75) * 100)}%</strong></span>
+          <input aria-label="フックのまとまり" type="range" min="0" max="1" step="0.05"
+            value={settings.melody.hookStrength ?? 0.75}
+            onChange={(event) => onPatch({ melody: { hookStrength: Number(event.target.value) } })} />
+          <span className="field-hint">低いほど自由に展開し、高いほど主題の形を保ちます。</span>
+        </label>}
         <div className="field-grid two-columns">
           <label className="field">
             <span>キー</span>
@@ -198,6 +216,7 @@ export function SettingsPanel({
             >
               <option value={4}>4 bars</option>
               <option value={8}>8 bars</option>
+              <option value={12}>12 bars</option>
               <option value={16}>16 bars</option>
               <option value={24}>24 bars</option>
               <option value={32}>32 bars</option>

@@ -5,6 +5,7 @@ coverage/
 test-results/
 playwright-report/
 blob-report/
+/artifacts/phrase-comparison/
 .DS_Store
 *.log
 

@@ -5,7 +5,8 @@ import {
   type NoteRole,
   type TimeSignature,
 } from "../types/music";
-import { midiToNoteName } from "./scales";
+import { midiToNoteName, pitchClassToSemitone } from "./scales";
+import { intervalsForQuality, intervalForTension } from "./chords";
 import { metricStrength, ticksPerBar } from "./time";
 
 export interface MelodyQualityReport {
@@ -279,6 +280,16 @@ export function analyzeMelodyQuality(
   timeSignature: TimeSignature,
   ppq: number = PPQ,
 ): MelodyQualityReport {
+  // A voicing can omit a fifth/root to make room for extensions. That does not
+  // make the declared chord's fifth/root a dissonance in the lead melody.
+  // Keep repair's sounding-tone policy separate so old seeds stay reproducible.
+  const harmony = chords.map((chord) => {
+    const root = pitchClassToSemitone(chord.root);
+    return { ...chord, notes: [...chord.notes,
+      ...intervalsForQuality(chord.quality).map((interval) => root + interval),
+      ...(chord.tensions ?? []).map((tension) => root + intervalForTension(tension)),
+    ] };
+  });
   const ordered = [...notes].sort(
     (left, right) => left.startTick - right.startTick || left.id.localeCompare(right.id),
   );
@@ -288,12 +299,12 @@ export function analyzeMelodyQuality(
   let unrecoveredLeaps = 0;
 
   for (const [index, note] of ordered.entries()) {
-    if (!isChordToneAtTick(note.midi, note.startTick, chords)) {
+    if (!isChordToneAtTick(note.midi, note.startTick, harmony)) {
       const localTick = note.startTick % ticksPerBar(timeSignature, ppq);
       if (metricStrength(localTick, timeSignature, ppq) >= 0.68) {
         strongBeatNonChordTones += 1;
       }
-      if (!dissonanceRole(ordered, index, chords, timeSignature, ppq)) {
+      if (!dissonanceRole(ordered, index, harmony, timeSignature, ppq)) {
         unexplainedNonChordTones += 1;
       }
     }

@@ -9,6 +9,7 @@ import type {
 } from "../types/music";
 import { PROGRESSION_TEMPLATES } from "./progressions";
 import { deriveSeed, hashSeed, type Seed } from "./random";
+import type { ConcreteStylePresetId } from "./styles";
 import { parallelModeFor, semitoneToPitchClass, pitchClassToSemitone } from "./scales";
 
 /**
@@ -342,6 +343,17 @@ function allocateBars(bars: number, kinds: readonly SectionKind[]): number[] {
  * adding a template to the catalogue does not silently rewrite every existing
  * seed's output.
  */
+const STYLE_PROGRESSIONS: Readonly<Record<ConcreteStylePresetId, readonly string[]>> = {
+  pop: ["axis", "axis-rotation-vi", "fifties", "circulation", "subdominant-minor", "minor-VI-III-VII", "minor-three-chord"],
+  "j-pop": ["royal-road", "komuro", "canon", "marunouchi", "cliche-descending", "komuro-minor", "minor-descending"],
+  rock: ["mixolydian-bVII", "axis", "axis-rotation-vi", "secondary-dominant-145", "rock-VI-VII-i", "minor-VII-VI-VII"],
+  jazz: ["ii-V-I", "ii-V-i-minor", "circulation", "tritone-sub", "backdoor", "rhythm-changes-bridge", "gospel-1625-ninths"],
+  "lo-fi": ["neo-soul-upgrade", "marunouchi", "city-pop-plastic", "ii-V-I", "subdominant-minor", "ii-V-i-minor", "minor-descending"],
+  edm: ["axis-rotation-vi", "axis", "kawaii-add9-axis", "komuro", "minor-VI-III-VII", "rock-VI-VII-i", "komuro-minor"],
+  ballad: ["canon", "canon-descending-bass", "fifties", "subdominant-minor", "royal-road-resolved", "minor-descending", "minor-three-chord"],
+  "game-music": ["komuro", "royal-road", "mixolydian-bVII", "kawaii-add9-axis", "kanaria-phrygian", "komuro-minor", "minor-VII-VI-VII"],
+};
+
 function chooseProgression(
   seed: Seed,
   kind: SectionKind,
@@ -349,11 +361,25 @@ function chooseProgression(
   sectionIndex: number,
   exclude: ReadonlySet<string>,
   widenThinTiers = false,
+  style?: ConcreteStylePresetId,
 ): ProgressionTemplate | undefined {
   const usable = PROGRESSION_TEMPLATES.filter((template) =>
     template.modes.includes(mode),
   );
   if (usable.length === 0) return undefined;
+
+  if (style) {
+    const ids = STYLE_PROGRESSIONS[style];
+    const idiomatic = usable.filter((template) => ids.includes(template.id));
+    const fresh = idiomatic.filter((template) => !exclude.has(template.id));
+    const pool = fresh.length > 0 ? fresh : idiomatic;
+    const matching = pool.filter((template) => USAGE_FOR_KIND[kind].includes(template.usage ?? "any"));
+    const choices = matching.length > 0 ? matching : pool;
+    if (choices.length > 0) return [...choices].sort((a, b) =>
+      hashSeed(deriveSeed(seed, "style-harmony-v1", style, kind, sectionIndex, a.id))
+      - hashSeed(deriveSeed(seed, "style-harmony-v1", style, kind, sectionIndex, b.id)),
+    )[0];
+  }
 
   const gathered: ProgressionTemplate[] = [];
   for (const usage of USAGE_FOR_KIND[kind]) {
@@ -403,6 +429,8 @@ export interface SectionPlanOptions {
   melodyScale?: SectionEvent["melodyScale"];
   /** Lets a section whose own usage tier holds one template draw from the next. */
   variedThinSections?: boolean;
+  /** Phrase composer uses the selected idiom for section harmony as well. */
+  style?: ConcreteStylePresetId;
 }
 
 /**
@@ -463,6 +491,7 @@ export function planSections(
         throughComposed ? index : 0,
         used,
         options.variedThinSections ?? false,
+        options.style,
       );
       progressionId = template?.id;
       if (template) {

@@ -69,6 +69,46 @@ learned window position + bar/metre embeddingを採用した。
 rotary／relative attention、sparse attention、SCG型stepwise guidance、
 causal studentは比較実験後に判断する研究variantであり、v0.4実装済み機能ではない。
 
+## ブラウザ内TIS緊張カーブ再順位付け
+
+ニューラル経路とは独立に、機能和声が自動生成するセクションへ任意の
+`tonalTension: { enabled: true }`を適用できます。新しく評価するplanner group/sectionごとに
+既存`generateProgression`から8候補を評価し、
+候補0はplannerが付けたcatalog `progressionId`と元のsection seedをbaselineとして使います。
+候補1〜7は`progressionId`を明示的に外した機能和声候補で、派生seedを使います。`style: random`
+の派生候補は候補0の解決済みstyleを共有し、cadenceは各候補の既存制約に従います。
+同じgroupの互換する反復sectionはcached resultを再利用するため、8候補の新規評価を繰り返しません。
+top-levelの明示的な`progressionId`はsong formの全sectionへ実際に適用し、この経路をバイパスします。
+組み立て済みarrangementはこの再順位付け経路へ入らず、source sectionを独立生成して後からassembleします。
+機能和声OFF、設定OFF、重複2候補未満、または計算失敗なら候補0へ戻ります。
+
+同じprogression IDを持つplanner反復groupは、派生candidate stream、具体化されたstyle、選択した
+original candidate indexを共有します。互換する反復sectionでは選択結果も再利用し、AABAや戻る
+verse/chorusのrestatementで新しいstreamを黙って発生させません。
+
+正常評価されたsectionだけ`tonalTensionApplied: true`を持ちます。catalog baselineが勝てば
+catalog IDとTIS理由を両方残し、機能和声候補が勝てばcatalog IDを外します。partial regeneration
+ではsection-wideなTIS適用を主張せず、候補0を使い、unlocked barを1つ以上実際に置換したsection
+だけTIS markerを外します。範囲が重なっても全bar lockedのsectionと未接触sectionのmarkerは保持します。
+
+各コードを12次元chroma countから重み付きDFT（`k=1..6`, weights
+`[2,11,17,16,19,7]`）へ写像し、`64.8757`正規化のchord距離、key/function角度、
+`1 - ||T|| / sqrt(sum(weights^2))` dissonance、circular/non-bijective voice-leadingを
+用います。合計は `chordDistance + 1.58*keyDistance + tonalFunctionDistance +
+30.3*dissonance + 2.71*voiceLeading` です。既存energy planをsection-localな整数tick bar
+curveへ集約し、分散が`1e-3`以上ならPearson、その他はraw meanを比較しないscale-safeな
+flatness fallback（両方flat=1、flat targetは`1/(1+variance)`、flat candidateは`-1`）で再順位付けします。
+identityはtimingとsounding MIDI dataを含むので、voicingやdoublingを誤ってdedupeしません。dissonanceは
+厳密な`sqrt(sum(weights^2))`で正規化し、丸められた参照最大値とのbit単位一致は主張しません。曲線は
+後段のpivot／transition／左右手割当／再voicing前に計算するため、最終出音のtarget一致も保証しません。
+詳細な式と参照は[専用研究ノート](research/tonal-tension-reranking.ja.md)を
+参照してください。
+
+これはTransformer、学習済みweight、2020年モデルのhierarchical-tree項、または2025年論文の
+完全なdual-level decoderではありません。このアプリでの聴感改善も未評価で、公開評価は主に
+major/minorの短い進行です。計算は依存なし・決定的・offlineのブラウザ内処理です。section間の
+絶対レベルや、後段のtransition/postprocess後の最終曲線の完全一致は保証しません。
+
 ## Checkpoint gate
 
 実モデルは次のすべてを満たすまでavailableにならない。

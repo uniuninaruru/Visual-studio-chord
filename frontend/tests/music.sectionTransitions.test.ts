@@ -7,10 +7,15 @@ import {
 } from "../src/music";
 import {
   planTransition,
+  rankTransitionCandidates,
   transitionProfileFor,
   transitionsInto,
 } from "../src/music/sectionTransitions";
 import { pitchClassToSemitone } from "../src/music/scales";
+import type {
+  ConditionalHarmonyEvidence,
+  HarmonyStatisticsProvider,
+} from "../src/music/statisticalHarmony";
 import type { ChordQuality, GeneratedComposition, GeneratorSettings, PitchClassName } from "../src/types/music";
 
 /**
@@ -30,6 +35,56 @@ function settings(patch: Partial<GeneratorSettings>): GeneratorSettings {
 
 const STYLES = ["pop", "j-pop", "rock", "jazz", "lo-fi", "edm", "ballad", "game-music"] as const;
 const SEEDS = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
+
+const MOCK_PROVENANCE: HarmonyStatisticsProvider["provenance"] = {
+  sourceKind: "test-fixture",
+  modelId: "test-model",
+  modelVersion: "1",
+  schemaVersion: 1,
+  sourceModelOrders: [1, 2, 3],
+  browserOrders: [1, 2, 3],
+  pop909Commit: "fixture",
+  pop909Repository: "fixture",
+  pop909SongCount: 1,
+  sequenceCount: 1,
+  tokenCount: 1,
+  fullSourceSha256: "0".repeat(64),
+  rawSongDataBundled: false,
+};
+
+function evidence(
+  tokens: readonly string[],
+  probability: number,
+  patch: Partial<ConditionalHarmonyEvidence> = {},
+): ConditionalHarmonyEvidence {
+  const orderUsed = Math.min(3, tokens.length);
+  return {
+    rawConditionalProbability: probability,
+    probability,
+    unigramCount: 10,
+    exactGramCount: 2,
+    contextCount: 10,
+    orderUsed,
+    surprisalBits: -Math.log2(probability),
+    tokens: [...tokens].slice(-3),
+    supported: true,
+    ...patch,
+  };
+}
+
+function mockProvider(
+  response: (tokens: readonly string[]) => ConditionalHarmonyEvidence,
+): HarmonyStatisticsProvider {
+  return { id: "test-provider", provenance: MOCK_PROVENANCE, probability: response };
+}
+
+function relativeToken(
+  chord: { root: PitchClassName; quality: ChordQuality },
+  tonicSemitone: number,
+): string {
+  const relative = ((pitchClassToSemitone(chord.root) - tonicSemitone) % 12 + 12) % 12;
+  return `${relative}:${chord.quality}`;
+}
 
 function approaches(piece: GeneratedComposition) {
   return piece.chords.filter((chord) => chord.id.endsWith("-approach"));
@@ -231,6 +286,228 @@ describe("section transitions", () => {
   });
 });
 
+describe("hybrid transition ranking", () => {
+  const outgoing = { root: "A" as PitchClassName, quality: "minor" as ChordQuality };
+  const incoming = { root: "C" as PitchClassName, quality: "major" as ChordQuality };
+  const tonicSemitone = pitchClassToSemitone("C");
+  const baseOptions = {
+    style: "jazz" as const,
+    mode: "major" as const,
+    tonicSemitone,
+  };
+
+  it("scores the two target-key-relative corpus predictions exactly", () => {
+    const calls: string[][] = [];
+    const targetTonic = pitchClassToSemitone("D");
+    const targetIncoming = { root: "G" as PitchClassName, quality: "major" as ChordQuality };
+    const provider = mockProvider((tokens) => {
+      calls.push([...tokens]);
+      return tokens.length === 2
+        ? evidence(tokens, 0.25, { orderUsed: 2, exactGramCount: 4 })
+        : evidence(tokens, 0.0625, { orderUsed: 3, exactGramCount: 3 });
+    });
+    const ranking = rankTransitionCandidates(outgoing, targetIncoming, {
+      ...baseOptions,
+      tonicSemitone: targetTonic,
+      provider,
+    });
+
+    expect(ranking.corpusAvailable).toBe(true);
+    expect(calls).toHaveLength(ranking.candidates.length * 2);
+    expect(calls[0]).toEqual(["7:minor", "0:dominant7"]);
+    for (const [index, score] of ranking.candidates.entries()) {
+      expect(score.corpus).toEqual({ supportedTransitions: 2, meanSurprisalBits: 3 });
+      const first = calls[index * 2]!;
+      const second = calls[index * 2 + 1]!;
+      const expectedPrefix = [
+        relativeToken(outgoing, targetTonic),
+        relativeToken(score.candidate, targetTonic),
+      ];
+      expect(first).toEqual(expectedPrefix);
+      expect(second).toEqual([...expectedPrefix, "5:major"]);
+      expect(first).toHaveLength(2);
+      expect(second).toHaveLength(3);
+      expect(score.voiceLeadingCost).toEqual(expect.any(Number));
+      expect(Number.isFinite(score.voiceLeadingCost)).toBe(true);
+    }
+  });
+
+  it("never revives a Pareto-dominated candidate for any seed", () => {
+    const equalCorpus = mockProvider((tokens) => evidence(tokens, 0.5));
+    const baseline = rankTransitionCandidates(outgoing, incoming, {
+      ...baseOptions,
+      provider: equalCorpus,
+    });
+    const maximumPrior = Math.max(...baseline.candidates.map((score) => score.styleWeight));
+    const comparable = baseline.candidates.filter((score) => score.styleWeight === maximumPrior);
+    expect(comparable).toHaveLength(2);
+    const ordered = [...comparable].sort(
+      (left, right) => left.voiceLeadingCost - right.voiceLeadingCost,
+    );
+    const dominator = ordered[0]!;
+    const dominated = ordered[1]!;
+    const dominatorToken = relativeToken(dominator.candidate, tonicSemitone);
+    const dominatedToken = relativeToken(dominated.candidate, tonicSemitone);
+    const provider = mockProvider((tokens) => {
+      const candidateToken = tokens[1];
+      if (candidateToken === dominatorToken) {
+        return evidence(tokens, 0.8, { exactGramCount: 8 });
+      }
+      if (candidateToken === dominatedToken) {
+        return evidence(tokens, 0.01, {
+          exactGramCount: 0,
+          orderUsed: 1,
+          supported: false,
+        });
+      }
+      return evidence(tokens, 0.2);
+    });
+    const ranking = rankTransitionCandidates(outgoing, incoming, { ...baseOptions, provider });
+
+    expect(dominator.voiceLeadingCost).toBeLessThanOrEqual(dominated.voiceLeadingCost);
+    expect(ranking.frontier.map((score) => score.candidate.technique))
+      .not.toContain(dominated.candidate.technique);
+    let selected = 0;
+    for (let seed = 0; seed < 40; seed += 1) {
+      const planned = planTransition(outgoing, incoming, {
+        ...baseOptions,
+        provider,
+        seed: `dominated-${seed}`,
+        boundaryIndex: seed,
+      });
+      if (!planned) continue;
+      selected += 1;
+      expect(planned.technique).not.toBe(dominated.candidate.technique);
+    }
+    expect(selected).toBeGreaterThan(0);
+  });
+
+  it("is reproducible within the frontier and remains diverse across seeds", () => {
+    const provider = mockProvider((tokens) => {
+      const techniqueToken = tokens[1];
+      if (techniqueToken === "7:dominant7") {
+        return evidence(tokens, 0.05, { exactGramCount: 8 });
+      }
+      if (techniqueToken === "1:dominant7") {
+        return tokens.length === 2
+          ? evidence(tokens, 0.9, { exactGramCount: 1, orderUsed: 2 })
+          : evidence(tokens, 0.9, {
+              exactGramCount: 0,
+              orderUsed: 1,
+              supported: false,
+            });
+      }
+      return evidence(tokens, 0.001, {
+        exactGramCount: 0,
+        orderUsed: 1,
+        supported: false,
+      });
+    });
+    const ranking = rankTransitionCandidates(outgoing, incoming, { ...baseOptions, provider });
+    const frontier = new Set(ranking.frontier.map((score) => score.candidate.technique));
+    expect(frontier.has("secondaryDominant")).toBe(true);
+    expect(frontier.has("tritoneSub")).toBe(true);
+
+    const choices = new Set<string>();
+    for (let index = 0; index < 80; index += 1) {
+      const options = {
+        ...baseOptions,
+        provider,
+        seed: `frontier-${index}`,
+        boundaryIndex: index,
+      };
+      const first = planTransition(outgoing, incoming, options);
+      const second = planTransition(outgoing, incoming, options);
+      expect(second).toEqual(first);
+      if (!first) continue;
+      expect(frontier.has(first.technique)).toBe(true);
+      choices.add(first.technique);
+    }
+    expect(choices.has("secondaryDominant")).toBe(true);
+    expect(choices.has("tritoneSub")).toBe(true);
+  });
+
+  it("falls back for provider failures and invalid evidence as one candidate set", () => {
+    const invalidProviders: Array<[string, HarmonyStatisticsProvider]> = [
+      ["throw", mockProvider(() => { throw new Error("fixture failure"); })],
+      ["NaN", mockProvider((tokens) => evidence(tokens, 0.5, {
+        probability: Number.NaN,
+        surprisalBits: Number.NaN,
+      }))],
+      ["zero probability", mockProvider((tokens) => evidence(tokens, 0.5, {
+        probability: 0,
+      }))],
+      ["probability above one", mockProvider((tokens) => evidence(tokens, 0.5, {
+        probability: 1.1,
+      }))],
+      ["fractional count", mockProvider((tokens) => evidence(tokens, 0.5, {
+        exactGramCount: 1.5,
+      }))],
+      ["invalid order", mockProvider((tokens) => evidence(tokens, 0.5, {
+        orderUsed: 4,
+      }))],
+    ];
+
+    for (const [label, provider] of invalidProviders) {
+      const ranking = rankTransitionCandidates(outgoing, incoming, {
+        ...baseOptions,
+        provider,
+      });
+      expect(ranking.corpusAvailable, label).toBe(false);
+      expect(ranking.candidates.length, label).toBeGreaterThan(0);
+      expect(ranking.candidates.every((score) => score.corpus === null), label).toBe(true);
+
+      let planned = null;
+      for (let boundaryIndex = 0; boundaryIndex < 20 && !planned; boundaryIndex += 1) {
+        planned = planTransition(outgoing, incoming, {
+          ...baseOptions,
+          provider,
+          seed: `fallback-${label}`,
+          boundaryIndex,
+        });
+      }
+      expect(planned, label).not.toBeNull();
+      expect(planned?.explanation, label).toContain("theory-only corpus fallback");
+      expect(planned?.explanation, label).toMatch(/Auto rank: \d+ candidates, \d+ on the Pareto frontier/);
+      expect(planned?.explanation, label).toMatch(/four-part cost -?\d+\.\d{2}/);
+    }
+  });
+
+  it("discards earlier valid evidence when a later candidate is invalid", () => {
+    let call = 0;
+    const partiallyInvalid = mockProvider((tokens) => {
+      call += 1;
+      return call < 4
+        ? evidence(tokens, 0.5)
+        : evidence(tokens, 0.5, { contextCount: -1 });
+    });
+    const ranking = rankTransitionCandidates(outgoing, incoming, {
+      ...baseOptions,
+      provider: partiallyInvalid,
+    });
+    expect(call).toBe(4);
+    expect(ranking.corpusAvailable).toBe(false);
+    expect(ranking.candidates.every((score) => score.corpus === null)).toBe(true);
+  });
+
+  it("publishes the chosen hybrid evidence in the existing explanation", () => {
+    const provider = mockProvider((tokens) => evidence(tokens, 0.25));
+    let planned = null;
+    for (let boundaryIndex = 0; boundaryIndex < 20 && !planned; boundaryIndex += 1) {
+      planned = planTransition(outgoing, incoming, {
+        ...baseOptions,
+        provider,
+        seed: "audit-explanation",
+        boundaryIndex,
+      });
+    }
+    expect(planned).not.toBeNull();
+    expect(planned?.explanation).toContain("hybrid corpus support 2/2");
+    expect(planned?.explanation).toContain("mean surprisal 2.00 bits");
+    expect(planned?.explanation).toMatch(/four-part cost -?\d+\.\d{2}/);
+  });
+});
+
 describe("the approach techniques themselves", () => {
   const C = "C" as PitchClassName;
   const tonic = pitchClassToSemitone(C);
@@ -296,7 +573,7 @@ describe("the approach techniques themselves", () => {
     const already = planTransition(
       { root: "G" as PitchClassName, quality: "dominant7" },
       { root: C, quality: "major" },
-      { style: "jazz", seed: "s", boundaryIndex: 4, tonicSemitone: tonic },
+      { style: "jazz", seed: "s", boundaryIndex: 4, tonicSemitone: tonic, mode: "major" },
     );
     expect(already).toBeNull();
   });
@@ -308,7 +585,7 @@ describe("the approach techniques themselves", () => {
         const chosen = planTransition(
           { root: "F" as PitchClassName, quality: "major" },
           { root: C, quality: "major" },
-          { style, seed: "s", boundaryIndex: boundary, tonicSemitone: tonic },
+          { style, seed: "s", boundaryIndex: boundary, tonicSemitone: tonic, mode: "major" },
         );
         if (chosen) expect(chosen.root, `${style}/${boundary}`).not.toBe("F");
       }
@@ -322,7 +599,7 @@ describe("the approach techniques themselves", () => {
         const chosen = planTransition(
           { root: "A" as PitchClassName, quality: "minor" },
           { root: C, quality: "major7" },
-          { style, seed: "z", boundaryIndex: boundary, tonicSemitone: tonic },
+          { style, seed: "z", boundaryIndex: boundary, tonicSemitone: tonic, mode: "major" },
         );
         if (!chosen) continue;
         expect(profile.weights[chosen.technique] ?? 0, `${style}/${chosen.technique}`)
@@ -335,12 +612,12 @@ describe("the approach techniques themselves", () => {
     const once = planTransition(
       { root: "A" as PitchClassName, quality: "minor" },
       { root: C, quality: "major" },
-      { style: "jazz", seed: "q", boundaryIndex: 12, tonicSemitone: tonic },
+      { style: "jazz", seed: "q", boundaryIndex: 12, tonicSemitone: tonic, mode: "major" },
     );
     const twice = planTransition(
       { root: "A" as PitchClassName, quality: "minor" },
       { root: C, quality: "major" },
-      { style: "jazz", seed: "q", boundaryIndex: 12, tonicSemitone: tonic },
+      { style: "jazz", seed: "q", boundaryIndex: 12, tonicSemitone: tonic, mode: "major" },
     );
     expect(JSON.stringify(once)).toBe(JSON.stringify(twice));
 
@@ -351,7 +628,7 @@ describe("the approach techniques themselves", () => {
       choices.add(JSON.stringify(planTransition(
         { root: "A" as PitchClassName, quality: "minor" },
         { root: C, quality: "major" },
-        { style: "jazz", seed: "q", boundaryIndex: boundary, tonicSemitone: tonic },
+        { style: "jazz", seed: "q", boundaryIndex: boundary, tonicSemitone: tonic, mode: "major" },
       )));
     }
     expect(choices.size).toBeGreaterThan(2);

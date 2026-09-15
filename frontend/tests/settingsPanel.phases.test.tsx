@@ -51,4 +51,23 @@ describe("Phase A-D controls", () => {
       },
     });
   });
+
+  it("exposes the TIS contour switch as an accessible checkbox and persists it", () => {
+    const onPatch = vi.fn();
+    act(() => {
+      root.render(
+        <PhaseControls settings={{ ...DEFAULT_GENERATOR_SETTINGS }} onPatch={onPatch} />,
+      );
+    });
+    const label = [...host.querySelectorAll("label.phase-toggle")].find(
+      (candidate) => candidate.textContent?.includes("セクション内の緊張カーブを整える"),
+    );
+    expect(label).toBeDefined();
+    expect(label?.textContent).toContain("8候補");
+    const checkbox = label?.querySelector<HTMLInputElement>("input[type='checkbox']");
+    expect(checkbox).toBeDefined();
+    expect(checkbox?.checked).toBe(true);
+    act(() => checkbox?.click());
+    expect(onPatch).toHaveBeenCalledWith({ tonalTension: { enabled: false } });
+  });
 });

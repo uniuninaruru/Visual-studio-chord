@@ -147,10 +147,14 @@ export function validateGeneratorSettings(
     restRate: melody.restRate,
     syncopation: melody.syncopation,
     leapProbability: melody.leapProbability,
+    ...(melody.hookStrength === undefined ? {} : { hookStrength: melody.hookStrength }),
   })) {
     if (!isProbability(value)) {
       issues.push(error(`settings.melody.${name}`, `${name} must be between 0 and 1.`));
     }
+  }
+  if (melody.phraseDesign !== undefined && typeof melody.phraseDesign !== "boolean") {
+    issues.push(error("settings.melody.phraseDesign", "Phrase design must be a boolean."));
   }
   if (settings.harmony) {
     if (!["triads", "sevenths", "advanced"].includes(settings.harmony.complexity)) {
@@ -176,6 +180,17 @@ export function validateGeneratorSettings(
         );
       }
     }
+  }
+  const tonalTension = settings.tonalTension as unknown;
+  if (
+    tonalTension !== undefined &&
+    (typeof tonalTension !== "object" || tonalTension === null ||
+      typeof (tonalTension as { enabled?: unknown }).enabled !== "boolean")
+  ) {
+    issues.push(error(
+      "settings.tonalTension.enabled",
+      "Tonal tension enabled must be boolean.",
+    ));
   }
   if (settings.harmonicRhythm) {
     const rhythm = settings.harmonicRhythm;
@@ -684,6 +699,10 @@ export function validateComposition(composition: GeneratedComposition): Validati
 
   if (composition.sections) {
     const sections = composition.sections;
+    const tonalMarkerAllowed = composition.settings.tonalTension?.enabled === true
+      && composition.settings.functionalHarmony?.enabled === true
+      && composition.settings.progressionId === undefined
+      && composition.arrangementPlan === undefined;
     if (!sectionsTileBars(sections, composition.settings.bars)) {
       issues.push(
         error(
@@ -710,6 +729,13 @@ export function validateComposition(composition: GeneratedComposition): Validati
         normalizePitchClass(section.key);
       } catch {
         issues.push(error("sections.key", "Section key must be a supported pitch class.", { eventId: section.id }));
+      }
+      if (section.tonalTensionApplied === true && !tonalMarkerAllowed) {
+        issues.push(error(
+          "sections.tonalTensionApplied",
+          "TIS provenance requires enabled tonal tension and functional harmony without an arrangement plan.",
+          { eventId: section.id },
+        ));
       }
     }
   }

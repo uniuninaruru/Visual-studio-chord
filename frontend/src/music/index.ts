@@ -37,6 +37,7 @@ export * from "./scales";
 export * from "./styles";
 export * from "./statisticalHarmony";
 export * from "./tensionCurve";
+export * from "./tonalTension";
 export * from "./time";
 export * from "./validation";
 export * from "./voiceLeading";

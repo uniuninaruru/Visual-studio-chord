@@ -26,6 +26,24 @@ function fakeStorage(options: { failOn?: string } = {}): StorageLike & {
   };
 }
 
+/** Control the request and commit separately, as browsers do. */
+function controlledIndexedDB() {
+  const request = { result: "record", onsuccess: null as (() => void) | null, onerror: null as (() => void) | null };
+  const transaction = {
+    oncomplete: null as (() => void) | null,
+    onabort: null as (() => void) | null,
+    onerror: null as (() => void) | null,
+    objectStore: () => ({ put: () => request, delete: () => request }),
+  };
+  const begin = vi.fn(() => transaction);
+  const open = { result: { transaction: begin }, onsuccess: null as (() => void) | null };
+  const factory = { open: () => {
+    queueMicrotask(() => open.onsuccess?.());
+    return open;
+  } } as unknown as IDBFactory;
+  return { factory, transaction, request, begin };
+}
+
 describe("editor history database", () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
@@ -70,6 +88,63 @@ describe("editor history database", () => {
     // Written through the raw storage, so the shared wrapper never saw it fail.
     expect(before).toBeNull();
     expect(localStorage.getItem(EDITOR_HISTORY_RECORD)).toBe("{\"probe\":true}");
+  });
+
+  it("waits for transaction commit after a successful request", async () => {
+    const control = controlledIndexedDB();
+    const database = new EditorDatabase({ indexedDBFactory: control.factory, localStorage: null });
+    let settled = false;
+    const pending = database.write("record", "fresh").then((mode) => { settled = true; return mode; });
+    await vi.waitFor(() => expect(control.begin).toHaveBeenCalled());
+    control.request.onsuccess?.();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    control.transaction.oncomplete?.();
+    expect(await pending).toBe("indexedDB");
+  });
+
+  it("falls back when commit aborts after request success", async () => {
+    const control = controlledIndexedDB();
+    const storage = fakeStorage();
+    const database = new EditorDatabase({ indexedDBFactory: control.factory, localStorage: storage });
+    const pending = database.write("record", "fresh");
+    await vi.waitFor(() => expect(control.begin).toHaveBeenCalled());
+    control.request.onsuccess?.();
+    control.transaction.onabort?.();
+    expect(await pending).toBe("localStorage");
+    expect(storage.getItem("record")).toBe("fresh");
+    expect(database.mode).toBe("localStorage");
+  });
+
+  it("reads the latest session-only value instead of an older durable copy", async () => {
+    const storage = fakeStorage({ failOn: "record" });
+    storage.map.set("record", "stale");
+    const database = new EditorDatabase({ indexedDBFactory: null, localStorage: storage });
+    expect(await database.write("record", "fresh")).toBe("memory");
+    expect(await database.read("record")).toBe("fresh");
+  });
+
+  it("serializes deletion behind a pending save so the completed save cannot resurrect it", async () => {
+    const control = controlledIndexedDB();
+    const database = new EditorDatabase({ indexedDBFactory: control.factory, localStorage: null });
+    const save = database.write("record", "fresh");
+    const remove = database.remove("record");
+    await vi.waitFor(() => expect(control.begin).toHaveBeenCalledTimes(1));
+    control.transaction.oncomplete?.();
+    expect(await save).toBe("indexedDB");
+    await vi.waitFor(() => expect(control.begin).toHaveBeenCalledTimes(2));
+    control.transaction.oncomplete?.();
+    await remove;
+    expect(await database.read("record")).toBeNull();
+  });
+
+  it("does not resurrect a removed record if durable deletion fails", async () => {
+    const storage = fakeStorage();
+    storage.map.set("record", "stale");
+    storage.removeItem = () => { throw new Error("blocked"); };
+    const database = new EditorDatabase({ indexedDBFactory: null, localStorage: storage });
+    await database.remove("record");
+    expect(await database.read("record")).toBeNull();
   });
 });
 

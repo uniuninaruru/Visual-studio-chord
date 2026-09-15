@@ -72,6 +72,62 @@ attention considered in the research plan. v0.4 uses the standard PyTorch
 Rotary/relative attention, sparse attention, stepwise SCG guidance, and a causal
 student remain future research variants, not shipped v0.4 behavior.
 
+## Browser-local TIS contour reranking
+
+Independent of the neural path, automatic functional-harmony sections may opt
+into `tonalTension: { enabled: true }`. Each newly evaluated planner
+group/section evaluates eight candidates from the existing
+`generateProgression`: candidate 0 keeps the planner-selected catalog
+`progressionId` and original section seed as the baseline; candidates 1–7
+explicitly clear `progressionId` and use derived streams for functional-harmony
+alternatives. Derived candidates with `style: random` are pinned to candidate
+0's resolved concrete style, while cadence remains governed by each candidate's
+existing constraints. Compatible repeated sections in the same group reuse the
+cached result, so they do not trigger eight new evaluations. A top-level
+explicit named `progressionId` is applied to every section in a song form and
+bypasses this path. An assembled arrangement does not enter this reranking path
+at all: its source sections are generated independently and assembled later.
+Functional-harmony off, the setting off, fewer than two unique candidates, or a
+metric failure returns candidate 0 unchanged.
+
+Repeated planner groups sharing a progression ID share the derived candidate
+stream, concrete style, and selected original candidate index. Compatible
+repeated sections reuse the selected result, preserving AABA and returning
+verse/chorus restatements.
+
+Successfully evaluated sections carry `tonalTensionApplied: true`. A catalog
+baseline winner retains its catalog ID and shows both catalog and TIS reasons;
+a functional winner removes the catalog ID. Range-based regeneration uses
+candidate 0 and removes the TIS marker only when a section has at least one
+actually replaced unlocked bar; a fully locked overlapping section retains its
+marker and untouched sections retain theirs.
+
+Each chord maps a 12-dimensional chroma count to weighted DFT bins `k=1..6`
+with weights `[2,11,17,16,19,7]`. The profile uses chord distance normalized by
+`64.8757`, key/function angles, dissonance
+`1 - ||T|| / sqrt(sum(weights^2))`, and circular/non-bijective voice leading.
+Its total is `chordDistance + 1.58*keyDistance + tonalFunctionDistance +
+30.3*dissonance + 2.71*voiceLeading`. Existing energy plans are aggregated into
+integer-tick, section-local bar curves; Pearson correlation is used when both
+variances reach `1e-3`, otherwise the scale-safe fallback is `1` for two flat
+curves, bounded inverse variance for a flat target, `-1` for a flat candidate
+against a non-flat target, and Pearson otherwise. It compares no raw means.
+Identity includes timing and sounding MIDI data, so voicing and doubling
+differences are not deduplicated accidentally. The exact
+`sqrt(sum(weights^2))` normalization is used; the rounded reference maximum is
+not claimed to be bit-identical. The curve is computed before later pivot,
+transition, hand assignment, and revoicing, so the final sound is not
+guaranteed to have the same target. See the
+[dedicated research note](research/tonal-tension-reranking.en.md) for equations
+and primary sources.
+
+This is not a Transformer, trained model, model weights, the 2020 hierarchical
+tree term, or the full 2025 dual-level decoder. Listening improvement for this
+app has not been evaluated, and published perceptual evaluation is mainly on
+short major/minor progressions. The computation is dependency-free, deterministic,
+offline, and local to the browser. It does not optimize cross-section absolute
+tension or guarantee an exact match after later transition/postprocessing.
+
 ## Checkpoint gate
 
 The real model is available only when every check passes:

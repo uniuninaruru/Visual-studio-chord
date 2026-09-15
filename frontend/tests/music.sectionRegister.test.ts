@@ -29,7 +29,9 @@ const STYLES = ["pop", "j-pop", "jazz", "ballad", "rock", "lo-fi", "edm", "game-
 
 function piece(patch: Partial<GeneratorSettings>) {
   return generateComposition({
-    ...DEFAULT_GENERATOR_SETTINGS, bars: 32, ...patch,
+    ...DEFAULT_GENERATOR_SETTINGS, bars: 32,
+    tonalTension: { enabled: false },
+    ...patch,
   } as GeneratorSettings);
 }
 
@@ -55,6 +57,9 @@ function centresByKind(sectionRegister: boolean, style = "pop"): Map<SectionKind
     const composed = piece({
       seed, style: style as GeneratorSettings["style"],
       melodyVoicing: { enabled: true, sectionRegister },
+      // Keep the melody fixed to the original engine for this voicing ablation.
+      // Phrase mode supplies its own section register arc, tested separately.
+      melody: { ...DEFAULT_GENERATOR_SETTINGS.melody, phraseDesign: false },
     });
     const barTicks = composed.ppq * 4;
     for (const chord of composed.chords) {
