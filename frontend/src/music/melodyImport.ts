@@ -29,7 +29,7 @@ import { ticksPerBar } from "./time";
  */
 
 /** Bar counts the generator will accept, so an import can be edited afterwards. */
-const ALLOWED_BARS = [4, 8, 16, 24, 32, 48] as const;
+const ALLOWED_BARS = [4, 8, 12, 16, 24, 32, 48] as const;
 
 export class MelodyImportError extends Error {}
 

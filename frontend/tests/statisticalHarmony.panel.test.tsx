@@ -48,8 +48,9 @@ describe("HarmonyInsightsPanel", () => {
 
   it("shows provenance, metrics, profiles, and prevents whole-song apply", () => {
     render();
-    expect(host.textContent).toContain("POP909 909曲");
-    expect(host.textContent).toContain("直接観測頻度");
+    expect(host.textContent).toContain("実曲コーパスは読み込まれていません");
+    expect(host.textContent).toContain("ボイスリーディング");
+    expect(host.textContent).not.toContain("POP909");
     expect(host.textContent).toContain("置換対象: 未選択（候補は試聴のみ）");
     expect(host.textContent).toContain("曲末の次コード候補（試聴のみ）");
     expect(host.querySelectorAll(".harmony-insights-profile")).toHaveLength(3);

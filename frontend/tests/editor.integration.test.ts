@@ -1,6 +1,7 @@
 import { Midi } from "@tonejs/midi";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  DEFAULT_GENERATOR_SETTINGS,
   pitchClassToSemitone,
   validateComposition,
 } from "../src/music";
@@ -15,7 +16,11 @@ import type { ChordEvent, GeneratedComposition } from "../src/types/music";
 
 function resetStore(): void {
   localStorage.clear();
-  useComposerStore.getState().reset({ seed: "editor-integration" });
+  useComposerStore.getState().reset({
+    seed: "editor-integration",
+    style: DEFAULT_GENERATOR_SETTINGS.style,
+    jazz: null,
+  });
 }
 
 function applyAcousticEdit(): { before: ChordEvent; after: ChordEvent } {

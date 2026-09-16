@@ -10,7 +10,6 @@ import { deriveSeed, hashSeed, type Seed } from "./random";
 import { SCALE_INTERVALS, pitchClassToSemitone, semitoneToPitchClass } from "./scales";
 import { voiceChord } from "./chords";
 import {
-  getLocalCorpusProvider,
   type ConditionalHarmonyEvidence,
   type HarmonyStatisticsProvider,
 } from "./statisticalHarmony";
@@ -268,7 +267,7 @@ interface TransitionRankingOptions {
   style: StylePresetId;
   mode: Mode;
   tonicSemitone: number;
-  provider?: HarmonyStatisticsProvider;
+  provider?: HarmonyStatisticsProvider | null;
 }
 
 function corpusToken(
@@ -322,14 +321,18 @@ function corpusScores(
   incoming: { root: PitchClassName; quality: ChordQuality },
   candidates: readonly TransitionChord[],
   tonicSemitone: number,
-  injectedProvider?: HarmonyStatisticsProvider,
+  injectedProvider?: HarmonyStatisticsProvider | null,
 ): ReadonlyMap<TransitionTechnique, NonNullable<TransitionCandidateScore["corpus"]>> | null {
+  // Empirical evidence is opt-in. The ordinary browser generation path must
+  // rank from theory, voice-leading, and style only, even if a legacy corpus
+  // file happens to exist in the checkout.
+  if (!injectedProvider) return null;
   try {
-    // Provider creation is deliberately deferred until a boundary survives the
-    // unchanged rate and theory gates. A broken snapshot then degrades this
-    // whole comparison to theory + voice leading + style instead of taking the
-    // composition down or mixing partial evidence between candidates.
-    const provider = injectedProvider ?? getLocalCorpusProvider();
+    // An injected provider is consulted only after the unchanged rate and
+    // theory gates. A broken snapshot then degrades this whole comparison to
+    // theory + voice leading + style instead of taking the composition down or
+    // mixing partial evidence between candidates.
+    const provider = injectedProvider;
     const outgoingToken = corpusToken(outgoing, tonicSemitone);
     const incomingToken = corpusToken(incoming, tonicSemitone);
     const result = new Map<TransitionTechnique, NonNullable<TransitionCandidateScore["corpus"]>>();
@@ -504,7 +507,7 @@ function rankedExplanation(
   const comparison = `Auto rank: ${ranking.candidates.length} candidates, ${ranking.frontier.length} on the Pareto frontier`;
   const voice = `four-part cost ${score.voiceLeadingCost.toFixed(2)}`;
   if (!ranking.corpusAvailable || !score.corpus) {
-    return `${score.candidate.explanation} ${comparison}; theory-only corpus fallback (support and mean surprisal unavailable; voice-leading + style prior); ${voice}.`;
+    return `${score.candidate.explanation} ${comparison}; theory-only ranking (no empirical corpus loaded; voice-leading + style prior); ${voice}.`;
   }
   return `${score.candidate.explanation} ${comparison}; hybrid corpus support ${score.corpus.supportedTransitions}/2, mean surprisal ${score.corpus.meanSurprisalBits.toFixed(2)} bits; ${voice}.`;
 }
@@ -526,7 +529,7 @@ export function planTransition(
     boundaryIndex: number;
     tonicSemitone: number;
     mode: Mode;
-    provider?: HarmonyStatisticsProvider;
+    provider?: HarmonyStatisticsProvider | null;
   },
 ): TransitionChord | null {
   const profile = transitionProfileFor(options.style);

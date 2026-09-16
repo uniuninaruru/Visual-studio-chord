@@ -96,15 +96,15 @@ describe("harmonising an imported melody", () => {
     // Refusing an odd length would reject most real files and truncating one
     // would silently drop the end of the tune, so the last bars are left empty
     // -- visible, and editable.
-    const allowed = [4, 8, 16, 24, 32, 48];
-    for (const bars of [4, 8, 16, 32] as const) {
+    const allowed = [4, 8, 12, 16, 24, 32, 48];
+    for (const bars of [4, 8, 12, 16, 32] as const) {
       const result = harmoniseInto(melodyOf(source({ bars })), DEFAULT_GENERATOR_SETTINGS, {});
       expect(allowed, String(bars)).toContain(result.bars);
       expect(result.bars, String(bars)).toBeGreaterThanOrEqual(bars);
     }
 
-    // A melody one tick into its ninth bar takes sixteen, not nine.
-    const overhang = [{ midi: 60, startTick: 0, durationTick: 1920 * 8 + 1 }];
+    // A melody one tick into its thirteenth bar takes sixteen, not thirteen.
+    const overhang = [{ midi: 60, startTick: 0, durationTick: 1920 * 12 + 1 }];
     expect(harmoniseInto(overhang, DEFAULT_GENERATOR_SETTINGS, {}).bars).toBe(16);
   });
 

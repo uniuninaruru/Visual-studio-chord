@@ -38,6 +38,7 @@ from app.services.runtime import (
 )
 
 LOCAL_MODEL_ID: ServerModelId = "local-deterministic-v1"
+# Retained for explicit legacy research selection; never considered by auto.
 CORPUS_MODEL_ID: ServerModelId = "harmony-corpus-ngram-v1"
 MLP_MODEL_ID: ServerModelId = "local-mlp-v1"
 ONNX_MODEL_ID: ServerModelId = "local-onnx-v1"
@@ -138,7 +139,7 @@ class ModelManager:
             model_path = self._model_directory / "harmony-corpus-v1.json"
             return ModelInfo(
                 id=model_id,
-                name="Corpus 3-gram harmony language model",
+                name="Legacy POP909 corpus 3-gram harmony model (explicit)",
                 runtime="cpu",
                 available=loaded_backend is not None or model_path.is_file(),
                 loaded=loaded_backend is not None and loaded_backend.health().loaded,
@@ -160,7 +161,7 @@ class ModelManager:
         if model_id == MLP_MODEL_ID:
             return ModelInfo(
                 id=model_id,
-                name="Small pairwise MLP ranker",
+                name="Untrained deterministic pairwise MLP baseline",
                 runtime=(
                     loaded_backend.device
                     if loaded_backend
@@ -176,7 +177,7 @@ class ModelManager:
         onnx_available = loaded_backend is not None or device.onnx_runtime_available
         return ModelInfo(
             id=model_id,
-            name="Bundled ONNX pairwise ranker",
+            name="Untrained deterministic bundled ONNX pairwise baseline",
             runtime=loaded_backend.device if loaded_backend else selected_onnx_device(device),
             available=onnx_available,
             loaded=loaded_backend is not None and loaded_backend.health().loaded,
@@ -313,14 +314,6 @@ class ModelManager:
         if preferred_model != "auto":
             self._fallback_reason = "invalidPreferenceCpuFallback"
             return
-
-        corpus_path = self._model_directory / "harmony-corpus-v1.json"
-        if corpus_path.is_file():
-            try:
-                self.load(CORPUS_MODEL_ID)
-                return
-            except Exception:
-                self._fallback_reason = "corpusLoadFailedTheoryFallback"
 
         device = detect_device()
         onnx_device = selected_onnx_device(device)

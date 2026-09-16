@@ -67,20 +67,13 @@ def test_auto_reaches_a_native_accelerator_when_no_corpus_is_installed(tmp_path)
     assert len(outcome.ranked) == 1
 
 
-def test_auto_prefers_the_corpus_over_an_accelerator_when_one_is_installed(
+def test_auto_ignores_legacy_corpus_when_an_accelerator_is_installed(
     tmp_path,
 ) -> None:
-    """With a corpus present, `auto` takes it and ranks on the CPU.
+    """A legacy corpus file must not make `auto` fall back to CPU ranking.
 
-    That is deliberate: the empirical corpus is trained and the optional
-    MLP/ONNX runtimes are not, so the better model wins over the faster device.
-    The consequence is worth stating in a test rather than leaving implied,
-    because the shipped tree contains a corpus — a machine with a working GPU
-    therefore ranks on the CPU under the default preference, and reaching the
-    accelerator means asking for it by name.
-
-    The previous version of this file asserted the opposite and only ever ran on
-    accelerated machines, so it passed by being skipped on every CI runner.
+    Corpus use is an explicit research choice. The default still follows the
+    detected accelerator path even when the retired POP909 artifact is present.
     """
 
     _requires_accelerator()
@@ -97,7 +90,7 @@ def test_auto_prefers_the_corpus_over_an_accelerator_when_one_is_installed(
         allow_cpu_fallback=True,
     )
 
-    assert manager.active_model == CORPUS_MODEL_ID
-    assert outcome.runtime == "cpu"
+    assert manager.active_model != CORPUS_MODEL_ID
+    assert outcome.runtime in {"cuda", "mps", "coreml", "directml"}
     assert outcome.fallback_reason is None
     assert len(outcome.ranked) == 1

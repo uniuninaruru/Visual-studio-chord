@@ -226,6 +226,18 @@ function sourceSettings(
       style: design.style,
       seed: derivedSeed,
       progressionId: template.progressionId,
+      // A section source has its own 8/16/24/32-bar grid and the assembled
+      // sequence is user-defined rather than a canonical AABA/blues form.
+      // Keep the dedicated jazz pipeline, but describe each standalone source
+      // as free so a persisted source never claims a form it cannot satisfy.
+      ...(base.jazz
+        ? {
+            jazz: {
+              ...base.jazz,
+              form: "free" as const,
+            },
+          }
+        : {}),
       // A source section is already an independent material span. Its own
       // legacy form planner must not create another plan inside it.
       songForm: { ...(base.songForm ?? {}), form: "none" },
@@ -365,6 +377,42 @@ function materialValidation(
       errors.push(issue("material.design", "Section material mode/style must equal its design.", context));
     }
   }
+}
+
+function sourceEngineCompatibilityIssue(
+  source: SectionSourceDefinition,
+  baseSettings: GeneratorSettings,
+): SectionArrangementIssue | null {
+  const sourceJazz = source.material.settings.jazz;
+  const baseJazz = baseSettings.jazz;
+  const sourceUsesJazz = sourceJazz !== undefined;
+  const baseUsesJazz = baseJazz !== undefined;
+  if (sourceUsesJazz !== baseUsesJazz) {
+    const sourceEngine = sourceUsesJazz ? "dedicated Jazz" : "legacy";
+    const baseEngine = baseUsesJazz ? "dedicated Jazz" : "legacy";
+    return issue(
+      "section.engine",
+      `Source material uses the ${sourceEngine} engine, but the current assembly uses the ${baseEngine} engine. Regenerate this section with the current Basic engine settings before assembling.`,
+      { sectionId: source.design.id },
+    );
+  }
+  if (
+    sourceJazz !== undefined
+    && baseJazz !== undefined
+    && (
+      sourceJazz.version !== baseJazz.version
+      || sourceJazz.style !== baseJazz.style
+      || sourceJazz.chromaticism !== baseJazz.chromaticism
+      || sourceJazz.interaction !== baseJazz.interaction
+    )
+  ) {
+    return issue(
+      "section.jazzProfile",
+      "Source Jazz profile does not match the current assembly profile (version, style, chromaticism, or interaction). Regenerate this section with the current Jazz Basic settings before assembling.",
+      { sectionId: source.design.id },
+    );
+  }
+  return null;
 }
 
 /** Validates source material, sequence topology, lengths and adjacent link configuration. */
@@ -943,6 +991,17 @@ export function assembleSectionArrangement(
     songForm: { ...(baseSettings.songForm ?? {}), form: "none" },
     progressionId: undefined,
     seed: deriveSeed(plan.seed, "assembled", plan.id, plan.revision, totalBars),
+    // The assembled arrangement is a user-defined sequence, not a canonical
+    // AABA or 12-bar blues grid. Preserve the jazz engine and profile, but
+    // describe the resulting free section sequence truthfully.
+    ...(baseSettings.jazz
+      ? {
+          jazz: {
+            ...baseSettings.jazz,
+            form: "free" as const,
+          },
+        }
+      : {}),
   };
   const settingsIssues = validateGeneratorSettings(finalSettings, { allowArrangementBars: true });
   if (!settingsIssues.valid) return { ok: false, issues: settingsIssues.errors.map((entry) => issue(`settings.${entry.code}`, entry.message)) };
@@ -954,6 +1013,8 @@ export function assembleSectionArrangement(
   const referencedSourceIds = new Set(plan.sequence.map((instance) => instance.sourceSectionId));
   for (const source of plan.sections.filter((entry) => referencedSourceIds.has(entry.design.id))) {
     if (source.dirty) errors.push(issue("section.dirty", "Dirty source material must be regenerated before assembly.", { sectionId: source.design.id }));
+    const engineIssue = sourceEngineCompatibilityIssue(source, baseSettings);
+    if (engineIssue) errors.push(engineIssue);
     if (source.material.ppq !== first.material.ppq || source.material.timeSignature !== baseSettings.timeSignature) {
       errors.push(issue("section.globalSettings", "All source materials must share time signature and PPQ with the assembly.", { sectionId: source.design.id }));
     }

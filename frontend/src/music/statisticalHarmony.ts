@@ -1,4 +1,3 @@
-import { HARMONY_STATISTICS_SNAPSHOT } from "../generated/harmonyStatistics";
 import {
   createStepChordEvent,
 } from "./chords";
@@ -7,6 +6,13 @@ import { PROGRESSION_TEMPLATES } from "./progressions";
 import { pitchClassToSemitone } from "./scales";
 import { ticksPerBeat } from "./time";
 import { romanFor } from "./progressionSearch";
+import { planGuideToneLines } from "./guideToneLines";
+import {
+  profileForStyle,
+  revoiceInFourParts,
+  scoreVoiceLeading,
+  type VoiceAssignment,
+} from "./voiceLeading";
 import type {
   BarRange,
   ChordEvent,
@@ -16,8 +22,6 @@ import type {
   ProgressionStep,
   PitchClassName,
 } from "../types/music";
-
-export { HARMONY_STATISTICS_SNAPSHOT };
 
 export type StatisticalProfile = "familiar" | "balanced" | "adventurous";
 
@@ -59,15 +63,20 @@ export interface StatisticalChordSuggestion {
   step: ProgressionStep;
   chord: ChordEvent;
   romanNumeral: string;
-  rawConditionalProbability: number;
-  probability: number;
-  unigramCount: number;
-  exactGramCount: number;
-  contextCount: number;
-  orderUsed: number;
-  surprisalBits: number;
+  /** Null when this is a theory-only suggestion and no corpus was supplied. */
+  rawConditionalProbability: number | null;
+  probability: number | null;
+  unigramCount: number | null;
+  exactGramCount: number | null;
+  contextCount: number | null;
+  orderUsed: number | null;
+  surprisalBits: number | null;
+  /** Lower is better; computed from the existing style voice-leading profile. */
+  voiceLeadingCost: number;
+  /** Bounded authored contrast (root distance + quality change), not a probability. */
+  harmonicContrast: number;
   source: string;
-  provenance: HarmonyStatisticsProvenance;
+  provenance: HarmonyStatisticsProvenance | null;
   reasons: readonly string[];
 }
 
@@ -75,11 +84,11 @@ export interface HarmonyTransitionEvidence {
   fromIndex: number;
   toIndex: number;
   tokens: readonly string[];
-  probability: number;
-  exactGramCount: number;
-  contextCount: number;
-  orderUsed: number;
-  surprisalBits: number;
+  probability: number | null;
+  exactGramCount: number | null;
+  contextCount: number | null;
+  orderUsed: number | null;
+  surprisalBits: number | null;
   supported: boolean;
 }
 
@@ -87,20 +96,25 @@ export interface HarmonyInsights {
   scope: BarRange | null;
   chordCount: number;
   transitionCount: number;
-  geometricMeanConditionalProbability: number;
-  meanSurprisalBits: number;
-  supportedTransitionRate: number;
+  geometricMeanConditionalProbability: number | null;
+  meanSurprisalBits: number | null;
+  supportedTransitionRate: number | null;
   complexChordRate: number;
   complexChordFormula: string;
   extensionRate: number;
   nonDiatonicRate: number;
   advancedQualityRate: number;
+  guideToneCoverageRate: number;
+  guideToneStepwiseMotionRate: number;
+  melodyOnsetsPerBar: number;
   durationWeightedMelodyNonChordTension: number;
   actualBassStepwiseMotionRate: number;
   syncopationRate: number;
   transitions: readonly HarmonyTransitionEvidence[];
   source: string;
-  provenance: HarmonyStatisticsProvenance;
+  provenance: HarmonyStatisticsProvenance | null;
+  /** Whether corpus-derived transition metrics are available for this result. */
+  empiricalStatisticsAvailable: boolean;
 }
 
 type Snapshot = {
@@ -225,7 +239,8 @@ function contextTotals(
 }
 
 class LocalCorpusHarmonyProvider implements HarmonyStatisticsProvider {
-  readonly id = "local-pop909-ngram-3";
+  /** Explicit legacy provider; never created by the normal browser runtime. */
+  readonly id = "legacy-pop909-ngram-3";
   readonly provenance: HarmonyStatisticsProvenance;
   private readonly orders: {
     1: Record<string, number>;
@@ -239,7 +254,7 @@ class LocalCorpusHarmonyProvider implements HarmonyStatisticsProvider {
   };
   private readonly vocabularySize: number;
 
-  constructor(snapshot: unknown = HARMONY_STATISTICS_SNAPSHOT) {
+  constructor(snapshot: unknown) {
     const checked = validateSnapshot(snapshot);
     this.provenance = checked.provenance;
     const order1 = checked.orders["1"];
@@ -338,15 +353,21 @@ export function validateHarmonyStatisticsSnapshot(value: unknown): HarmonyStatis
   return validateSnapshot(value).provenance;
 }
 
-let defaultProvider: HarmonyStatisticsProvider | null = null;
-export function createLocalCorpusProvider(snapshot: unknown = HARMONY_STATISTICS_SNAPSHOT): HarmonyStatisticsProvider {
+/**
+ * Construct the legacy corpus provider from an explicitly supplied snapshot.
+ *
+ * The browser generation path intentionally has no default snapshot. Callers
+ * running a research recipe may import the generated artifact in that recipe
+ * and pass it here; the application itself does not do so.
+ */
+export function createLocalCorpusProvider(snapshot: unknown): HarmonyStatisticsProvider {
   return new LocalCorpusHarmonyProvider(snapshot);
 }
-export function getLocalCorpusProvider(): HarmonyStatisticsProvider {
-  defaultProvider ??= createLocalCorpusProvider();
-  return defaultProvider;
+
+/** No empirical corpus is bundled or selected by the normal browser runtime. */
+export function getLocalCorpusProvider(): HarmonyStatisticsProvider | null {
+  return null;
 }
-export const LOCAL_HARMONY_STATISTICS_PROVENANCE = HARMONY_STATISTICS_SNAPSHOT.provenance;
 
 function canonicalStep(step: ProgressionStep): string {
   return JSON.stringify({
@@ -459,9 +480,96 @@ function suggestionReasons(
   return [`補間推定確率 ${(evidence.probability * 100).toFixed(2)}%`, support, profileReason];
 }
 
+function theorySuggestionReasons(
+  voiceLeadingCost: number,
+  harmonicContrast: number,
+  profile: StatisticalProfile,
+): string[] {
+  const profileReason = profile === "familiar"
+    ? "ボイスリーディングの移動コストが低い候補"
+    : profile === "adventurous"
+      ? "理論上有効で、別のボイスリーディングを試せる候補"
+      : "理論上有効で、滑らかさと変化のバランスを取った候補";
+  return [
+    "内蔵のコード理論テンプレートから生成",
+    profileReason,
+    `スタイル別ボイスリーディングコスト ${voiceLeadingCost.toFixed(2)}（低いほど滑らか）`,
+    `理論上の変化度 ${harmonicContrast.toFixed(2)}（根音距離とコード品質の差から算出）`,
+  ];
+}
+
+export function harmonicContrast(
+  previous: ChordEvent | undefined,
+  candidate: ChordEvent,
+): number {
+  if (!previous) return 0;
+  const previousRoot = pitchClassToSemitone(previous.root);
+  const candidateRoot = pitchClassToSemitone(candidate.root);
+  const difference = Math.abs(candidateRoot - previousRoot) % 12;
+  const interval = Math.min(difference, 12 - difference);
+  const rootDistance = interval / 6;
+  const qualityChange = previous.quality === candidate.quality ? 0 : 1;
+  // This is intentionally a bounded, transparent theory heuristic. It ranks
+  // valid alternatives with some harmonic colour without treating a rough
+  // voice-leading move as evidence of quality.
+  return Math.min(1, rootDistance * 0.7 + qualityChange * 0.3);
+}
+
+function assignmentFromNotes(notes: readonly number[]): VoiceAssignment | null {
+  if (notes.length !== 4 || notes.some((note) => !Number.isFinite(note))) return null;
+  return {
+    bass: notes[0] as number,
+    tenor: notes[1] as number,
+    alto: notes[2] as number,
+    soprano: notes[3] as number,
+  };
+}
+
+/**
+ * Score a theory candidate using the same style-aware four-part evaluator as
+ * generation and section transitions. This is deliberately not normalized as a
+ * probability: a local voice-leading cost is a diagnostic, not empirical data.
+ */
+function theoryVoiceLeadingCost(
+  composition: GeneratedComposition,
+  previous: ChordEvent | undefined,
+  candidate: ChordEvent,
+  key: PitchClassName,
+  mode: Mode,
+): number {
+  const sequence = previous ? [previous, candidate] : [candidate];
+  const voiced = revoiceInFourParts(sequence, {
+    key,
+    mode,
+    style: composition.resolvedStyle,
+    optimizeSequence: true,
+  });
+  const candidateAssignment = assignmentFromNotes(voiced.at(-1)?.notes ?? []);
+  if (!candidateAssignment) return Number.POSITIVE_INFINITY;
+  if (!previous || voiced.length < 2) {
+    // There is no prior chord at the song end of an empty composition. Keep a
+    // deterministic resting cost for the first candidate based on its register.
+    return candidateAssignment.soprano - candidateAssignment.bass;
+  }
+  const previousAssignment = assignmentFromNotes(voiced[0]?.notes ?? []);
+  if (!previousAssignment) return Number.POSITIVE_INFINITY;
+  return scoreVoiceLeading(
+    previousAssignment,
+    candidateAssignment,
+    {
+      key,
+      mode,
+      root: candidate.root,
+      quality: candidate.quality,
+      tonicSemitone: pitchClassToSemitone(key),
+    },
+    profileForStyle(composition.resolvedStyle),
+  ).total;
+}
+
 export interface StatisticalSuggestionOptions {
   profile?: StatisticalProfile;
-  provider?: HarmonyStatisticsProvider;
+  provider?: HarmonyStatisticsProvider | null;
   limit?: number;
   /** Scores a replacement at this exact event. Omit for a song-end continuation preview. */
   targetChord?: ChordEvent;
@@ -514,12 +622,21 @@ export function suggestNextChords(
       continue;
     }
     const tokens = [...contextTokens, rootToken(chord, key)];
-    const evidence = provider.probability(tokens);
-    // A candidate must have corpus evidence at unigram level for every
-    // profile. Higher-order support may legitimately back off, but an unseen
-    // root+quality token would be an invented suggestion.
-    if (evidence.unigramCount === 0) continue;
-    if (profile === "adventurous" && evidence.exactGramCount === 0) continue;
+    const evidence = provider?.probability(tokens);
+    // A corpus-backed candidate must have unigram evidence. In the normal
+    // browser path there is no corpus, so theory-valid candidates remain
+    // available and carry null empirical fields rather than invented zeros.
+    if (evidence && evidence.unigramCount === 0) continue;
+    if (evidence && profile === "adventurous" && evidence.exactGramCount === 0) continue;
+    const voiceLeadingCost = theoryVoiceLeadingCost(
+      composition,
+      fallback.at(-1),
+      chord,
+      key,
+      mode,
+    );
+    if (!Number.isFinite(voiceLeadingCost)) continue;
+    const contrast = harmonicContrast(fallback.at(-1), chord);
     const resolvedStep: ProgressionStep = {
       degree: step.degree,
       ...(step.alteration !== undefined ? { alteration: step.alteration } : {}),
@@ -529,16 +646,24 @@ export function suggestNextChords(
       step: resolvedStep,
       chord,
       romanNumeral: romanFor(step, mode),
-      rawConditionalProbability: evidence.rawConditionalProbability,
-      probability: evidence.probability,
-      unigramCount: evidence.unigramCount,
-      exactGramCount: evidence.exactGramCount,
-      contextCount: evidence.contextCount,
-      orderUsed: evidence.orderUsed,
-      surprisalBits: evidence.surprisalBits,
-      source: "POP909ローカルコーパス（ブラウザ3-gramスナップショット）",
-      provenance: provider.provenance,
-      reasons: suggestionReasons(evidence, profile),
+      rawConditionalProbability: evidence?.rawConditionalProbability ?? null,
+      probability: evidence?.probability ?? null,
+      unigramCount: evidence?.unigramCount ?? null,
+      exactGramCount: evidence?.exactGramCount ?? null,
+      contextCount: evidence?.contextCount ?? null,
+      orderUsed: evidence?.orderUsed ?? null,
+      surprisalBits: evidence?.surprisalBits ?? null,
+      voiceLeadingCost,
+      harmonicContrast: contrast,
+      source: evidence
+        ? (provider?.id.startsWith("legacy-pop909")
+          ? "legacy POP909 corpus (explicit)"
+          : `empirical provider: ${provider?.id}`)
+        : "内蔵音楽理論・スタイル別ボイスリーディング",
+      provenance: provider?.provenance ?? null,
+      reasons: evidence
+        ? suggestionReasons(evidence, profile)
+        : theorySuggestionReasons(voiceLeadingCost, contrast, profile),
     };
     const token = rootToken(chord, key);
     const existing = candidatesByToken.get(token);
@@ -563,16 +688,47 @@ export function suggestNextChords(
       }
       return values[rank] ?? 0;
     })();
+  const medianVoiceLeading = sorted.length === 0
+    ? 0
+    : (() => {
+      const values = sorted.map((entry) => entry.voiceLeadingCost).sort((a, b) => a - b);
+      return values[Math.floor(values.length / 2)] ?? 0;
+    })();
+  if (!provider && sorted.length > 0) {
+    // Keep adventurous choices inside a bounded quality envelope around the
+    // smoothest valid option. Contrast can provide colour, but a poor move is
+    // never promoted merely because it has a larger voice-leading penalty.
+    const minimumVoiceLeading = Math.min(...sorted.map((entry) => entry.voiceLeadingCost));
+    const maximumVoiceLeading = minimumVoiceLeading + 6;
+    const qualityBounded = sorted.filter((entry) => entry.voiceLeadingCost <= maximumVoiceLeading);
+    if (qualityBounded.length > 0) {
+      sorted.splice(0, sorted.length, ...qualityBounded);
+    }
+  }
   sorted.sort((left, right) => {
+    if (!provider) {
+      const primary = profile === "balanced"
+        ? Math.abs(left.voiceLeadingCost - medianVoiceLeading)
+          - Math.abs(right.voiceLeadingCost - medianVoiceLeading)
+        : profile === "adventurous"
+          ? right.harmonicContrast - left.harmonicContrast
+          : left.voiceLeadingCost - right.voiceLeadingCost;
+      const secondary = profile === "adventurous"
+        ? left.voiceLeadingCost - right.voiceLeadingCost
+        : right.harmonicContrast - left.harmonicContrast;
+      return primary || secondary || canonicalStep(left.step).localeCompare(canonicalStep(right.step));
+    }
     const primary = profile === "balanced"
-      ? Math.abs(left.surprisalBits - median) - Math.abs(right.surprisalBits - median)
+      ? Math.abs((left.surprisalBits ?? 0) - median)
+        - Math.abs((right.surprisalBits ?? 0) - median)
       : profile === "adventurous"
-        ? right.surprisalBits - left.surprisalBits || right.exactGramCount - left.exactGramCount
-        : right.probability - left.probability;
+        ? (right.surprisalBits ?? 0) - (left.surprisalBits ?? 0)
+          || (right.exactGramCount ?? 0) - (left.exactGramCount ?? 0)
+        : (right.probability ?? 0) - (left.probability ?? 0);
     const secondary = profile === "familiar"
-      ? left.surprisalBits - right.surprisalBits
+      ? (left.surprisalBits ?? 0) - (right.surprisalBits ?? 0)
       : profile === "balanced"
-        ? right.probability - left.probability
+        ? (right.probability ?? 0) - (left.probability ?? 0)
         : 0;
     return primary || secondary || canonicalStep(left.step).localeCompare(canonicalStep(right.step));
   });
@@ -593,7 +749,7 @@ function rangeNotes(composition: GeneratedComposition, scope: BarRange | null) {
 export function analyzeHarmonyStatistics(
   composition: GeneratedComposition,
   scope: BarRange | null = null,
-  provider: HarmonyStatisticsProvider = getLocalCorpusProvider(),
+  provider: HarmonyStatisticsProvider | null = getLocalCorpusProvider(),
 ): HarmonyInsights {
   const allChords = [...composition.chords].sort((a, b) => a.startTick - b.startTick);
   const chords = targetChords(composition, scope);
@@ -604,23 +760,25 @@ export function analyzeHarmonyStatistics(
     const chord = chords[index]!;
     const fullIndex = allChords.indexOf(chord);
     const tokens = analysisTokens(composition, allChords, fullIndex);
-    const evidence = provider.probability(tokens);
+    const evidence = provider?.probability(tokens);
     const previous = index > 0 ? chords[index - 1] : undefined;
     const isEligibleTransition = previous !== undefined
       && sameContext(contextForChord(composition, previous), contextForChord(composition, chord));
     if (isEligibleTransition) {
-      transitionLogProbability += Math.log(clampProbability(evidence.probability));
-      if (evidence.supported) supported += 1;
+      if (evidence) {
+        transitionLogProbability += Math.log(clampProbability(evidence.probability));
+        if (evidence.supported) supported += 1;
+      }
       transitions.push({
         fromIndex: index - 1,
         toIndex: index,
         tokens,
-        probability: evidence.probability,
-        exactGramCount: evidence.exactGramCount,
-        contextCount: evidence.contextCount,
-        orderUsed: evidence.orderUsed,
-        surprisalBits: evidence.surprisalBits,
-        supported: evidence.supported,
+        probability: evidence?.probability ?? null,
+        exactGramCount: evidence?.exactGramCount ?? null,
+        contextCount: evidence?.contextCount ?? null,
+        orderUsed: evidence?.orderUsed ?? null,
+        surprisalBits: evidence?.surprisalBits ?? null,
+        supported: evidence?.supported ?? false,
       });
     }
   }
@@ -668,35 +826,59 @@ export function analyzeHarmonyStatistics(
       if (Math.abs(bass - previousBass) <= 2) stepwise += 1;
     }
   }
+  const guideToneLines = planGuideToneLines(chords);
+  const guideToneCount = guideToneLines[0]?.notes.length ?? 0;
+  const guideToneCoverageRate = count === 0 ? 0 : guideToneCount / count;
+  const guideToneMotions = guideToneLines.flatMap((line) => line.notes.slice(1));
+  const guideToneStepwiseMotionRate = guideToneMotions.length === 0
+    ? 0
+    : guideToneMotions.filter((note) => Math.abs(note.motion) <= 2).length / guideToneMotions.length;
   const beatTick = ticksPerBeat(composition.timeSignature, composition.ppq);
   const onsetNotes = composition.notes.filter((note) => note.startTick >= scopeStart
     && note.startTick < scopeEnd);
   const syncopated = onsetNotes.filter((note) => note.startTick >= scopeStart
     && note.startTick < scopeEnd
     && note.startTick % beatTick !== 0).length;
+  const scopeBars = Math.max(1, (scopeEnd - scopeStart) / composition.ticksPerBar);
   const safeCount = Math.max(1, count);
   return {
     scope,
     chordCount: count,
     transitionCount: transitions.length,
-    geometricMeanConditionalProbability: transitions.length === 0
-      ? 0
-      : clampProbability(Math.exp(transitionLogProbability / transitions.length)),
-    meanSurprisalBits: transitions.length === 0
-      ? 0
-      : finite((-transitionLogProbability / Math.LN2) / transitions.length),
-    supportedTransitionRate: transitions.length === 0 ? 0 : supported / transitions.length,
+    geometricMeanConditionalProbability: !provider
+      ? null
+      : transitions.length === 0
+        ? 0
+        : clampProbability(Math.exp(transitionLogProbability / transitions.length)),
+    meanSurprisalBits: !provider
+      ? null
+      : transitions.length === 0
+        ? 0
+        : finite((-transitionLogProbability / Math.LN2) / transitions.length),
+    supportedTransitionRate: !provider
+      ? null
+      : transitions.length === 0
+        ? 0
+        : supported / transitions.length,
     complexChordRate: (extensionCount + nonDiatonicCount + advancedQualityCount) / (3 * safeCount),
     complexChordFormula: "(extensions + non-diatonic + advanced qualities) / (3 × chord count)",
     extensionRate: extensionCount / safeCount,
     nonDiatonicRate: nonDiatonicCount / safeCount,
     advancedQualityRate: advancedQualityCount / safeCount,
+    guideToneCoverageRate,
+    guideToneStepwiseMotionRate,
+    melodyOnsetsPerBar: onsetNotes.length / scopeBars,
     durationWeightedMelodyNonChordTension: totalNoteDuration === 0 ? 0 : weightedTension / totalNoteDuration,
     actualBassStepwiseMotionRate: bassTransitions === 0 ? 0 : stepwise / bassTransitions,
     syncopationRate: onsetNotes.length === 0 ? 0 : syncopated / onsetNotes.length,
     transitions,
-    source: "POP909ローカルコーパス（ブラウザ3-gramスナップショット）",
-    provenance: provider.provenance,
+    source: provider
+      ? (provider.id.startsWith("legacy-pop909")
+        ? "legacy POP909 corpus (explicit)"
+        : `empirical provider: ${provider.id}`)
+      : "内蔵音楽診断（実曲コーパス未読込）",
+    provenance: provider?.provenance ?? null,
+    empiricalStatisticsAvailable: provider !== null,
   };
 }
 

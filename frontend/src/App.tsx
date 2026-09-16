@@ -106,7 +106,25 @@ export default function App() {
   >(null);
   // Cross-cutting: several hooks report through the toast, so it is declared
   // before them and passed down rather than owned by any single one.
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToastState] = useState<string | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+  // Reset the lifetime even when the next notification has identical text.
+  // React skips a same-value state update, so a plain `setToast(message)` would
+  // leave the previous timer running and could hide feedback for a later
+  // action while the user is still generating.
+  const setToast = useCallback((message: string | null) => {
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
+    setToastState(message);
+    if (message !== null) {
+      toastTimerRef.current = window.setTimeout(() => {
+        toastTimerRef.current = null;
+        setToastState(null);
+      }, 2_800);
+    }
+  }, []);
   const {
     backend,
     setBackend,
@@ -244,11 +262,12 @@ export default function App() {
     [currentPreferenceFeatures, preferenceCategory, preferenceProfile.model],
   );
 
-  useEffect(() => {
-    if (!toast) return;
-    const timeout = window.setTimeout(() => setToast(null), 2_800);
-    return () => window.clearTimeout(timeout);
-  }, [toast]);
+  useEffect(() => () => {
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if (
@@ -270,7 +289,7 @@ export default function App() {
           ? "永続ストレージを利用できないため、このセッション内だけに保存しています。閉じる前にJSONを書き出してください。"
           : "ローカル保存に失敗しました。曲は画面内に保持されています。空き容量を確認し、JSONを書き出してください。",
     );
-  }, [store.projectRecoveryReason, store.projectSaveStatus]);
+  }, [setToast, store.projectRecoveryReason, store.projectSaveStatus]);
 
   const handleGenerate = () => {
     // Only when asked for. One draw is the button as it always was, and passing
@@ -450,7 +469,7 @@ export default function App() {
     const deleted = useComposerStore.getState().deleteNotes(selectedNoteIds);
     setSelectedNoteIds([]);
     setToast(`${deleted}個のノートを削除しました。Undoで戻せます。`);
-  }, [selectedNoteIds]);
+  }, [selectedNoteIds, setToast]);
 
   const clearSelection = useCallback(() => {
     setSelectedNoteIds([]);
