@@ -113,15 +113,20 @@ that this app's synthetic output sounds better.
 The 2026-09-11 development-branch checks passed 1,460 frontend tests, typecheck,
 lint, production build, 187 backend tests, and eight environment-diagnostic tests.
 Additional generation/track-boundary checks passed 5,400 configurations; six
-MIDI/JSON pairs passed reload validation. Browser E2E passed 8/8 in Chromium but
-5/8 in WebKit: repeated generation and section operations still crash the page.
-The previous HEAD passed the section operation, so this is being investigated
-as a regression in this update, not declared Safari-ready or release-ready.
+MIDI/JSON pairs passed reload validation. At that time, browser E2E passed 8/8 in
+Chromium but 5/8 in WebKit. Repeated generation and section operations crashed
+the page; this regression was recorded as a release blocker.
 Native reports show `EXC_BREAKPOINT / SIGTRAP` inside JavaScriptCore DFG JIT
 `VirtualRegisterAllocationPhase::run()`. Bypassing the Jazz display-track path
-did not prevent it. The minimal trigger is not yet identified; browser-name
-feature disabling, test skips, and JIT disabling are not shipped as fixes.
-Temporary diagnostic edits have been restored.
+did not prevent it. On 2026-09-16, compilation logs isolated four-part candidate
+enumeration and guide-tone path search. Indexed-loop refactors preserve scoring,
+enumeration order, and tie-breaking. Before/after outputs match exactly across
+900 compositions and shared-track configurations and 3,600 guide-tone plans.
+Local macOS browser E2E passed 36/36: nine tests per Chromium/WebKit, repeated twice.
+Typecheck, lint, 1,460 unit tests, and production build also passed. One regression
+test was added for repeated notification lifetime. Browser-name feature disabling,
+test skips, and JIT disabling are not shipped as fixes. These local results alone
+do not establish readiness on every supported environment.
 These results do not include Windows/Linux hardware, real GPUs, or expert listening.
 
 Mechanical checks cover fixed-seed reproduction, twelve-bar cycles, tick bounds,

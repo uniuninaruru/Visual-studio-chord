@@ -8,6 +8,32 @@ async function openApp(page: Page): Promise<void> {
   await expect(page.getByRole("button", { name: "この設定で生成", exact: true })).toBeVisible();
 }
 
+test("repeated identical generation refreshes the toast lifetime", async ({ page }) => {
+  const clockStart = new Date("2026-01-01T00:00:00.000Z");
+  const clockPause = new Date("2026-01-01T00:01:00.000Z");
+  await page.clock.install({ time: clockStart });
+  await openApp(page);
+  await page.clock.pauseAt(clockPause);
+
+  const settings = page.getByLabel("生成設定");
+  const generate = settings.getByRole("button", { name: "この設定で生成", exact: true });
+  const toast = page.locator(".toast[role='status']");
+  const message = "同じシードで再現できる新しい曲を生成しました。";
+
+  await generate.click();
+  await expect(toast).toHaveText(message);
+
+  await page.clock.fastForward(2_000);
+  await generate.click();
+  await expect(toast).toHaveText(message);
+
+  await page.clock.fastForward(1_000);
+  await expect(toast).toBeVisible();
+
+  await page.clock.fastForward(2_000);
+  await expect(toast).toBeHidden();
+});
+
 test("fresh jazz profiles generate, blues keeps a 12-bar grid, and JSON preserves the contract", async ({ page }) => {
   await openApp(page);
 
