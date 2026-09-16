@@ -7,6 +7,16 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Fixed — Feedback for repeated actions
+
+- Restart the 2.8-second toast lifetime on every notification, including identical messages, and clear its timer on unmount. Repeated generation no longer loses fresh completion feedback when the first notification's timer expires.
+- Add clock-controlled browser regression coverage for renewing identical notifications and their eventual dismissal, while preserving existing generation and saved-data assertions.
+
+### Fixed — WebKit repeated generation and section operations
+
+- Use indexed loops for four-part voicing candidate enumeration and guide-tone path search, preserving enumeration order, scoring, and tie-breaking. This addresses page crashes during JavaScriptCore JIT compilation without browser-specific feature disabling or disabling JIT.
+- Verified exact before/after parity for 900 compositions and shared-track configurations and 3,600 guide-tone plans. This fix does not change musical theory or generation rules.
+
 ### Major update — Migration to the Jazz-first engine
 
 - New projects move to five dedicated profiles: Swing / Ballad / Bebop / Modern / Neo Soul. This is a separate harmony/melody/accompaniment path, not a rename of legacy `style: jazz`. Versioned jazz settings cover AABA / twelve-bar Blues / Modal / Free, chromatic approaches, and ensemble response.

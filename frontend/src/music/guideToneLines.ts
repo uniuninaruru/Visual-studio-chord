@@ -116,6 +116,14 @@ function transitionCost(previous: number, next: number): number {
   return distance + (distance > STEP_LIMIT ? LEAP_SURCHARGE : 0);
 }
 
+function nearestGuidePitch(pitchClass: number, centre: number): number {
+  let best = ((pitchClass % 12) + 12) % 12;
+  for (let midi = best; midi <= 127; midi += 12) {
+    if (Math.abs(midi - centre) < Math.abs(best - centre)) best = midi;
+  }
+  return best;
+}
+
 interface ChordMembers {
   chord: ChordEvent;
   third: { pitchClass: number; substituted: boolean };
@@ -158,6 +166,22 @@ function placementsFor(
   return options;
 }
 
+function guideToneColumn(
+  entry: ChordMembers,
+  register: readonly [number, number],
+  centre: number,
+): Placement[] {
+  const options = placementsFor(entry, register);
+  if (options.length > 0) return options;
+  // Only reachable with a register narrower than the chord needs; place both
+  // voices at the nearest octave rather than abandoning the line.
+  return [{
+    straight: true,
+    first: nearestGuidePitch(entry.third.pitchClass, centre),
+    second: nearestGuidePitch(entry.seventh.pitchClass, centre) + 12,
+  }];
+}
+
 /**
  * The smoothest pair of voices, by shortest path.
  *
@@ -177,32 +201,17 @@ function solveLines(
   if (members.length === 0) return [];
   const centre = (register[0] + register[1]) / 2;
 
-  const columns = members.map((entry) => {
-    const options = placementsFor(entry, register);
-    if (options.length > 0) return options;
-    // Only reachable with a register narrower than the chord needs; place both
-    // voices at the nearest octave rather than abandoning the line.
-    const nearest = (pitchClass: number) => {
-      let best = ((pitchClass % 12) + 12) % 12;
-      for (let midi = best; midi <= 127; midi += 12) {
-        if (Math.abs(midi - centre) < Math.abs(best - centre)) best = midi;
-      }
-      return best;
-    };
-    return [
-      {
-        straight: true,
-        first: nearest(entry.third.pitchClass),
-        second: nearest(entry.seventh.pitchClass) + 12,
-      },
-    ];
-  });
+  const columns: Placement[][] = [];
+  for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
+    columns.push(guideToneColumn(members[memberIndex] as ChordMembers, register, centre));
+  }
 
   const firstColumn = columns[0] as Placement[];
-  let costs = firstColumn.map(
-    (option) =>
-      (Math.abs(option.first - centre) + Math.abs(option.second - centre)) * 0.5,
-  );
+  let costs: number[] = [];
+  for (let optionIndex = 0; optionIndex < firstColumn.length; optionIndex += 1) {
+    const option = firstColumn[optionIndex] as Placement;
+    costs.push((Math.abs(option.first - centre) + Math.abs(option.second - centre)) * 0.5);
+  }
   const backPointers: number[][] = [];
 
   for (let index = 1; index < columns.length; index += 1) {
@@ -210,10 +219,14 @@ function solveLines(
     const column = columns[index] as Placement[];
     const nextCosts: number[] = [];
     const pointers: number[] = [];
-    for (const option of column) {
+    // Counted loops keep the hot DP path compatible with WebKit's JIT while
+    // preserving the original option and predecessor order.
+    for (let optionIndex = 0; optionIndex < column.length; optionIndex += 1) {
+      const option = column[optionIndex] as Placement;
       let bestCost = Number.POSITIVE_INFINITY;
       let bestFrom = 0;
-      for (const [fromIndex, previous] of previousColumn.entries()) {
+      for (let fromIndex = 0; fromIndex < previousColumn.length; fromIndex += 1) {
+        const previous = previousColumn[fromIndex] as Placement;
         const cost =
           (costs[fromIndex] as number) +
           transitionCost(previous.first, option.first) +
@@ -231,7 +244,8 @@ function solveLines(
   }
 
   let index = 0;
-  for (const [candidate, cost] of costs.entries()) {
+  for (let candidate = 0; candidate < costs.length; candidate += 1) {
+    const cost = costs[candidate] as number;
     if (cost < (costs[index] as number)) index = candidate;
   }
   const path: Placement[] = [
