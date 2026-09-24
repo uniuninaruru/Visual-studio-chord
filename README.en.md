@@ -69,6 +69,25 @@ modes; **Free** uses an open phrase plan. Blues uses 12 / 24 / 48 bars. Settings
 changes do not modify the current song until generation. Older JSON projects
 keep their legacy settings instead of silently changing style.
 
+New jazz projects use **theory-led v2**, which applies explicit harmony and
+counterpoint rules. A saved v1 jazz project stays on v1 when opened. To use v2
+for later generation, choose the explicit switch in Settings and then Generate;
+changing the setting alone does not rewrite the notes or chords already in the
+project.
+
+In plain language, v2 first plans phrase endings and the route between chords
+that feel stable, move forward, or resolve. It then searches for a melody and,
+when enabled, a countermelody as a pair at shared structural points. A check on
+integer positions in the bars (ticks, rather than elapsed seconds) reports
+things such as chord-tone context, voice crossing, and parallel motion. This is
+deterministic browser code, not a model trained on recordings; it needs no model
+download, GPU, or inference server.
+
+Textbook rules are style-scoped. For example, a strict species-counterpoint
+ban on parallel fifths is not treated as a universal ban on intentional jazz
+voicings. See the technical v2 section below for what the checks do and do not
+cover.
+
 No model download or GPU setup is needed. The basic instrumentation is melody,
 chords/right hand, and bass/left hand. Drum-performance generation is not part
 of this update.
@@ -483,6 +502,52 @@ legacy research paths remain separate. The [English design note](docs/research/j
 and [Japanese version](docs/research/jazz-first-engine.ja.md) document the
 contract, references, untrained status, and the distinction between mechanical
 validation and listening quality.
+
+## Unreleased major update: Theory-led harmony and counterpoint engine v2
+
+New jazz projects select the versioned setting `jazz.version: 2`. Existing
+saved v1 projects are not migrated automatically and retain their v1 generation
+path. To switch one explicitly, use the engine switch in Settings; the current
+notes remain untouched until you run Generate. This is a version of the jazz
+generator settings, not a bump to the overall project JSON schema.
+
+| Stage | What v2 does |
+| --- | --- |
+| Phrase and harmony | Plans section/cadence goals and a functional-harmony path before selecting chord candidates. Blues, modal sections, and explicit progressions keep their own context. |
+| Melody and counterline | Searches the melody at the selected harmony's structural positions; if the optional counterline is enabled, the lead and counterline are evaluated together. It does not jointly optimize bass, every inner chord voice, lead, and counterline end to end. |
+| Rule diagnostics | Sweeps strong beats, chord changes, and note onset/release ticks to report chord-tone context, held-note conflicts, crossings, and parallel motion under a selected style profile. |
+| Playback and saving | Reuses the existing `GeneratedComposition`, shared tracks, PPQ 480/integer-tick timing, playback, MIDI, and JSON paths. |
+
+With the same settings and seed, the rule-based search is reproducible. That is
+not evidence that its music is better. V2 is not a trained model, and no
+listening study has yet shown a musical-quality improvement over v1. The current
+evaluator accepts at most two monophonic parts: it separately checks lead vs
+bass and lead vs optional counterline, but does not expand a polyphonic chord
+track into its individual voices for evaluation. Although diagnostics can
+recognize a properly prepared suspension, the generator does not yet produce
+one. Strict species-counterpoint prohibitions are not universal jazz rules.
+
+### From open textbooks to testable rules
+
+The implementation does not copy textbook prose, notation examples, or audio.
+It assigns each principle a style/context and rule ID, then tests both a valid
+case and a counterexample—for example, first-species structural consonance,
+second-species passing motion, third-species neighboring motion, and the
+preparation/resolution context for a fourth-species suspension. Jazz guide-tone
+and blues cases use their own profile instead of inheriting strict tonal bans.
+The bilingual [source register](docs/research/harmony-counterpoint-sources.en.md)
+and [engine design](docs/research/harmony-counterpoint-engine.en.md) list the
+chapters, licenses, rule IDs, staged adoption order, and test approach.
+
+Primary open textbooks:
+
+- Mark Gotham et al., [Open Music Theory, 2nd edition](https://viva.pressbooks.pub/openmusictheory/): [first](https://viva.pressbooks.pub/openmusictheory/chapter/first-species-counterpoint/), [second](https://viva.pressbooks.pub/openmusictheory/chapter/second-species-counterpoint/), [third](https://viva.pressbooks.pub/openmusictheory/chapter/third-species-counterpoint/), and [fourth species](https://viva.pressbooks.pub/openmusictheory/chapter/fourth-species-counterpoint/), plus [harmony and cadence](https://viva.pressbooks.pub/openmusictheory/chapter/intro-to-harmony/) and [jazz voicings](https://viva.pressbooks.pub/openmusictheory/chapter/jazz-voicings/). Its [introduction/license](https://viva.pressbooks.pub/openmusictheory/front-matter/introduction/) says **CC BY-SA 4.0** except where individual materials state otherwise; reuse requires checking attribution and share-alike terms.
+- Robert Hutchinson, [Music Theory for the 21st-Century Classroom](https://musictheory.pugetsound.edu/): [Voice Leading](https://musictheory.pugetsound.edu/mt21c/VoiceLeading.html), [Objectionable Parallels](https://musictheory.pugetsound.edu/mt21c/ObjectionableParallels.html), and [Jazz Chord Voicings](https://musictheory.pugetsound.edu/mt21c/JazzChordVoicings.html). Its [colophon](https://musictheory.pugetsound.edu/mt21c/colophon-1.html) states **GNU Free Documentation License 1.2 or later**, with no invariant sections or cover texts.
+
+This repository keeps links and its own summaries, rule IDs, and tests rather
+than bundling the textbook text, notation examples, or recordings. The app's
+MIT license does not replace the licenses on referenced books or separately
+credited materials.
 
 ## v0.5.0 position and scope
 

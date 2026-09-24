@@ -75,7 +75,8 @@ export type JazzStyleId = "swing" | "ballad" | "bebop" | "modern" | "neoSoul";
 
 /** User-facing controls for the offline jazz-theory generator. */
 export interface JazzSettings {
-  version: 1;
+  /** Version 1 preserves legacy jazz generation; version 2 selects theory-led generation. */
+  version: 1 | 2;
   style: JazzStyleId;
   form: "aaba" | "blues" | "modal" | "free";
   /** 0..1. Amount of chromatic colour and approach motion. */

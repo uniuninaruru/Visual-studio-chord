@@ -7,6 +7,15 @@ Notable changes are recorded here. Dates use `Asia/Tokyo`. The
 
 ## Unreleased
 
+### Major update — Harmony and counterpoint engine v2 (unreleased)
+
+- New jazz projects now default to `jazz.version: 2`. Saved v1 projects are not migrated automatically and keep their v1 generation path. After explicitly switching to v2 in Settings, select Generate to use it for the next composition. This does not bump the overall project JSON schema.
+- Plan a functional-harmony chord path from phrase and cadence goals, then search melody at the selected harmony's structural positions. When enabled, the optional counterline is evaluated jointly with the lead. This is not end-to-end joint optimization of bass, every inner chord voice, lead, and counterline.
+- Use a tick sweep that includes strong beats, chord changes, and note onsets/releases to diagnose chord-tone context, held-note resolution, two-line crossing, and parallel motion under style-specific profiles. Strict species-counterpoint prohibitions are not universal jazz bans.
+- The seeded rule-based path is reproducible with the same settings and seed; it is not a trained model and requires no GPU. It reuses the existing `GeneratedComposition`, PPQ 480/integer ticks, shared tracks, playback, MIDI, and JSON paths.
+- The current evaluator accepts at most two monophonic parts. It checks bass vs lead and lead vs optional counterline separately; it does not split a polyphonic chord track into individual voices for evaluation. Diagnostics can recognize preparation/resolution for a suspension, but the generator does not yet produce suspensions. Listening evidence that v2 is musically better than v1 is also not available yet.
+- The repository does not copy textbook prose, notation examples, or recordings. Principles are translated in stages into original summaries, rule IDs, positive/negative tests, and style-specific scope. The [English textbook register](docs/research/harmony-counterpoint-sources.en.md) / [Japanese version](docs/research/harmony-counterpoint-sources.ja.md) record chapters and licenses; the [English engine design](docs/research/harmony-counterpoint-engine.en.md) / [Japanese version](docs/research/harmony-counterpoint-engine.ja.md) describe the architecture.
+
 ### Fixed — Feedback for repeated actions
 
 - Restart the 2.8-second toast lifetime on every notification, including identical messages, and clear its timer on unmount. Repeated generation no longer loses fresh completion feedback when the first notification's timer expires.

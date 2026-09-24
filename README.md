@@ -72,6 +72,22 @@
 Bluesでは12 / 24 / 48小節を使います。設定を変更しても、生成を押すまで現在の曲は
 変わりません。以前のJSONは旧設定のまま読み込み、勝手にジャズへ変換しません。
 
+新しいジャズプロジェクトは、和声法と対位法の明示的なルールを使う**理論ベース v2**で
+生成します。既存の保存済みプロジェクトがv1なら、そのままv1で開きます。画面の
+「理論ベース v2」への切り替えを選んだ後、Generateを押したときに初めて次の生成へ
+反映されます。設定を切り替えただけで、今ある音符やコードが書き換わることはありません。
+
+ざっくり言うと、まず曲の区切りと終わり方を考え、それに合うコードの流れを決めます。
+コードが「落ち着く・先へ進む・解決する」のどの役割を担うかを見て、旋律を作ります。
+対旋律を有効にした場合は、旋律と対旋律の組み合わせを同時に探します。音符は秒ではなく、
+小節・拍上の整数の位置（tick）で調べ、音域、コードとの関係、2声の交差や平行を診断します。
+これは演奏データから学習したAIではなく、固定seedから同じ結果を再現できるブラウザ内の
+規則ベース処理です。GPUや推論サーバーは必要ありません。
+
+教科書の規則は様式ごとに適用します。たとえば厳格な種対位法の平行5度の禁止を、
+意図的なジャズのボイシングへ一律に押しつけるものではありません。詳しい限界は、
+後半の技術者向け「理論ベース v2」節を参照してください。
+
 ブラウザだけで使え、モデルの取得やGPU設定は不要です。生成する基本編成はメロディ、
 コード／右手、ベース／左手です。今回はドラム演奏の自動生成を追加していません。
 
@@ -437,6 +453,43 @@ APIを使えるため、手元の信頼できるネットワーク専用です�
 読み込みと分離します。設定契約、一次資料の採用範囲、学習済みモデルではないこと、
 検証と聴感評価の違いは[日本語設計書](docs/research/jazz-first-engine.ja.md)と
 [English design](docs/research/jazz-first-engine.en.md)に記録しています。
+
+## 未リリース大規模更新: 和声法・対位法エンジン v2
+
+新しく始めたジャズプロジェクトでは、版付き`jazz.version: 2`を選びます。保存済みの
+v1プロジェクトは自動移行せず、v1の再生成経路も残します。v1からv2へ移す場合は、設定
+画面の明示的な切り替え後に生成してください。アプリ全体の保存スキーマを上げた変更では
+ありません。
+
+| 段階 | v2で行うこと |
+| --- | --- |
+| フレーズと和声 | 曲のセクション・終止目標を見て、機能和声とコード候補の経路を計画します。ブルース、モーダル、明示進行はそれぞれの文脈を保ちます。 |
+| 旋律と対旋律 | 先に決まった和声の構造位置ごとに旋律を探索し、対旋律を有効にした場合は主旋律と対旋律を一緒に候補評価します。ベースや全コード内声を含む全パートの完全な同時最適化ではありません。 |
+| 規則診断 | 強拍・コード変更・音符の開始／終了tickを走査し、コードトーン、保持音、2声の交差・平行などを様式プロファイルに沿って報告します。 |
+| 再生・保存 | 生成結果は既存の`GeneratedComposition`、共有トラック、PPQ 480・整数tick契約を使い、既存の表示・再生・MIDI・JSON経路へ渡します。 |
+
+決定性は同じ設定とseedで同じ候補を作るための性質であり、音楽的な良さの証明では
+ありません。v2は学習済みモデルではなく、実聴比較でv1より良くなったと示す結果もまだ
+ありません。現時点では、評価器が扱うのは最大2本の単旋律声部です。エンジンは主旋律と
+ベース、必要なら主旋律と対旋律を別々に診断しますが、複数音が同時に鳴るコードトラックを
+各内声に分解して評価していません。また、掛留の診断規則はありますが、掛留を生成する
+機能はまだありません。種対位法の禁止規則をジャズ全体の禁止事項として扱わないでください。
+
+### 参照教科書からテスト規則へ
+
+実装は教科書の例文・譜例をコピーせず、規則の適用様式を区別し、肯定例と反例のテストへ
+写しています。たとえば第1種の構造点での協和と声部独立、第2種の経過音、第3種の隣接音、
+第4種の準備された掛留は、それぞれ別の規則IDと文脈で扱います。ジャズのガイドトーンや
+ブルースの和声は、同じ厳格ルールへ押し込まず別のプロファイルで確認します。資料の章、
+ライセンス、採用する規則ID、実装順、独立したテスト方針は[教科書資料台帳](docs/research/harmony-counterpoint-sources.ja.md)と
+[エンジン設計書](docs/research/harmony-counterpoint-engine.ja.md)に記録しています。
+
+主な公開資料:
+
+- Mark Gothamほか著 [Open Music Theory, 2nd edition](https://viva.pressbooks.pub/openmusictheory/) — [第1種](https://viva.pressbooks.pub/openmusictheory/chapter/first-species-counterpoint/)、[第2種](https://viva.pressbooks.pub/openmusictheory/chapter/second-species-counterpoint/)、[第3種](https://viva.pressbooks.pub/openmusictheory/chapter/third-species-counterpoint/)、[第4種](https://viva.pressbooks.pub/openmusictheory/chapter/fourth-species-counterpoint/)、[和声と終止](https://viva.pressbooks.pub/openmusictheory/chapter/intro-to-harmony/)、[ジャズ・ボイシング](https://viva.pressbooks.pub/openmusictheory/chapter/jazz-voicings/)。序文の表示では、個別に別記された素材を除き **CC BY-SA 4.0** です。本文・譜例等を再利用する場合は表示と同ライセンス条件を確認します。
+- Robert Hutchinson著 [Music Theory for the 21st-Century Classroom](https://musictheory.pugetsound.edu/) — [Voice Leading](https://musictheory.pugetsound.edu/mt21c/VoiceLeading.html)、[Objectionable Parallels](https://musictheory.pugetsound.edu/mt21c/ObjectionableParallels.html)、[Jazz Chord Voicings](https://musictheory.pugetsound.edu/mt21c/JazzChordVoicings.html)。[Colophon](https://musictheory.pugetsound.edu/mt21c/colophon-1.html)は、不変部分・表紙文なしの **GNU Free Documentation License 1.2以降** を示します。
+
+このリポジトリは教科書本文・譜例・音源を同梱せず、リンクと独自の要約・規則ID・テストを管理します。ソフトウェアのMITライセンスは、参照書籍や各章の個別素材に適用されるライセンスを置き換えません。
 
 ## v0.5.0の位置づけ
 
@@ -1315,7 +1368,7 @@ v0.4で直接参照した主要資料:
 TISによるセクション緊張カーブ再順位付けの一次資料、定数、8候補の流れ、
 offline/browser実装と非主張事項は[研究ノート](docs/research/tonal-tension-reranking.ja.md)にまとめています。
 
-- [Open Music Theory: Species Counterpoint](https://viva.pressbooks.pub/openmusictheorycopy/chapter/species-counterpoint/) — 旋律の音域、頂点、大跳躍後の反対方向への順次進行、協和・不協和の扱い
+- [Open Music Theory: First Species Counterpoint](https://viva.pressbooks.pub/openmusictheory/chapter/first-species-counterpoint/) — 旋律の音域、声部独立、平行完全音程、協和・不協和の扱い
 - [Open Music Theory: Jazz Voicings](https://viva.pressbooks.pub/openmusictheory/chapter/jazz-voicings/) — 低音域ほど広く、上声ほど密にする配置、ガイドトーンと滑らかな声部進行
 - [SoundQuest: ジャズのボイシングとボイスリーディング](https://soundquest.jp/quest/chord/chord-mv6/ttj-voicing-and-voice-leading/) — 左手ベース／右手コードのピアノ配置
 - [SoundQuest: セカンダリードミナント](https://soundquest.jp/quest/chord/chord-mv2/secondary-dominant/3/) — 解決先へ向かう五度進行

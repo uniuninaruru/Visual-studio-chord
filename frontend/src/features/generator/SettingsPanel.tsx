@@ -182,6 +182,33 @@ export function SettingsPanel({
 
         {jazzEnabled ? (
           <>
+            <div className="field jazz-engine-status" role="status" aria-live="polite">
+              <span className="field-label">生成エンジン / Generation engine</span>
+              <strong>
+                {jazzSettings.version === 2
+                  ? "理論ベース v2 / Theory-led v2"
+                  : "従来のジャズ方式 v1 / Legacy jazz v1"}
+              </strong>
+              <span className="field-hint">
+                {jazzSettings.version === 2
+                  ? "和声法・声部進行・対位法の明示的なルールを使う新しい生成方式です。保存済みプロジェクトの音符は、この設定だけでは変更されません。 / New generation guided by explicit harmony, voice-leading, and counterpoint rules. Existing project notes are not changed by this setting alone."
+                  : "v1は過去のジャズ生成方式です。保存済みプロジェクトの再現に使います。 / v1 is the earlier jazz-generation mode, retained for saved-project compatibility."}
+              </span>
+              {jazzSettings.version === 1 && (
+                <>
+                  <button
+                    className="text-button jazz-engine-switch"
+                    type="button"
+                    onClick={() => onPatch({ jazz: { ...jazzSettings, version: 2 } })}
+                  >
+                    次回の生成から理論ベース v2 を使う / Use theory-led v2 for future generations
+                  </button>
+                  <span className="field-hint">
+                    切り替えだけでは保存済みの音符を書き換えません。変更を曲に反映するには「Generate」を実行してください。 / This switch does not rewrite saved notes. Select Generate to apply it to the composition.
+                  </span>
+                </>
+              )}
+            </div>
             <label className="field">
               <span>ジャズスタイル / Jazz style</span>
               <select
