@@ -5,6 +5,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version: 0.5.0](https://img.shields.io/badge/version-0.5.0-6f42c1.svg)](CHANGELOG.en.md)
 
+> **Development branch: Jazz-first engine (unreleased major update).** New
+> projects move to Swing / Ballad / Bebop / Modern / Neo Soul with shared
+> harmonic planning across chords, melody, and bass. Default generation and
+> ranking no longer require POP909. This is not a trained jazz model.
+> [Architecture and primary references](docs/research/jazz-first-engine.en.md).
+> The hosted link below serves the deployed version, which may not include this branch.
+
 ## 🎹 Nothing to install. Just open it
 
 ### → **[https://uniuninaruru.github.io/Visual-studio-chord/](https://uniuninaruru.github.io/Visual-studio-chord/)**
@@ -49,6 +56,35 @@ The shortest useful workflow is:
 3. select **Play**;
 4. select only the bars you want to change and regenerate chords or melody;
 5. export MIDI for a DAW.
+
+### Make your first jazz sketch
+
+New projects start in jazz mode. Try **Swing**, Generate, then Play. Choose
+**Ballad** for more space, **Bebop** for busier melodic movement, **Modern** for
+modal space, or **Neo Soul** for syncopation and extended harmony.
+
+Form controls the structure: **AABA** returns to related material around a
+contrasting section; **Blues** uses twelve-bar cycles; **Modal** centers on
+modes; **Free** uses an open phrase plan. Blues uses 12 / 24 / 48 bars. Settings
+changes do not modify the current song until generation. Older JSON projects
+keep their legacy settings instead of silently changing style.
+
+No model download or GPU setup is needed. The basic instrumentation is melody,
+chords/right hand, and bass/left hand. Drum-performance generation is not part
+of this update.
+
+Independent intro/verse/bridge parts use the Jazz profile from generation
+settings and support 8 / 16 / 24 / 32 bars. An arbitrary assembled sequence uses
+Free form. Legacy per-part Pop/Rock style controls are disabled on this path;
+a dedicated per-part Jazz style selector is not yet available.
+After changing the engine or Jazz profile, regenerate the parts you intend to
+use before assembling. Incompatible source material is not silently mixed.
+
+Advanced keeps melody range, density, rest rate, and velocity editable. Legacy
+borrowed-chord and Phase A–D controls are not silently layered onto the new
+engine: unsupported controls explain why they are unavailable. Select the
+explicit **Legacy generation** switch to use them; an explicit switch back to
+the jazz engine is also available.
 
 You can also import a melody MIDI and have chords written to fit it, and the
 three lines in the top left open a usage guide, the release notes, the licences,
@@ -99,31 +135,35 @@ song only when the plan is ready.
 6. The finished song is not overwritten until **Assemble into one song** (`1曲にまとめる`). A dirty part used in the sequence blocks assembly. A failure keeps the current song, and a successful assembly can still be undone.
 7. After assembly, click a section on the composition ruler to select its full range and set the loop. Playback, every track in MIDI, and JSON use the assembled result. On a phone, the visible part label stays readable while the lane scrolls horizontally.
 
-For a same-Key / Scale `Auto` join, only theory-valid candidates are compared
-using local two-step POP909 conditional evidence, the existing optimized
-four-part voice leading, and the current style prior. No one score decides the
-result: a seeded choice is made from the Pareto frontier. If corpus evidence is
-unavailable, the corpus view is removed for every candidate and selection
-continues safely, with the reason retained in the explanation. Forced `Direct`,
+For a same-Key / Scale `Auto` join, theory-valid candidates are compared using
+the existing optimized four-part voice leading and style prior, without
+implicit POP909 probabilities. No one score decides the result: a seeded
+choice is made from the Pareto frontier and its reason is retained. Forced `Direct`,
 `Dominant`, and `Pivot` keep their existing meanings. See
 [`docs/research/section-transition-ranking.en.md`](docs/research/section-transition-ranking.en.md)
-for the calculation and limits.
+for the older corpus-capable calculation and its limits.
 
-### Find the next chord statistically
+### Find the next chord using theory
 
-The **統計** tab in Workspace Tools analyzes the whole song or the selected bar range against the local POP909 statistics. **定番** (familiar) favors frequent candidates, **バランス** (balanced) aims between familiarity and novelty, and **意外** (adventurous) favors unusual candidates that were still observed. It separates **raw observed frequency** — how often this chord actually followed this context — from **interpolated probability**, which combines that evidence with shorter-context and global tendencies. Neither is a quality score. Counts are occurrences (including repetitions), not unique songs; ranking uses root+quality only, while voicing, tensions, and inversion remain theory/arrangement decisions.
+The chord-advisor panel in Workspace Tools defaults to **theory mode**. An
+empirical jazz corpus has not been integrated, so it presents theory-based
+candidates and reasons rather than inventing frequencies, probabilities, or
+surprisal. It does not promise a measure of musical quality.
 
 **試聴** (audition) never edits the song. Applying is enabled only for one explicitly selected chord, preserves its exact start and duration, and names the target bar. With no selected chord the whole song can still be analyzed and song-end candidates auditioned, but nothing can be applied. Locked bars are refused. Every successful apply remains undoable.
 
-The source is a compact browser 3-gram snapshot derived from the tracked local POP909 model (909 songs, 1,131 tonal sequences, 93,904 tokens). The app does not connect to Hooktheory or copy its statistics/data. Formulas and limitations are documented in [`docs/research/statistical-chord-advisor.en.md`](docs/research/statistical-chord-advisor.en.md).
+The previous POP909 3-gram snapshot and reproduction tooling remain legacy
+research artifacts, not implicit application dependencies. The app does not
+fetch Hooktheory statistics. See the [older statistical design](docs/research/statistical-chord-advisor.en.md)
+and the [current jazz-engine boundary](docs/research/jazz-first-engine.en.md).
 
-For technical readers, a separate external evaluation uses McGill Billboard
+For technical readers, an evaluation of the older 3-gram uses McGill Billboard
 annotations. The 3-gram improves prediction and overall Top-k on that corpus,
 but the section-boundary subset does not improve uniformly. This does not
 guarantee better music, listening quality, or a better complete UI candidate
 advisor. Normal composition does not fetch the external data; see the
 [external evaluation report](docs/research/mcgill-billboard-external-evaluation.en.md)
-for scope and reproduction.
+for scope and reproduction. It does not evaluate the new jazz engine.
 
 ## 2. Choose one launch method
 
@@ -326,8 +366,8 @@ network.
 - Cancel, timeout, checkpoint rejection, or inference failure does not publish
   a partial candidate.
 - Songs stay in the browser; see section 8 for exactly what is sent and when.
-- A missing neural model falls back to the empirical corpus, browser ranking,
-  and deterministic theory workflow.
+- A missing neural model leaves browser ranking and deterministic jazz/theory
+  generation available. It does not silently select the legacy POP909 corpus.
 
 ## 8. What is stored where, and what is sent
 
@@ -433,6 +473,17 @@ The rest of this document is implementation and operations documentation.
 
 # Part 2: Technical reference
 
+## Next major update: Jazz-first engine
+
+The optional `GeneratorSettings.jazz` block distinguishes the new path from
+legacy-project generation. Harmonic destinations, melodic resolution,
+next-chord-aware bass, and responsive accompaniment share integer ticks and
+the same track definition. Implicit POP909 use is removed while explicit
+legacy research paths remain separate. The [English design note](docs/research/jazz-first-engine.en.md)
+and [Japanese version](docs/research/jazz-first-engine.ja.md) document the
+contract, references, untrained status, and the distinction between mechanical
+validation and listening quality.
+
 ## v0.5.0 position and scope
 
 v0.5.0 lets a user design generated parts independently, choose their order,
@@ -454,9 +505,9 @@ a 104,567,874-parameter masked Transformer, asynchronous API v2 jobs,
 cancellation, strict checkpoint validation, and CUDA / Apple Metal (MPS) / CPU
 adapters.
 
-It does **not** include a trained HarmonyForge checkpoint. The normal product
-continues to use the deterministic theory engine and an empirical chord
-language model built from aggregate POP909 annotations. The optional mock is an
+It does **not** include a trained HarmonyForge checkpoint. Its empirical corpus
+path is now an explicitly selected legacy research feature; new default
+generation uses the in-browser jazz theory engine. The optional mock is an
 integration fixture and is visibly labeled `MOCK`, untrained, and unevaluated.
 
 ### Neural development is paused
@@ -757,15 +808,21 @@ flowchart LR
     DEVICE -->|other or accelerator failure| CPU["CPU"]
     CUDA -->|OOM or inference failure| CPU
     MPS -->|OOM or inference failure| CPU
-    CPU -->|unavailable or failed| CORPUS["Empirical corpus"]
-    CORPUS --> BROWSER["Browser ranker"]
-    BROWSER --> THEORY["Deterministic theory"]
+    CPU -->|unavailable or failed| NOTICE["Preview error; current song unchanged"]
+    NOTICE --> THEORY["Browser jazz theory remains available"]
     THEORY --> SAFE["Existing song remains safe"]
 ```
 
 The diagram is platform selection, not an attempt to execute CUDA and MPS on
 one host. Silent MPS operation fallback is not reported as Metal execution;
 the adapter records an explicit CPU fallback reason in the job and Diagnostics.
+
+Ranking is independent: an optional server ranker can fall back to browser
+ranking, then theory candidates. Ranker `auto` probes available accelerator
+ONNX/MLP adapters and otherwise uses the CPU linear ranker; it does not select
+POP909 merely because a corpus file exists. Legacy POP909 use requires explicit
+`MTC_INFERENCE_MODEL=corpus` (or explicit model selection). Neither accelerator
+availability nor an untrained adapter is a trained jazz model.
 
 For the full processing diagram, artifact gate, prior-work mapping, and primary
 sources, see the

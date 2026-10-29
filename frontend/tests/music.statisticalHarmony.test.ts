@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
-  HARMONY_STATISTICS_SNAPSHOT,
   MINIMAL_GENERATOR_SETTINGS,
   createLocalCorpusProvider,
+  getLocalCorpusProvider,
+  harmonicContrast,
   generateComposition,
   analyzeHarmonyStatistics,
   suggestNextChords,
 } from "../src/music";
+import { HARMONY_STATISTICS_SNAPSHOT } from "../src/generated/harmonyStatistics";
 import type { GeneratorSettings } from "../src/types/music";
 import type { SectionEvent } from "../src/types/music";
 
@@ -19,7 +21,36 @@ function settings(patch: Partial<GeneratorSettings> = {}): GeneratorSettings {
 }
 
 describe("offline statistical harmony advisor", () => {
-  it("ships the fixed, source-addressed browser artifact", () => {
+  it("has no implicit corpus provider and still returns theory suggestions", () => {
+    expect(getLocalCorpusProvider()).toBeNull();
+    const composition = generateComposition(settings({ bars: 4, seed: "theory-only-default" }));
+    const suggestions = suggestNextChords(composition);
+    expect(suggestions.length).toBeGreaterThan(0);
+    expect(suggestions.every((entry) => entry.probability === null)).toBe(true);
+    expect(suggestions.every((entry) => entry.provenance === null)).toBe(true);
+    expect(suggestions.every((entry) => entry.source.includes("内蔵音楽理論"))).toBe(true);
+    const insights = analyzeHarmonyStatistics(composition);
+    expect(insights.empiricalStatisticsAvailable).toBe(false);
+    expect(insights.provenance).toBeNull();
+    expect(insights.geometricMeanConditionalProbability).toBeNull();
+    expect(insights.source).toContain("実曲コーパス未読込");
+  });
+
+  it("keeps authored harmonic contrast bounded and direction-invariant", () => {
+    const composition = generateComposition(settings({ bars: 4, seed: "contrast-symmetry" }));
+    const [first, second] = composition.chords;
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+    const b = { ...first!, root: "B" as const };
+    const c = { ...second!, root: "C" as const, quality: b.quality };
+    const forward = harmonicContrast(b, c);
+    const reverse = harmonicContrast(c, b);
+    expect(forward).toBeGreaterThanOrEqual(0);
+    expect(forward).toBeLessThanOrEqual(1);
+    expect(reverse).toBe(forward);
+  });
+
+  it("keeps the retired POP909 artifact available only to explicit research tests", () => {
     expect(HARMONY_STATISTICS_SNAPSHOT.provenance.pop909SongCount).toBe(909);
     expect(HARMONY_STATISTICS_SNAPSHOT.provenance.sequenceCount).toBe(1131);
     expect(HARMONY_STATISTICS_SNAPSHOT.provenance.tokenCount).toBe(93904);
@@ -30,7 +61,7 @@ describe("offline statistical harmony advisor", () => {
   });
 
   it("matches the backend's data-weighted interpolation fixture", () => {
-    const provider = createLocalCorpusProvider();
+    const provider = createLocalCorpusProvider(HARMONY_STATISTICS_SNAPSHOT);
     const first = provider.probability(["0:major", "9:minor"]);
     const second = provider.probability(["0:major", "9:minor", "5:major"]);
     const third = provider.probability(["9:minor", "5:major", "7:major"]);
@@ -49,7 +80,7 @@ describe("offline statistical harmony advisor", () => {
 
   it("rejects malformed snapshots and never returns non-finite values", () => {
     expect(() => createLocalCorpusProvider({})).toThrow();
-    const provider = createLocalCorpusProvider();
+    const provider = createLocalCorpusProvider(HARMONY_STATISTICS_SNAPSHOT);
     const empty = provider.probability([]);
     expect(empty.probability).toBe(1);
     expect(empty.rawConditionalProbability).toBe(0);
@@ -78,7 +109,11 @@ describe("offline statistical harmony advisor", () => {
       progressionId: "fifties",
       seed: "statistics-transition-fixture",
     }));
-    const result = analyzeHarmonyStatistics(composition);
+    const result = analyzeHarmonyStatistics(
+      composition,
+      null,
+      createLocalCorpusProvider(HARMONY_STATISTICS_SNAPSHOT),
+    );
     expect(result.transitionCount).toBe(3);
     expect(result.geometricMeanConditionalProbability).toBeCloseTo(0.275483, 5);
     expect(result.meanSurprisalBits).toBeGreaterThan(0);
@@ -87,17 +122,18 @@ describe("offline statistical harmony advisor", () => {
   it("keeps profile ordering deterministic and materializes mode-safe templates", () => {
     const composition = generateComposition(settings({ bars: 8, seed: "statistics-order" }));
     for (const profile of ["familiar", "balanced", "adventurous"] as const) {
-      const first = suggestNextChords(composition, { profile });
-      const second = suggestNextChords(composition, { profile });
+      const provider = createLocalCorpusProvider(HARMONY_STATISTICS_SNAPSHOT);
+      const first = suggestNextChords(composition, { profile, provider });
+      const second = suggestNextChords(composition, { profile, provider });
       expect(first.map((entry) => entry.step)).toEqual(second.map((entry) => entry.step));
       expect(first.every((entry) => Number.isFinite(entry.probability))).toBe(true);
       expect(first.every((entry) => entry.chord.notes.length > 0)).toBe(true);
-      expect(first.every((entry) => entry.unigramCount > 0)).toBe(true);
+      expect(first.every((entry) => (entry.unigramCount ?? 0) > 0)).toBe(true);
       expect(first.every((entry) => entry.step.tensions === undefined
         && entry.step.bassDegree === undefined
         && entry.step.role === undefined
         && entry.step.targetDegree === undefined)).toBe(true);
-      if (profile === "adventurous") expect(first.every((entry) => entry.exactGramCount > 0)).toBe(true);
+      if (profile === "adventurous") expect(first.every((entry) => (entry.exactGramCount ?? 0) > 0)).toBe(true);
     }
   });
 
@@ -112,11 +148,15 @@ describe("offline statistical harmony advisor", () => {
 
   it("analyses empty/one-chord-like material without NaN and exposes metrics", () => {
     const composition = generateComposition(settings({ bars: 4, seed: "statistics-metrics" }));
-    const result = analyzeHarmonyStatistics(composition, { startBar: 0, endBar: 1 });
+    const result = analyzeHarmonyStatistics(
+      composition,
+      { startBar: 0, endBar: 1 },
+      createLocalCorpusProvider(HARMONY_STATISTICS_SNAPSHOT),
+    );
     expect(Number.isFinite(result.geometricMeanConditionalProbability)).toBe(true);
     expect(Number.isFinite(result.meanSurprisalBits)).toBe(true);
     expect(result.complexChordFormula).toContain("extensions");
-    expect(result.source).toContain("POP909");
+    expect(result.source).toContain("legacy POP909");
   });
 
   it("resets statistical context at a key/mode boundary", () => {
@@ -146,11 +186,12 @@ describe("offline statistical harmony advisor", () => {
       },
     ];
     const modulated = { ...composition, sections };
-    const insights = analyzeHarmonyStatistics(modulated);
+    const provider = createLocalCorpusProvider(HARMONY_STATISTICS_SNAPSHOT);
+    const insights = analyzeHarmonyStatistics(modulated, null, provider);
     expect(insights.transitionCount).toBe(2);
     expect(insights.transitions.every((transition) => transition.fromIndex !== 1)).toBe(true);
     const target = modulated.chords[2]!;
-    const suggestions = suggestNextChords(modulated, { targetChord: target });
+    const suggestions = suggestNextChords(modulated, { targetChord: target, provider });
     expect(suggestions.length).toBeGreaterThan(0);
     expect(suggestions.every((suggestion) => suggestion.orderUsed === 1)).toBe(true);
     expect(suggestions.every((suggestion) => suggestion.reasons.some((reason) =>

@@ -19,7 +19,7 @@
     "api:types:check": "node scripts/generate-api-types.mjs --check",
     "stats:build": "node scripts/build-browser-harmony-statistics.mjs",
     "stats:check": "node scripts/build-browser-harmony-statistics.mjs --check",
-    "check": "node scripts/build-browser-harmony-statistics.mjs --check && node scripts/frontend-command.mjs typecheck lint test build"
+    "check": "node scripts/frontend-command.mjs typecheck lint test build"
   },
   "engines": {
     "node": ">=24.14.0 <25",

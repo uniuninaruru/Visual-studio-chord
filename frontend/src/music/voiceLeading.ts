@@ -456,20 +456,43 @@ function candidateAssignments(
     return notes;
   };
 
-  for (const bass of inRange("bass", bassClass)) {
-    for (const tenorClass of pitchClasses) {
-      for (const tenor of inRange("tenor", tenorClass)) {
+  const bassPitches = inRange("bass", bassClass);
+  // Counted loops keep this hot candidate walk compatible with WebKit's JIT;
+  // each loop retains the original generation order.
+  for (let bassIndex = 0; bassIndex < bassPitches.length; bassIndex += 1) {
+    const bass = bassPitches[bassIndex] as number;
+    for (let tenorClassIndex = 0; tenorClassIndex < pitchClasses.length; tenorClassIndex += 1) {
+      const tenorClass = pitchClasses[tenorClassIndex] as number;
+      const tenorPitches = inRange("tenor", tenorClass);
+      for (let tenorIndex = 0; tenorIndex < tenorPitches.length; tenorIndex += 1) {
+        const tenor = tenorPitches[tenorIndex] as number;
         if (tenor < bass) continue;
-        for (const altoClass of pitchClasses) {
-          for (const alto of inRange("alto", altoClass)) {
+        for (let altoClassIndex = 0; altoClassIndex < pitchClasses.length; altoClassIndex += 1) {
+          const altoClass = pitchClasses[altoClassIndex] as number;
+          const altoPitches = inRange("alto", altoClass);
+          for (let altoIndex = 0; altoIndex < altoPitches.length; altoIndex += 1) {
+            const alto = altoPitches[altoIndex] as number;
             if (alto < tenor) continue;
-            for (const sopranoClass of pitchClasses) {
-              for (const soprano of inRange("soprano", sopranoClass)) {
+            for (let sopranoClassIndex = 0; sopranoClassIndex < pitchClasses.length; sopranoClassIndex += 1) {
+              const sopranoClass = pitchClasses[sopranoClassIndex] as number;
+              const sopranoPitches = inRange("soprano", sopranoClass);
+              for (let sopranoIndex = 0; sopranoIndex < sopranoPitches.length; sopranoIndex += 1) {
+                const soprano = sopranoPitches[sopranoIndex] as number;
                 if (soprano < alto) continue;
                 // Every chord tone must sound somewhere, or it is a different
                 // chord than the one that was asked for.
-                const sounding = new Set([bassClass, tenorClass, altoClass, sopranoClass]);
-                if (!pitchClasses.every((pitchClass) => sounding.has(pitchClass))) continue;
+                let allChordTonesSound = true;
+                for (let requiredIndex = 0; requiredIndex < pitchClasses.length; requiredIndex += 1) {
+                  const requiredClass = pitchClasses[requiredIndex] as number;
+                  if (requiredClass !== bassClass
+                    && requiredClass !== tenorClass
+                    && requiredClass !== altoClass
+                    && requiredClass !== sopranoClass) {
+                    allChordTonesSound = false;
+                    break;
+                  }
+                }
+                if (!allChordTonesSound) continue;
                 assignments.push({ bass, tenor, alto, soprano });
               }
             }

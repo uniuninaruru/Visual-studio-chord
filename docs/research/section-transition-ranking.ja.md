@@ -1,5 +1,9 @@
 # セクション自動接続のハイブリッドPareto順位付け
 
+> Jazz-first更新後、標準の`Auto`接続はコーパス軸を使いません。以下のハイブリッド
+> 評価は明示的なcorpus providerを渡した場合に限ります。通常は同じPareto方式の
+> voice-leadingとstyle priorで選択します。[現在の設計](jazz-first-engine.ja.md)。
+
 状態：**実装済み設計**。対象は、同じKey / Scaleを結ぶ`Auto`接続で挿入する1コードの
 選択だけです。理論上不正な候補を統計で採用したり、強制`Direct` / `Dominant` /
 `Pivot`の意味を変更したりはしません。
