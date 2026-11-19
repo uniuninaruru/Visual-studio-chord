@@ -1,9 +1,5 @@
 name: Pages
 
-# Publishes the browser-only build. The app generates, edits, plays, and exports
-# entirely in the browser, so the published site needs no server: the backend is
-# only ever used for candidate re-ranking and neural inference, both of which are
-# skipped when it is absent.
 on:
   push:
     branches: [main]
@@ -14,19 +10,16 @@ permissions:
   pages: write
   id-token: write
 
-# Never cancel a running publish; let it finish and supersede it afterwards.
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11.9.0
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
@@ -34,24 +27,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build for the repository subpath
         env:
-          # Pages serves this under /<repo>/, and Vite bakes asset URLs in at
-          # build time, so the base cannot be decided later.
           VITE_BASE: /${{ github.event.repository.name }}/
-          # No backend exists here, so do not spend fourteen seconds looking for
-          # one and do not tell a visitor their local server is stopped.
-          VITE_PUBLIC_BUILD: "1"
-        run: pnpm --filter @visual-studio-chord/frontend build
-      - name: Serve the app for unknown paths
-        # Pages has no rewrite rules. Copying index.html to 404.html makes a
-        # deep link render the app instead of GitHub's error page.
-        run: cp frontend/dist/index.html frontend/dist/404.html
+        run: pnpm build
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: frontend/dist
+          path: apps/web/dist
 
   deploy:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

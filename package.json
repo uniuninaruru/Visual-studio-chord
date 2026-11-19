@@ -1,33 +1,31 @@
 {
   "name": "visual-studio-chord",
-  "version": "0.5.0",
+  "version": "2.0.0-dev",
   "private": true,
   "license": "MIT",
+  "type": "module",
   "packageManager": "pnpm@11.9.0",
-  "workspaces": [
-    "frontend"
-  ],
-  "scripts": {
-    "dev": "node scripts/frontend-command.mjs dev",
-    "build": "node scripts/frontend-command.mjs build",
-    "typecheck": "node scripts/frontend-command.mjs typecheck",
-    "lint": "node scripts/frontend-command.mjs lint",
-    "test": "node scripts/frontend-command.mjs test",
-    "test:e2e": "playwright test",
-    "test:e2e:lan": "playwright test --config=playwright.lan.config.ts",
-    "api:types": "node scripts/generate-api-types.mjs",
-    "api:types:check": "node scripts/generate-api-types.mjs --check",
-    "stats:build": "node scripts/build-browser-harmony-statistics.mjs",
-    "stats:check": "node scripts/build-browser-harmony-statistics.mjs --check",
-    "check": "node scripts/build-browser-harmony-statistics.mjs --check && node scripts/frontend-command.mjs typecheck lint test build"
-  },
   "engines": {
-    "node": ">=24.14.0 <25",
-    "npm": ">=11.9.0 <12"
+    "node": ">=24.14.0 <25"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @vsc/web dev",
+    "build": "pnpm --filter @vsc/web build",
+    "typecheck": "tsc -p packages/core && tsc -p packages/core/tsconfig.test.json && tsc -p apps/web && tsc -p tsconfig.node.json",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
   },
   "devDependencies": {
-    "@axe-core/playwright": "4.12.1",
+    "@eslint/js": "10.0.1",
     "@playwright/test": "1.61.1",
-    "openapi-typescript": "7.13.0"
+    "@types/node": "26.1.1",
+    "eslint": "10.7.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "eslint-plugin-react-refresh": "0.5.3",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.65.0",
+    "vitest": "4.1.10"
   }
 }

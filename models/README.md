@@ -9,7 +9,7 @@ The checked-in model was produced from the 909-song
 commit `d83e6edba6872a704f5d3b8b32f5cb540088dae6`:
 
 ```bash
-python3 scripts/train-harmony-corpus.py \
+python3 tools/corpus/train-harmony-corpus.py \
   --pop909 /path/to/POP909-Dataset \
   --output models/harmony-corpus-v1.json \
   --max-order 5

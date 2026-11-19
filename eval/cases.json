@@ -1,0 +1,18 @@
+{
+  "format": "vsc-cases/1",
+  "note": "Fixed listening set. Every change to the generator is judged on these twelve, blind, against the previous version.",
+  "cases": [
+    { "id": "01-pop-c-major",      "style": "pop",    "key": "C",  "mode": "major",        "bpm": 112, "bars": 16, "seed": "g01" },
+    { "id": "02-pop-a-minor",      "style": "pop",    "key": "A",  "mode": "naturalMinor", "bpm": 96,  "bars": 16, "seed": "g02" },
+    { "id": "03-pop-eb-major-32",  "style": "pop",    "key": "Eb", "mode": "major",        "bpm": 120, "bars": 32, "seed": "g03" },
+    { "id": "04-jpop-d-major",     "style": "j-pop",  "key": "D",  "mode": "major",        "bpm": 128, "bars": 16, "seed": "g04" },
+    { "id": "05-jpop-fs-minor",    "style": "j-pop",  "key": "F#", "mode": "naturalMinor", "bpm": 140, "bars": 16, "seed": "g05" },
+    { "id": "06-jpop-g-major-32",  "style": "j-pop",  "key": "G",  "mode": "major",        "bpm": 132, "bars": 32, "seed": "g06" },
+    { "id": "07-ballad-f-major",   "style": "ballad", "key": "F",  "mode": "major",        "bpm": 72,  "bars": 16, "seed": "g07" },
+    { "id": "08-ballad-e-minor",   "style": "ballad", "key": "E",  "mode": "naturalMinor", "bpm": 66,  "bars": 16, "seed": "g08" },
+    { "id": "09-ballad-bb-major-32","style": "ballad","key": "Bb", "mode": "major",        "bpm": 76,  "bars": 32, "seed": "g09" },
+    { "id": "10-jazz-f-major",     "style": "jazz",   "key": "F",  "mode": "major",        "bpm": 132, "bars": 16, "seed": "g10" },
+    { "id": "11-jazz-c-minor",     "style": "jazz",   "key": "C",  "mode": "naturalMinor", "bpm": 116, "bars": 16, "seed": "g11" },
+    { "id": "12-jazz-bb-major-32", "style": "jazz",   "key": "Bb", "mode": "major",        "bpm": 150, "bars": 32, "seed": "g12" }
+  ]
+}

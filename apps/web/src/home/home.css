@@ -1,0 +1,12 @@
+.home {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 4rem 16px;
+}
+
+.home h1 {
+  font-size: 1.75rem;
+  line-height: 1.25;
+  margin: 0 0 1rem;
+  text-wrap: balance;
+}

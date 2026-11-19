@@ -2,9 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "frontend",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "frontend"],
+      "name": "web",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["-y", "pnpm@11.9.0", "--filter", "@vsc/web", "dev"],
       "port": 5173
     }
   ]

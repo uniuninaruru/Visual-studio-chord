@@ -1,180 +1,51 @@
 name: CI
 
+# Pull requests and main only. Runners and tool versions are pinned so a
+# runner image update cannot turn main red without a code change (v1's main
+# stayed red for three weeks when ubuntu-latest dropped its pinned Python).
 on:
-  # Every branch, not just main. A branch that is worked on for days before it
-  # opens a pull request was running no checks at all: five commits sat on
-  # feat/melody-aware-voicing with a broken end-to-end test, and the first run
-  # that could have caught it was the pull request three days later.
-  push:
-    branches: ["**"]
   pull_request:
+  push:
+    branches: [main]
 
-# Repeated pushes to the same branch supersede each other. Keyed per event, so
-# a push and a pull request for one branch do not fight -- the push is skipped
-# by the gate below instead, which leaves no cancelled run behind.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
-  # Except on main, where each commit's result is worth having on its own.
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
 
 jobs:
-  # Whether this run has anything to add.
-  #
-  # Pushing to a branch that has an open pull request fires both events, and the
-  # pull request already runs everything. Cancelling the duplicate looked like
-  # the fix and was not: a cancelled run still reports twelve cancelled checks
-  # against the commit, which `gh pr checks` counts as failures and which reads
-  # as a red pull request that is actually green. So the redundant run is not
-  # started rather than stopped.
-  gate:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      run: ${{ steps.decide.outputs.run }}
-    steps:
-      - id: decide
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ "${{ github.event_name }}" != "push" ] || [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          open=$(gh pr list --repo "${{ github.repository }}" \
-            --head "${{ github.ref_name }}" --state open --json number --jq 'length')
-          if [ "$open" = "0" ]; then
-            echo "no open pull request for this branch; running the full suite"
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "pull request open for this branch; it runs the suite instead"
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
-
-  launchers:
-    needs: gate
-    if: needs.gate.outputs.run == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .node-version
-      - uses: actions/setup-python@v5
-        with:
-          python-version-file: .python-version
-      - name: Run portable setup
-        if: runner.os != 'Windows'
-        env:
-          MTC_PACKAGE_MANAGER: npm
-          MTC_ACCELERATION: none
-        run: ./scripts/setup.sh
-      - name: Run portable Windows setup
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          MTC_PACKAGE_MANAGER: npm
-          MTC_ACCELERATION: none
-        run: .\scripts\setup.ps1
-      - name: Enforce private training artifact boundary
-        run: python scripts/check-private-artifacts.py
-      - name: Validate POSIX launchers
-        if: runner.os != 'Windows'
-        run: |
-          bash -n scripts/*.sh
-          python3 scripts/check-environment.py --skip-backend
-          python3 scripts/verify_acceleration.py --json
-          # The launcher checks above are stdlib-only and belong on the plain
-          # interpreter. The scripts' own tests are not: several drive the
-          # compiler and the training entrypoints, so they need the backend
-          # dependencies that the setup step just installed. scripts/test.sh
-          # already runs this discovery with the same interpreter.
-          .venv/bin/python -m unittest discover -s scripts/tests
-      - name: Validate Windows launchers
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          foreach ($file in Get-ChildItem scripts -Filter *.ps1) {
-            $tokens = $null
-            $parseErrors = $null
-            [System.Management.Automation.Language.Parser]::ParseFile(
-              $file.FullName,
-              [ref]$tokens,
-              [ref]$parseErrors
-            ) | Out-Null
-            if ($parseErrors.Count -gt 0) {
-              $parseErrors | Format-List | Out-String | Write-Error
-              exit 1
-            }
-          }
-          python scripts/check-environment.py --skip-backend
-          python scripts/verify_acceleration.py --json
-          # Same split as the POSIX step: stdlib-only launcher checks on the
-          # plain interpreter, the scripts' own tests on the environment that
-          # actually has the backend dependencies installed.
-          .\.venv\Scripts\python.exe -m unittest discover -s scripts/tests
-
-  frontend:
-    needs: gate
-    if: needs.gate.outputs.run == 'true'
-    runs-on: ubuntu-latest
+  check:
+    name: typecheck, lint, test, build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11.9.0
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Verify browser harmony statistics artifact
-        run: node scripts/build-browser-harmony-statistics.mjs --check
-      - run: pnpm --dir frontend typecheck
-      - run: pnpm --dir frontend lint
-      - run: pnpm --dir frontend test
-      - run: pnpm --dir frontend build
-      - run: node scripts/generate-api-types.mjs --check --skip-export
+      - run: pnpm check
 
-  npm-lock:
-    needs: gate
-    if: needs.gate.outputs.run == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .node-version
-          cache: npm
-      - run: npm ci --ignore-scripts --no-audit --no-fund
-
-  browser-e2e:
-    needs: gate
-    if: needs.gate.outputs.run == 'true'
+  e2e:
+    name: e2e (${{ matrix.browser }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             browser: chromium
-          - os: macos-latest
+          # WebKit crashes reached v1 users; Safari is tested on its own engine.
+          - os: macos-15
             browser: webkit
-          - os: windows-latest
-            browser: chromium
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11.9.0
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
@@ -185,140 +56,3 @@ jobs:
       - if: runner.os != 'Linux'
         run: pnpm exec playwright install ${{ matrix.browser }}
       - run: pnpm exec playwright test --project=${{ matrix.browser }}
-
-  lan-mobile-e2e:
-    if: needs.gate.outputs.run == 'true'
-    runs-on: ubuntu-latest
-    needs: [gate, frontend, backend]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.9.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-      - uses: actions/setup-python@v5
-        with:
-          python-version-file: .python-version
-          cache: pip
-      - run: pnpm install --frozen-lockfile
-      - run: python -m pip install pip==25.0.1 setuptools==83.0.0
-      - run: python -m pip install --requirement backend/requirements.runtime.lock
-      - run: python -m pip install --no-deps --no-build-isolation --editable backend
-      - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm exec playwright test --config=playwright.lan.config.ts
-
-  backend:
-    needs: gate
-    if: needs.gate.outputs.run == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version-file: .python-version
-          cache: pip
-      - run: python -m pip install pip==25.0.1 setuptools==83.0.0
-      - run: python -m pip install --requirement backend/requirements.lock
-      - run: python -m pip install --no-deps --no-build-isolation --editable backend
-      - name: Verify base dependency lane stays torch-free
-        run: |
-          python -c "from pathlib import Path; lines={line.split('==', 1)[0].lower() for line in Path('backend/requirements.lock').read_text().splitlines() if line and not line[0].isspace() and not line.startswith('#')}; forbidden=lines & {'torch', 'safetensors'}; assert not forbidden, f'base lock contains optional neural packages: {sorted(forbidden)}'"
-      - run: python scripts/export-openapi.py --check
-      - run: python -m pytest
-        working-directory: backend
-      - run: python -m ruff check app tests
-        working-directory: backend
-
-  backend-neural-cpu:
-    needs: gate
-    if: needs.gate.outputs.run == 'true'
-    name: Backend neural CPU
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version-file: .python-version
-          cache: pip
-          cache-dependency-path: |
-            backend/requirements.lock
-            backend/requirements-acceleration-cpu.lock
-      - run: python -m pip install pip==25.0.1 setuptools==83.0.0
-      - name: Install pinned test and neural CPU dependencies
-        run: >-
-          python -m pip install
-          --requirement backend/requirements.lock
-          --requirement backend/requirements-acceleration-cpu.lock
-      - run: python -m pip install --no-deps --no-build-isolation --editable backend
-      - name: Verify neural runtime and exact architecture
-        working-directory: backend
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          import safetensors
-          import torch
-
-          from app.ml.contracts import load_model_config
-          from app.ml.model import build_harmony_forge_model
-
-          assert torch.__version__.split("+", 1)[0] == "2.13.0"
-          assert safetensors.__version__ == "0.8.0"
-          config = load_model_config(
-              Path("../configs/models/harmonyforge-bimask-base-v1.yaml")
-          )
-          model = build_harmony_forge_model(config, torch_module=torch)
-          assert sum(parameter.numel() for parameter in model.parameters()) == 104_567_874
-          fields = (
-              "melody_midi",
-              "melody_role",
-              "metrical_slot",
-              "bar_index",
-              "key_root",
-              "mode",
-              "harmony_event",
-              "harmony_root",
-              "harmony_quality",
-              "harmony_inversion",
-              "harmony_bass",
-              "edit_mask",
-          )
-          batch = {
-              field: torch.zeros((1, 4), dtype=torch.long)
-              for field in fields
-          }
-          batch["harmony_extensions"] = torch.zeros((1, 4, 8), dtype=torch.float32)
-          batch["padding_mask"] = torch.zeros((1, 4), dtype=torch.bool)
-          with torch.inference_mode():
-              outputs = model(batch)
-          assert outputs["event"].shape == (1, 4, 3)
-          PY
-      - name: Run neural contract tests on CPU
-        working-directory: backend
-        run: >-
-          python -m pytest
-          tests/test_ml_tokenizer.py
-          tests/test_harmony_checkpoint.py
-          tests/test_harmony_api.py
-          tests/test_training_dataset.py
-          tests/test_training_torch_optional.py
-          tests/test_training_cli.py
-      - name: Smoke test installed HarmonyForge commands
-        run: |
-          harmonyforge-compile --help
-          harmonyforge-train --help
-          harmonyforge-evaluate --help
-
-  containers:
-    if: needs.gate.outputs.run == 'true'
-    runs-on: ubuntu-latest
-    needs: [gate, frontend, backend, backend-neural-cpu]
-    env:
-      MTC_SHARED_TOKEN: ci-only-token-00000000000000000000000000000000
-    steps:
-      - uses: actions/checkout@v4
-      - run: docker compose config
-      - run: docker compose build
