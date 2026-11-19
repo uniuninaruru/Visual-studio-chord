@@ -5,7 +5,15 @@ import {
   importCompositionJson,
   isGeneratorSettings,
 } from "../src/features/export";
-import { DEFAULT_GENERATOR_SETTINGS, generateComposition, validateGeneratorSettings } from "../src/music";
+import {
+  DEFAULT_GENERATOR_SETTINGS,
+  generateComposition,
+  regenerateRange,
+  validateComposition,
+  validateGeneratorSettings,
+} from "../src/music";
+import { generateJazzComposition, regenerateJazzRange } from "../src/music/jazzEngine";
+import { planTheoryHarmony } from "../src/music/theoryHarmony";
 import { useComposerStore } from "../src/state";
 import { EDITOR_STORAGE_KEY, loadEditorSnapshotWithStatus } from "../src/storage";
 import type { GeneratorSettings } from "../src/types/music";
@@ -18,6 +26,8 @@ const JAZZ = {
   interaction: 0.6,
 };
 
+const THEORY_JAZZ = { ...JAZZ, version: 2 as const };
+
 function withoutJazzField(field: keyof typeof JAZZ): Record<string, unknown> {
   const value: Record<string, unknown> = { ...JAZZ };
   delete value[field];
@@ -27,7 +37,7 @@ function withoutJazzField(field: keyof typeof JAZZ): Record<string, unknown> {
 const INVALID_JAZZ_CASES: readonly [string, unknown][] = [
   ["null", null],
   ["array", []],
-  ["unknown version", { ...JAZZ, version: 2 }],
+  ["unknown version", { ...JAZZ, version: 3 }],
   ["unknown style", { ...JAZZ, style: "smoothJazz" }],
   ["unknown form", { ...JAZZ, form: "verse" }],
   ["missing version", withoutJazzField("version")],
@@ -52,6 +62,32 @@ function legacyComposition() {
   });
 }
 
+function theoryBluesComposition(jazzVersion: 1 | 2) {
+  const jazz = { ...THEORY_JAZZ, version: jazzVersion, form: "blues" as const };
+  const settings: GeneratorSettings = {
+    ...DEFAULT_GENERATOR_SETTINGS,
+    style: "jazz",
+    bars: 12,
+    jazz,
+    seed: `blues-cadence-v${jazzVersion}`,
+  };
+  const base = generateComposition({
+    ...DEFAULT_GENERATOR_SETTINGS,
+    style: "pop",
+    bars: 12,
+    seed: `blues-cadence-base-v${jazzVersion}`,
+  });
+  const harmony = planTheoryHarmony({ settings, jazz, ppq: base.ppq });
+  return {
+    ...base,
+    settings,
+    chords: harmony.chords,
+    sections: harmony.sections,
+    cadence: harmony.cadence,
+    resolvedStyle: harmony.resolvedStyle,
+  };
+}
+
 describe("jazz settings contract", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -62,7 +98,7 @@ describe("jazz settings contract", () => {
     expect(DEFAULT_GENERATOR_SETTINGS.jazz).toBeUndefined();
     const fresh = useComposerStore.getState().settings;
     expect(fresh.style).toBe("jazz");
-    expect(fresh.jazz).toEqual(JAZZ);
+    expect(fresh.jazz).toEqual(THEORY_JAZZ);
   });
 
   it("keeps a restored legacy composition free of an implicit jazz field", () => {
@@ -105,9 +141,9 @@ describe("jazz settings contract", () => {
 
   it("merges profile changes without replacing the other jazz controls", () => {
     useComposerStore.getState().updateSettings({ jazz: { style: "bebop" } });
-    expect(useComposerStore.getState().settings.jazz).toEqual({ ...JAZZ, style: "bebop" });
+    expect(useComposerStore.getState().settings.jazz).toEqual({ ...THEORY_JAZZ, style: "bebop" });
     useComposerStore.getState().updateSettings({ jazz: { interaction: 0.2 } });
-    expect(useComposerStore.getState().settings.jazz).toEqual({ ...JAZZ, style: "bebop", interaction: 0.2 });
+    expect(useComposerStore.getState().settings.jazz).toEqual({ ...THEORY_JAZZ, style: "bebop", interaction: 0.2 });
   });
 
   it("accepts an exact 12-bar jazz project and rejects incompatible blues lengths", () => {
@@ -127,6 +163,88 @@ describe("jazz settings contract", () => {
     const validation = validateGeneratorSettings(invalid);
     expect(validation.valid).toBe(false);
     expect(validation.errors.some((issue) => issue.code === "settings.jazz.form")).toBe(true);
+  });
+
+  it.each([JAZZ, THEORY_JAZZ])("round-trips supported jazz schema version $version", (jazz) => {
+    const composition = generateComposition({
+      ...DEFAULT_GENERATOR_SETTINGS,
+      style: "jazz",
+      jazz,
+      bars: 12,
+      seed: `schema-v${jazz.version}-round-trip`,
+    });
+
+    const imported = importCompositionJson(exportCompositionJson(composition));
+    expect(imported.settings.jazz?.version).toBe(jazz.version);
+    expect(isGeneratorSettings(imported.settings)).toBe(true);
+  });
+
+  it("retains version 1 settings when an imported legacy jazz project is regenerated", () => {
+    const legacy = generateComposition({
+      ...DEFAULT_GENERATOR_SETTINGS,
+      style: "jazz",
+      jazz: JAZZ,
+      bars: 12,
+      seed: "legacy-jazz-regeneration",
+    });
+    const imported = importCompositionJson(exportCompositionJson(legacy));
+    const regenerationSettings = {
+      ...imported.settings,
+      seed: "legacy-jazz-regeneration-again",
+    };
+    const regenerated = generateComposition(regenerationSettings);
+    const directLegacyGeneration = generateJazzComposition(regenerationSettings, JAZZ);
+    const range = { startBar: 1, endBar: 2 };
+    const partialRegeneration = regenerateRange(imported, regenerationSettings, range);
+    const directLegacyRegeneration = regenerateJazzRange(imported, regenerationSettings, range);
+
+    expect(imported.settings.jazz?.version).toBe(1);
+    expect(regenerated.settings.jazz?.version).toBe(1);
+    expect(regenerated).toEqual(directLegacyGeneration);
+    expect(partialRegeneration).toEqual(directLegacyRegeneration);
+  });
+
+  it("accepts the theory v2 I7-to-V7 blues turnaround cadence label", () => {
+    const composition = theoryBluesComposition(2);
+    expect(composition.chords.slice(-2).map(({ degree, quality }) => [degree, quality]))
+      .toEqual([[1, "dominant7"], [5, "dominant7"]]);
+
+    const validation = validateComposition(composition);
+    expect(validation.warnings.map(({ code }) => code)).not.toContain("cadence.metadata");
+  });
+
+  it("still warns for an incorrect v2 blues turnaround and preserves v1 cadence semantics", () => {
+    const v2 = theoryBluesComposition(2);
+    const incorrectEnding = {
+      ...v2,
+      chords: v2.chords.map((chord, index) => index === v2.chords.length - 1
+        ? { ...chord, degree: 4 }
+        : chord),
+    };
+    expect(validateComposition(incorrectEnding).warnings.map(({ code }) => code))
+      .toContain("cadence.metadata");
+
+    const legacyV1 = theoryBluesComposition(1);
+    expect(validateComposition(legacyV1).warnings.map(({ code }) => code))
+      .toContain("cadence.metadata");
+  });
+
+  it.each([
+    ["key", { key: "invalid-key" as never }, "sections.key"],
+    ["mode", { mode: "invalid-mode" as never }, "sections.mode"],
+  ] as const)("returns a validation error for a malformed final section %s without throwing", (_field, patch, code) => {
+    const composition = theoryBluesComposition(2);
+    const finalSectionIndex = composition.sections.length - 1;
+    const malformed = {
+      ...composition,
+      sections: composition.sections.map((section, index) => index === finalSectionIndex
+        ? { ...section, ...patch }
+        : section),
+    };
+
+    expect(() => validateComposition(malformed)).not.toThrow();
+    expect(validateComposition(malformed).errors.map(({ code: issueCode }) => issueCode))
+      .toContain(code);
   });
 
   it("keeps section composer sources valid when the current project is 12-bar blues", () => {
@@ -168,7 +286,7 @@ describe("jazz settings contract", () => {
     const document = JSON.parse(exportCompositionJson(composition)) as {
       composition: { settings: Record<string, unknown> };
     };
-    document.composition.settings.jazz = { ...JAZZ, version: 2 };
+    document.composition.settings.jazz = { ...JAZZ, version: 3 };
     expect(() => importCompositionJson(JSON.stringify(document))).toThrow(CompositionImportError);
     document.composition.settings.jazz = { ...JAZZ, chromaticism: 1.1 };
     expect(() => importCompositionJson(JSON.stringify(document))).toThrow(CompositionImportError);

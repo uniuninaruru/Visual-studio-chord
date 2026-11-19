@@ -128,7 +128,7 @@ export function validateGeneratorSettings(
       issues.push(
         error(
           "settings.jazz",
-          "Jazz settings require version 1, a supported style/form, and chromaticism and interaction values between 0 and 1.",
+          "Jazz settings require supported version 1 or 2, a supported style/form, and chromaticism and interaction values between 0 and 1.",
         ),
       );
     } else if (
@@ -780,13 +780,52 @@ export function validateComposition(composition: GeneratedComposition): Validati
     composition.sections,
     Math.max(0, composition.settings.bars - 1),
   );
+  const finalChords = sortedChords.slice(-2);
+  const jazz = composition.settings.jazz;
+  const endingKey = finalSection?.key ?? composition.settings.key;
+  const endingMode = finalSection?.mode ?? composition.settings.mode;
+  let expectedBluesRootsMatch = false;
+  if (isSupportedMode(endingMode)) {
+    try {
+      const normalizedEndingKey = normalizePitchClass(endingKey);
+      expectedBluesRootsMatch = finalChords[0]?.root === getDiatonicChordDefinition(
+        normalizedEndingKey,
+        endingMode,
+        1,
+      ).root
+        && finalChords[1]?.root === getDiatonicChordDefinition(
+          normalizedEndingKey,
+          endingMode,
+          5,
+        ).root;
+    } catch {
+      // Invalid section/settings key is already reported above; cadence
+      // validation must still return its diagnostics instead of throwing.
+    }
+  }
+  const cadenceMode = isSupportedMode(endingMode)
+    ? endingMode
+    : isSupportedMode(composition.settings.mode)
+      ? composition.settings.mode
+      : "major";
+  const isTheoryBluesTurnaround = jazz?.version === 2
+    && jazz.form === "blues"
+    && composition.settings.progressionId === undefined
+    && composition.cadence === "loop"
+    && finalChords.length === 2
+    && finalChords[0]?.degree === 1
+    && finalChords[0]?.quality === "dominant7"
+    && finalChords[1]?.degree === 5
+    && finalChords[1]?.quality === "dominant7"
+    && expectedBluesRootsMatch;
   if (
     sortedChords.length >= 2 &&
+    !isTheoryBluesTurnaround &&
     !hasCadence(
-      sortedChords.slice(-2).map((chord) => chord.degree),
+      finalChords.map((chord) => chord.degree),
       composition.cadence,
-      finalSection?.mode ?? composition.settings.mode,
-      sortedChords.slice(-2).map((chord) => ({ degree: chord.degree, quality: chord.quality })),
+      cadenceMode,
+      finalChords.map((chord) => ({ degree: chord.degree, quality: chord.quality })),
     )
   ) {
     issues.push(

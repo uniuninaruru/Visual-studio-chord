@@ -295,13 +295,22 @@ export default function App() {
     // Only when asked for. One draw is the button as it always was, and passing
     // guidance for a single draw would run the model for nothing.
     const guided = guidance.candidates > 1;
-    store.generateComposition(undefined, guided
-      ? {
-        model: preferenceProfile.model,
-        category: preferenceCategory,
-        candidates: guidance.candidates,
-      }
-      : undefined);
+    try {
+      store.generateComposition(undefined, guided
+        ? {
+          model: preferenceProfile.model,
+          category: preferenceCategory,
+          candidates: guidance.candidates,
+        }
+        : undefined);
+    } catch {
+      // Generation builds before committing to the store. Keep the current
+      // composition and selection intact, and give the user a safe next step.
+      setToast(
+        "曲を生成できませんでした。現在の曲と選択内容は安全に保たれ、変更されていません。音域を広げるか設定を調整して、もう一度お試しください。",
+      );
+      return;
+    }
     setSelectedNoteIds([]);
     setSelectedChordId(null);
     setChordEditorOpen(false);

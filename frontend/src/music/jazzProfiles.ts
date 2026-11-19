@@ -16,7 +16,7 @@ export type JazzFormId = "aaba" | "blues" | "modal" | "free";
 export type JazzSettings = SharedJazzSettings;
 
 export const DEFAULT_JAZZ_SETTINGS: Readonly<JazzSettings> = Object.freeze({
-  version: 1,
+  version: 2,
   style: "swing",
   form: "aaba",
   chromaticism: 0.35,
@@ -82,7 +82,7 @@ export const JAZZ_PROFILES: Readonly<Record<JazzStyleId, JazzProfile>> = Object.
 export function isJazzSettings(value: unknown): value is JazzSettings {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const candidate = value as Partial<JazzSettings>;
-  return candidate.version === 1
+  return (candidate.version === 1 || candidate.version === 2)
     && typeof candidate.style === "string"
     && Object.prototype.hasOwnProperty.call(JAZZ_PROFILES, candidate.style)
     && typeof candidate.form === "string"
