@@ -45,6 +45,12 @@ pnpm check
 | `tools/corpus/` | そのモデルの学習スクリプト |
 | `docs/research/` | v1 時代の調査と出典台帳 |
 
+## 音源
+
+試聴比較のピアノは Salamander Grand Piano（Alexander Holm、CC BY 3.0）で、
+再生するときに tonejs.github.io から読み込みます。読み込めない場合は簡易シンセで鳴らします。
+比べる2つの版には常に同じ音源を使います。
+
 ## ライセンス
 
 MIT。MIT 以外のコードは直接コピーしません。外部の MIT コードを移植する場合は
